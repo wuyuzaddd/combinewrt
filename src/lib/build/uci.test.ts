@@ -32,7 +32,7 @@ describe("generateUciDefaults", () => {
     expect(file).toContain("uci set system.@system[0].hostname='router'");
     expect(file).toContain("uci set system.@system[0].timezone='<+08>-08'");
     expect(file).toContain("uci set network.lan.ipaddr='192.168.5.1'");
-    expect(file).toContain("echo 'root:$6$salt$hash' | chpasswd -e");
+    expect(file).toContain("sed -i 's|^root:[^:]*|root:$6$salt$hash|' /etc/shadow");
     expect(file).not.toContain("correct horse");
   });
 });

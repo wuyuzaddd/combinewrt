@@ -90,7 +90,7 @@ uci set network.lan.ipaddr=${shellQuote(form.lanIp)}
 uci set network.lan.netmask=${shellQuote(form.netmask)}
 uci commit network
 
-echo 'root:${rootHash}' | chpasswd -e
+sed -i 's|^root:[^:]*|root:${rootHash}|' /etc/shadow
 
 exit 0
 `;

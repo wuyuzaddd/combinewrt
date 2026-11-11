@@ -60,9 +60,9 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     "X-GitHub-Api-Version": "2022-11-28",
   };
 
-  const withTimeout = (init: RequestInit = {}): RequestInit => ({
+  const withTimeout = (init: RequestInit = {}, ms = 15_000): RequestInit => ({
     ...init,
-    signal: init.signal ?? AbortSignal.timeout(15_000),
+    signal: init.signal ?? AbortSignal.timeout(ms),
   });
 
   async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -166,7 +166,8 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
       const artifact = artifacts.artifacts.find((item) => item.name === artifactName);
       if (!artifact) throw new Error(`artifact ${artifactName} is no longer available`);
 
-      const response = await fetchImpl(artifact.archive_download_url, withTimeout({ headers }));
+      // The artifact body is streamed to the browser; a short header timeout would abort the transfer.
+      const response = await fetchImpl(artifact.archive_download_url, withTimeout({ headers }, 600_000));
       if (!response.ok) throw new Error(`artifact download failed: ${response.status}`);
       const size = Number(response.headers.get("content-length") ?? "0");
       if (size > 512 * 1024 * 1024) throw new Error("artifact is larger than the 512 MB proxy limit");
