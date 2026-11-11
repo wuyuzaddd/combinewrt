@@ -2,7 +2,7 @@
 
 自用 OpenWrt 固件在线构建站。公开页面只读，管理员登录后可提交构建、查看历史与下载产物。
 
-当前进度：ticket 02（站点骨架、管理员会话、目录快照与浏览）。构建编排与镜像产物在后续 ticket 中实现。
+当前进度：ticket 03（站点骨架、管理员会话、目录快照与浏览、构建表单与计划预览）。构建编排与镜像产物在后续 ticket 中实现。
 
 ## 技术栈
 
@@ -115,10 +115,12 @@ export APK_BIN="$PWD/immortalwrt-imagebuilder-25.12.2-x86-64.Linux-x86_64/stagin
 ## 目录
 
 ```text
-src/app/                页面与 route handlers（/api/login、/api/logout、/api/health、/api/catalog/refresh）
+src/app/                页面与 route handlers（/api/login、/api/logout、/api/health、/api/catalog/*、/api/build/plan）
 src/app/catalog/        目录浏览与包详情
+src/app/build/          构建表单与计划预览
 src/lib/auth/           会话、密码、限速、登录服务
 src/lib/catalog/        profiles/adb 解析、快照存储、刷新服务与 ImmortalWrt 数据源
+src/lib/build/          表单校验、依赖解析、冲突、密码哈希、uci-defaults 与计划
 src/lib/config.ts       环境变量校验
 src/lib/db.ts           SQLite 打开与迁移
 src/lib/migrations.ts   内置迁移

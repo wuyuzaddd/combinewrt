@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth/current-session";
 import { LogoutButton } from "./logout-button";
 
 const sections = [
-  { title: "固件构建", body: "设备、镜像格式与软件包选择（后续版本）。", href: null },
+  { title: "固件构建", body: "选择设备、镜像格式、软件包并预览构建计划。", href: "/build" },
   { title: "构建历史", body: "排队、运行与产物下载（后续版本）。", href: null },
   { title: "软件包目录", body: "浏览 ImmortalWrt 官方 feed 的目录快照。", href: "/catalog" },
   { title: "基础版本", body: "ImmortalWrt 版本与冒烟状态（后续版本）。", href: null },
@@ -43,7 +43,7 @@ export default async function AdminPage() {
       </div>
 
       <p className="text-xs text-slate-500">
-        设备目录已接入（ticket 02）。构建表单与队列在后续票据接入。
+        设备目录与构建表单已接入（ticket 02/03）。队列与产物下载在后续票据接入。
       </p>
     </main>
   );
