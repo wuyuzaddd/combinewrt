@@ -136,6 +136,7 @@ describe("github adapter", () => {
 
     const artifact = await adapter.downloadArtifact("42", "build-b1");
     expect(artifact.name).toBe("build-b1.zip");
-    expect(artifact.body).toEqual(body);
+    const streamed = new Uint8Array(await new Response(artifact.body as BodyInit).arrayBuffer());
+    expect(streamed).toEqual(body);
   });
 });

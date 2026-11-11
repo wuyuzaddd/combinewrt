@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   build: null as unknown,
   artifact: null as unknown,
   throws: false,
+  error: "GitHub artifact download failed: 403",
 }));
 
 vi.mock("@/lib/auth/current-session", () => ({
@@ -15,7 +16,7 @@ vi.mock("@/lib/builds", () => ({
   getBuildService: () => ({
     refresh: vi.fn(async () => state.build),
     artifact: vi.fn(async () => {
-      if (state.throws) throw new Error("GitHub artifact download failed: 403");
+      if (state.throws) throw new Error(state.error);
       return state.artifact;
     }),
   }),
@@ -51,8 +52,18 @@ describe("GET /api/builds/[id]/artifact", () => {
     expect(response.status).toBe(409);
   });
 
-  it("returns 502 when the upstream download fails", async () => {
+  it("returns 409 with an expiry hint when the artifact is gone", async () => {
     state.throws = true;
+    state.error = "artifact build-b1 is no longer available";
+    const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain("过期");
+  });
+
+  it("returns 502 for other upstream failures", async () => {
+    state.throws = true;
+    state.error = "GitHub GET /artifacts failed: 500";
     const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
     expect(response.status).toBe(502);
   });

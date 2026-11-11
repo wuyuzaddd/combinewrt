@@ -26,6 +26,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     });
   } catch (error) {
     console.error("artifact download failed", error);
+    const message = error instanceof Error ? error.message : String(error);
+    if (/no longer available/i.test(message)) {
+      return NextResponse.json(
+        { ok: false, error: "artifact 已过期或已被清理（GitHub 默认保留 30 天）" },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ ok: false, error: "artifact download failed" }, { status: 502 });
   }
 }

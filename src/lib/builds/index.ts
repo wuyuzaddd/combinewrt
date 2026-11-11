@@ -13,6 +13,7 @@ export function getBuildService(): BuildService {
   cached ??= createBuildService({
     store: createBuildStore(getDatabase()),
     adapter: createAdapter(getConfig()),
+    pollIntervalMs: 5_000,
   });
   return cached;
 }

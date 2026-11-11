@@ -34,6 +34,7 @@ export interface BuildStore {
   create(build: BuildRecord): void;
   get(id: string): BuildRecord | null;
   list(limit?: number): BuildRecord[];
+  listActive(limit?: number): BuildRecord[];
   update(
     id: string,
     patch: Partial<Pick<BuildRecord, "status" | "runId" | "logTail" | "error" | "artifactName">>,
@@ -70,6 +71,13 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
       const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 20;
       const rows = db
         .prepare("SELECT * FROM builds ORDER BY created_at DESC LIMIT ?")
+        .all(safeLimit) as unknown as BuildRow[];
+      return rows.map(toRecord);
+    },
+    listActive(limit = 20) {
+      const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 20;
+      const rows = db
+        .prepare("SELECT * FROM builds WHERE status IN ('queued', 'running') ORDER BY created_at ASC LIMIT ?")
         .all(safeLimit) as unknown as BuildRow[];
       return rows.map(toRecord);
     },

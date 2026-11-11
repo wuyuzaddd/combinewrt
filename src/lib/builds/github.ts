@@ -60,11 +60,16 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     "X-GitHub-Api-Version": "2022-11-28",
   };
 
+  const withTimeout = (init: RequestInit = {}): RequestInit => ({
+    ...init,
+    signal: init.signal ?? AbortSignal.timeout(15_000),
+  });
+
   async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetchImpl(`${API}${path}`, {
-      ...init,
-      headers: { ...headers, ...(init.headers as Record<string, string> | undefined) },
-    });
+    const response = await fetchImpl(
+      `${API}${path}`,
+      withTimeout({ ...init, headers: { ...headers, ...(init.headers as Record<string, string> | undefined) } }),
+    );
     if (!response.ok) {
       const body = (await response.text()).slice(0, 500);
       throw new Error(`GitHub ${init.method ?? "GET"} ${path} failed: ${response.status} ${body}`);
@@ -76,8 +81,22 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
   return {
     name: "github",
 
+    async findRun(buildId: string): Promise<string | null> {
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        const runs = await json<{ workflow_runs: WorkflowRun[] }>(
+          `/repos/${repo}/actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=20`,
+        );
+        const match = runs.workflow_runs.find((run) => {
+          const title = run.display_title ?? run.name ?? "";
+          return title.includes(buildId);
+        });
+        if (match) return String(match.id);
+        await sleep(1_000);
+      }
+      return null;
+    },
+
     async dispatch(plan: BuildPlan, meta: { buildId: string; artifactName: string }) {
-      const dispatchedAt = Date.now();
       await json(`/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
         method: "POST",
         body: JSON.stringify({
@@ -91,26 +110,16 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
         }),
       });
 
-      for (let attempt = 0; attempt < 15; attempt += 1) {
-        const runs = await json<{ workflow_runs: WorkflowRun[] }>(
-          `/repos/${repo}/actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=10`,
-        );
-        const match = runs.workflow_runs.find((run) => {
-          const title = run.display_title ?? run.name ?? "";
-          return title.includes(meta.buildId) && Date.parse(run.created_at) >= dispatchedAt - 15_000;
-        });
-        if (match) return { runId: String(match.id) };
-        await sleep(1_000);
-      }
-      throw new Error("workflow was dispatched but no run appeared within 15 seconds");
+      return { runId: await this.findRun(meta.buildId) };
     },
 
     async getRun(runId: string): Promise<RunUpdate> {
       const run = await json<WorkflowRun>(`/repos/${repo}/actions/runs/${runId}`);
       const update = mapRunState(run);
+      if (run.status !== "completed") return update;
 
       try {
-        const logs = await fetchImpl(`${API}/repos/${repo}/actions/runs/${runId}/logs`, { headers });
+        const logs = await fetchImpl(`${API}/repos/${repo}/actions/runs/${runId}/logs`, withTimeout({ headers }));
         if (logs.ok) {
           const text = tailLogs(new Uint8Array(await logs.arrayBuffer()));
           if (text) {
@@ -139,12 +148,14 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
       const artifact = artifacts.artifacts.find((item) => item.name === artifactName);
       if (!artifact) throw new Error(`artifact ${artifactName} is no longer available`);
 
-      const response = await fetchImpl(artifact.archive_download_url, { headers });
+      const response = await fetchImpl(artifact.archive_download_url, withTimeout({ headers }));
       if (!response.ok) throw new Error(`artifact download failed: ${response.status}`);
+      const size = Number(response.headers.get("content-length") ?? "0");
+      if (size > 512 * 1024 * 1024) throw new Error("artifact is larger than the 512 MB proxy limit");
       return {
         name: `${artifact.name}.zip`,
         contentType: "application/zip",
-        body: new Uint8Array(await response.arrayBuffer()),
+        body: response.body ?? new Uint8Array(await response.arrayBuffer()),
       };
     },
   };

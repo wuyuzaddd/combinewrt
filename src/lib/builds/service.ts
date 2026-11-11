@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { BuildPlan } from "../build/types";
 import type { BuildStore } from "./store";
-import type { BuildAdapter, BuildRecord } from "./types";
+import type { ArtifactDownload, BuildAdapter, BuildRecord } from "./types";
 
 const LOG_LIMIT = 20_000;
 
@@ -15,26 +15,51 @@ export interface BuildService {
   list(limit?: number): BuildRecord[];
   refresh(id: string): Promise<BuildRecord | null>;
   refreshActive(limit?: number): Promise<BuildRecord[]>;
-  artifact(id: string): Promise<{ name: string; contentType: string; body: Uint8Array } | null>;
+  listActive(limit?: number): BuildRecord[];
+  artifact(id: string): Promise<ArtifactDownload | null>;
 }
 
 export function createBuildService(options: {
   store: BuildStore;
   adapter: BuildAdapter;
   now?: () => Date;
+  pollIntervalMs?: number;
 }): BuildService {
-  const { store, adapter, now = () => new Date() } = options;
+  const { store, adapter, now = () => new Date(), pollIntervalMs = 0 } = options;
+  const inFlight = new Map<string, Promise<BuildRecord | null>>();
+  const lastPoll = new Map<string, number>();
 
-  async function refresh(id: string): Promise<BuildRecord | null> {
+  function refresh(id: string): Promise<BuildRecord | null> {
+    const record = store.get(id);
+    if (!record) return Promise.resolve(null);
+    if (record.status === "succeeded" || record.status === "failed") return Promise.resolve(record);
+
+    const running = inFlight.get(id);
+    if (running) return running;
+
+    const nowMs = Date.now();
+    if (pollIntervalMs > 0 && nowMs - (lastPoll.get(id) ?? 0) < pollIntervalMs) {
+      return Promise.resolve(record);
+    }
+    lastPoll.set(id, nowMs);
+
+    const pending = pollOnce(id).finally(() => inFlight.delete(id));
+    inFlight.set(id, pending);
+    return pending;
+  }
+
+  async function pollOnce(id: string): Promise<BuildRecord | null> {
     const record = store.get(id);
     if (!record) return null;
     if (record.status === "succeeded" || record.status === "failed") return record;
     if (!record.runId) {
       const age = now().getTime() - Date.parse(record.createdAt);
       if (age > 120_000) {
+        const found = await adapter.findRun(record.id);
+        if (found) return store.update(id, { runId: found });
         return store.update(id, {
           status: "failed",
-          error: "dispatch was interrupted before a run id was recorded; submit the build again",
+          error: "no workflow run matched this build after 2 minutes; check the build repository before resubmitting",
         });
       }
       return record;
@@ -78,6 +103,18 @@ export function createBuildService(options: {
 
       try {
         const { runId } = await adapter.dispatch(plan, { buildId: id, artifactName: plan.artifactName });
+        if (!runId) return store.get(id) ?? {
+          id,
+          plan,
+          status: "queued",
+          runId: null,
+          adapter: adapter.name,
+          logTail: "",
+          error: null,
+          artifactName: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
         return store.update(id, { runId });
       } catch (error) {
         return store.update(id, {
@@ -91,11 +128,12 @@ export function createBuildService(options: {
       return store.list(limit);
     },
 
+    listActive(limit) {
+      return store.listActive(limit);
+    },
+
     async refreshActive(limit = 20) {
-      const active = store
-        .list(100)
-        .filter((build) => build.status === "queued" || build.status === "running")
-        .slice(0, limit);
+      const active = store.listActive(limit);
       await Promise.allSettled(active.map((build) => refresh(build.id)));
       return store.list(limit);
     },

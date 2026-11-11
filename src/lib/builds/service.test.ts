@@ -76,6 +76,7 @@ describe("build service", () => {
   it("marks the build failed when dispatch throws", async () => {
     const failing: BuildAdapter = {
       name: "github",
+      findRun: async () => null,
       dispatch: async () => {
         throw new Error("GitHub POST /dispatches failed: 401 bad credentials");
       },
@@ -94,6 +95,7 @@ describe("build service", () => {
   it("keeps the previous status when a poll fails", async () => {
     const flaky: BuildAdapter = {
       name: "fake",
+      findRun: async () => null,
       dispatch: async () => ({ runId: "r1" }),
       getRun: async () => {
         throw new Error("network down");
@@ -148,7 +150,7 @@ describe("build service resilience", () => {
     const refreshed = await service.refresh("b-orphan");
 
     expect(refreshed?.status).toBe("failed");
-    expect(refreshed?.error).toContain("interrupted");
+    expect(refreshed?.error).toContain("matched");
   });
 
   it("keeps polling a running build after a restart", async () => {
@@ -157,6 +159,7 @@ describe("build service resilience", () => {
     let status: "running" | "succeeded" = "running";
     const adapter: BuildAdapter = {
       name: "fake",
+      findRun: async () => null,
       dispatch: async () => ({ runId: "r-restart" }),
       getRun: async () =>
         status === "running"

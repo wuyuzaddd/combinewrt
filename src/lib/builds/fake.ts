@@ -6,6 +6,10 @@ export function createFakeAdapter(): BuildAdapter {
 
   return {
     name: "fake",
+    async findRun() {
+      return null;
+    },
+
     async dispatch() {
       const runId = `fake-run-${++sequence}`;
       polls.set(runId, 0);

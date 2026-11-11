@@ -25,12 +25,13 @@ export interface RunUpdate {
 export interface ArtifactDownload {
   name: string;
   contentType: string;
-  body: Uint8Array;
+  body: Uint8Array | ReadableStream<Uint8Array>;
 }
 
 export interface BuildAdapter {
   readonly name: "github" | "fake";
-  dispatch(plan: BuildPlan, meta: { buildId: string; artifactName: string }): Promise<{ runId: string }>;
+  dispatch(plan: BuildPlan, meta: { buildId: string; artifactName: string }): Promise<{ runId: string | null }>;
+  findRun(buildId: string): Promise<string | null>;
   getRun(runId: string): Promise<RunUpdate>;
   downloadArtifact(runId: string, artifactName: string): Promise<ArtifactDownload>;
 }

@@ -72,9 +72,9 @@ npm run dev
 
 ### 首次部署（GitHub Actions）
 
-1. 新建公开构建仓库，放入 `build-workflow/build.yml`（stub 模板；ticket 05 会替换为真实 ImageBuilder 构建）。
-2. 工作流必须在 `BUILD_REF`（默认 `main`）上；`run-name` 需包含 `${{ inputs.build_id }}`，否则站点无法匹配 run。
-3. 创建仅授权该仓库的 fine-grained PAT：`Actions: write`（派发/读日志/读产物）。放到 `BUILD_REPO_TOKEN`，不要提交。
+1. 新建公开构建仓库，把 `build-workflow/build.yml` 复制到 `.github/workflows/build.yml`（GitHub 只执行该路径；ticket 05 会替换为真实 ImageBuilder 构建）。
+2. 工作流必须在 `BUILD_REF`（默认 `main`）上，且 dispatch 时已存在；`run-name` 含 `${{ inputs.build_id }}`，并声明 `build_id`/`artifact_name`/`profile`/`image_type` 四个 inputs，否则 GitHub 422 或站点匹配不到 run。
+3. 创建仅授权该仓库的 fine-grained PAT，勾选 `Actions: read and write`（派发、读日志、读产物都走这一项）。放到 `BUILD_REPO_TOKEN`，不要提交。
 4. 配置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REF=main`，重启站点；缺配置会启动失败并列出全部问题。
 5. 注意：公开仓库的 Actions 日志与产物对所有人可见，不要把 secret 写进构建输入。
 
@@ -95,22 +95,6 @@ export APK_BIN="$PWD/immortalwrt-imagebuilder-25.12.2-x86-64.Linux-x86_64/stagin
 ```
 
 该包装脚本依赖同目录 `../lib/`，不要只拷 `apk` 文件。也可以安装发行版自带的 apk-tools 3。
-
-## 构建派发（ticket 04）
-
-提交构建表单后，站点把 BuildPlan 存库并派发到公开构建仓库的 GitHub Actions：
-
-- `BUILD_ADAPTER=fake`（默认）：进程内 stub，不联网；用于开发与端到端验证（排队→运行→成功，产出 dummy zip）。
-- `BUILD_ADAPTER=github`：对 `BUILD_REPO` 的 `BUILD_WORKFLOW` 发 `workflow_dispatch`，按 run 轮询状态、日志尾部与 artifact。
-
-配置步骤：
-
-1. 建一个 public 构建仓库（如 `you/combinewrt-build`），把 `build-workflow/build.yml` 复制到它的 `.github/workflows/build.yml`。
-2. 建 fine-grained PAT，只授权该仓库 `Actions: write`（读取日志与产物还需要 `Actions: read`）。
-3. 站点环境设置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REPO_TOKEN=github_pat_...`；缺任一项启动即报错，不会静默降级。
-4. 登录后在 `/build` 生成计划 → 开始构建；`/builds` 列表与详情页每 4 秒轮询状态。产物经 `/api/builds/<id>/artifact` 鉴权代理下载，token 只存在服务端。
-
-注意：公开仓库的 Actions 日志是公开的，工作流里禁止 `echo` 任何密码；root 密码只以 crypt hash 进入生成文件。本票工作流只上传 dummy 产物，真实 ImageBuilder 在 ticket 05 接入。
 
 ## 测试与 CI
 

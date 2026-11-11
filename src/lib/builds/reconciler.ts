@@ -12,15 +12,21 @@ export function createReconciler(
 ): Reconciler {
   const { intervalMs = 15_000, logger = console } = options;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let sweeping = false;
 
   async function sweep(): Promise<void> {
-    for (const build of service.list(100)) {
-      if (build.status !== "queued" && build.status !== "running") continue;
-      try {
-        await service.refresh(build.id);
-      } catch (error) {
-        logger.error(`[combinewrt] reconciler failed for build ${build.id}`, error);
+    if (sweeping) return;
+    sweeping = true;
+    try {
+      for (const build of service.listActive(100)) {
+        try {
+          await service.refresh(build.id);
+        } catch (error) {
+          logger.error(`[combinewrt] reconciler failed for build ${build.id}`, error);
+        }
       }
+    } finally {
+      sweeping = false;
     }
   }
 
@@ -28,6 +34,7 @@ export function createReconciler(
     sweep,
     start() {
       if (timer) return;
+      logger.error("[combinewrt] reconciler started");
       void sweep();
       timer = setInterval(() => void sweep(), intervalMs);
       timer.unref?.();
