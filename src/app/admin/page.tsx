@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
+import { getDatabase } from "@/lib/db";
+import { readRetentionSummary } from "@/lib/builds/retention";
 import { LogoutButton } from "./logout-button";
 
 const sections = [
@@ -13,6 +15,7 @@ const sections = [
 export default async function AdminPage() {
   const session = await getSession();
   if (!session) redirect("/login?next=/admin");
+  const retention = readRetentionSummary(getDatabase());
 
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 px-6 py-12">
@@ -42,9 +45,22 @@ export default async function AdminPage() {
         ))}
       </div>
 
-      <p className="text-xs text-slate-500">
-        设备目录与构建表单已接入（ticket 02/03）。队列与产物下载在后续票据接入。
-      </p>
+      <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
+        <h2 className="font-medium">产物清理</h2>
+        {retention ? (
+          <p className="mt-1 text-slate-400">
+            上次清理 {new Date(retention.at).toLocaleString("zh-CN")} · 删除 {retention.removed} 个文件
+            {retention.failed.length > 0 && (
+              <span className="text-amber-300"> · {retention.failed.length} 个文件清理失败</span>
+            )}
+          </p>
+        ) : (
+          <p className="mt-1 text-slate-500">尚未运行清理。</p>
+        )}
+        <p className="mt-2 text-xs text-slate-500">
+          保留天数由 <code className="font-mono">ARTIFACT_RETENTION_DAYS</code> 控制；清理只删站点缓存，不删构建历史。
+        </p>
+      </section>
     </main>
   );
 }

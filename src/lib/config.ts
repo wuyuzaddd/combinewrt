@@ -1,3 +1,4 @@
+import { dirname, join } from "node:path";
 import { PASSWORD_HASH_PATTERN } from "./auth/password-format";
 
 export interface AppConfig {
@@ -12,6 +13,8 @@ export interface AppConfig {
   buildWorkflow: string;
   buildRepo: string;
   buildRepoToken: string;
+  artifactCacheDir: string;
+  artifactRetentionDays: number;
 }
 
 export class ConfigError extends Error {
@@ -65,6 +68,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (!/^[A-Za-z0-9._-]+$/.test(buildWorkflow)) {
     issues.push("BUILD_WORKFLOW must be a workflow file name such as build.yml");
   }
+  const artifactRetentionDays = Number(env.ARTIFACT_RETENTION_DAYS?.trim() || "7");
+  if (!Number.isInteger(artifactRetentionDays) || artifactRetentionDays < 0 || artifactRetentionDays > 365) {
+    issues.push("ARTIFACT_RETENTION_DAYS must be an integer between 0 and 365");
+  }
+  const artifactCacheDir = env.ARTIFACT_CACHE_DIR?.trim() || join(dirname(databasePath), "artifacts");
   const buildRepo = env.BUILD_REPO?.trim() || "";
   const buildRepoToken = env.BUILD_REPO_TOKEN?.trim() || "";
   if (buildAdapter === "github") {
@@ -95,6 +103,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     buildWorkflow,
     buildRepo,
     buildRepoToken,
+    artifactCacheDir,
+    artifactRetentionDays,
   };
 }
 

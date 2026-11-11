@@ -4,12 +4,21 @@ import { validateBuildForm } from "@/lib/build/validate";
 import { getBuildService } from "@/lib/builds";
 import { preparePlanForForm } from "@/lib/builds/prepare";
 
-export async function GET() {
+export async function GET(request: Request = new Request("http://localhost/api/builds")) {
   const session = await getSession();
   if (!session) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  const url = new URL(request.url);
+  const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+  const pageSize = Math.min(50, Math.max(1, Number(url.searchParams.get("pageSize")) || 20));
   const service = getBuildService();
   await service.refreshActive(20);
-  return NextResponse.json({ ok: true, builds: service.list(50) });
+  return NextResponse.json({
+    ok: true,
+    builds: service.list(pageSize, (page - 1) * pageSize),
+    total: service.count(),
+    page,
+    pageSize,
+  });
 }
 
 export async function POST(request: Request) {

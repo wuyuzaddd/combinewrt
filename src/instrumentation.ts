@@ -3,8 +3,9 @@ export async function register() {
   const { getDatabase } = await import("./lib/db");
   try {
     getDatabase();
-    const { startReconciler } = await import("./lib/builds");
+    const { startReconciler, startRetention } = await import("./lib/builds");
     startReconciler();
+    startRetention();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[combinewrt] startup failed:\n${message}`);

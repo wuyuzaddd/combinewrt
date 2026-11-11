@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { Readable } from "node:stream";
+import { once } from "node:events";
 import type { BuildPlan } from "../build/types";
 import type { BuildStore } from "./store";
 import type { ArtifactDownload, BuildAdapter, BuildRecord, BuildStatus } from "./types";
@@ -16,8 +20,11 @@ function tail(text: string | undefined): string | undefined {
 
 export interface BuildService {
   submit(plan: BuildPlan): Promise<BuildRecord>;
-  list(limit?: number): BuildRecord[];
+  list(limit?: number, offset?: number): BuildRecord[];
+  get(id: string): BuildRecord | null;
+  count(): number;
   refresh(id: string): Promise<BuildRecord | null>;
+  cancel(id: string): Promise<BuildRecord | null>;
   refreshActive(limit?: number): Promise<BuildRecord[]>;
   listActive(limit?: number): BuildRecord[];
   artifact(id: string): Promise<ArtifactDownload | null>;
@@ -28,8 +35,9 @@ export function createBuildService(options: {
   adapter: BuildAdapter;
   now?: () => Date;
   pollIntervalMs?: number;
+  cacheDir?: string;
 }): BuildService {
-  const { store, adapter, now = () => new Date(), pollIntervalMs = 0 } = options;
+  const { store, adapter, now = () => new Date(), pollIntervalMs = 0, cacheDir } = options;
   const inFlight = new Map<string, Promise<BuildRecord | null>>();
   const lastPoll = new Map<string, number>();
 
@@ -105,6 +113,7 @@ export function createBuildService(options: {
       store.create({
         id,
         plan,
+        config: plan.config ?? null,
         status: "queued",
         runId: null,
         adapter: adapter.name,
@@ -122,6 +131,7 @@ export function createBuildService(options: {
         if (!runId) return store.get(id) ?? {
           id,
           plan,
+          config: plan.config ?? null,
           status: "queued",
           runId: null,
           adapter: adapter.name,
@@ -140,8 +150,14 @@ export function createBuildService(options: {
       }
     },
 
-    list(limit) {
-      return store.list(limit);
+    list(limit, offset) {
+      return store.list(limit, offset);
+    },
+    get(id) {
+      return store.get(id);
+    },
+    count() {
+      return store.count();
     },
 
     listActive(limit) {
@@ -156,10 +172,75 @@ export function createBuildService(options: {
 
     refresh,
 
+    async cancel(id) {
+      const record = store.get(id);
+      if (!record) return null;
+      if (isTerminal(record.status)) return record;
+
+      if (record.runId && adapter.cancelRun) {
+        try {
+          await adapter.cancelRun(record.runId);
+        } catch (error) {
+          return store.update(
+            id,
+            { error: error instanceof Error ? error.message : String(error) },
+            record.updatedAt,
+          );
+        }
+      }
+
+      let logTail = record.logTail;
+      if (record.runId) {
+        try {
+          const update = await adapter.getRun(record.runId);
+          logTail = tail(update.logTail) ?? logTail;
+        } catch {
+          // cancellation already accepted; keep the last known log tail
+        }
+      }
+      return store.update(id, { status: "cancelled", logTail, error: null }, record.updatedAt);
+    },
+
     async artifact(id) {
       const record = await refresh(id);
       if (!record || record.status !== "succeeded" || !record.runId || !record.artifactName) return null;
-      return adapter.downloadArtifact(record.runId, record.artifactName);
+      const download = await adapter.downloadArtifact(record.runId, record.artifactName);
+
+      if (!cacheDir) return download;
+      try {
+        mkdirSync(cacheDir, { recursive: true });
+        const path = join(cacheDir, `${id}.zip`);
+        if (!existsSync(path)) {
+          const tmp = `${path}.${randomUUID()}.tmp`;
+          if (download.body instanceof Uint8Array) {
+            const { writeFileSync } = await import("node:fs");
+            writeFileSync(tmp, download.body);
+          } else {
+            const out = createWriteStream(tmp);
+            const reader = download.body.getReader();
+            try {
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (!out.write(Buffer.from(value))) await once(out, "drain");
+              }
+            } finally {
+              reader.releaseLock();
+            }
+            await new Promise<void>((resolve, reject) => out.end((error?: Error | null) => (error ? reject(error) : resolve())));
+          }
+          renameSync(tmp, path);
+        }
+        const size = statSync(path).size;
+        return {
+          ...download,
+          size,
+          body: Readable.toWeb(createReadStream(path)) as ReadableStream<Uint8Array>,
+        };
+      } catch (error) {
+        console.error("artifact cache failed", error);
+        throw error;
+      }
     },
   };
 }

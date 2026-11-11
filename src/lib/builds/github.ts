@@ -29,6 +29,9 @@ export function mapRunState(run: WorkflowRun): RunUpdate {
   if (run.conclusion === "success") {
     return { status: "succeeded", error: null };
   }
+  if (run.conclusion === "cancelled") {
+    return { status: "cancelled", error: null };
+  }
   return { status: "failed", error: `workflow concluded with ${run.conclusion ?? "unknown"}` };
 }
 
@@ -154,6 +157,17 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
 
       update.artifactName = update.artifactName ?? null;
       return update;
+    },
+
+    async cancelRun(runId: string) {
+      const response = await fetchImpl(
+        `${API}/repos/${repo}/actions/runs/${runId}/cancel`,
+        withTimeout({ method: "POST", headers }),
+      );
+      if (!response.ok && response.status !== 202) {
+        const body = (await response.text()).slice(0, 500);
+        throw new Error(`GitHub POST cancel failed: ${response.status} ${body}`);
+      }
     },
 
     async downloadArtifact(runId: string, artifactName: string): Promise<ArtifactDownload> {

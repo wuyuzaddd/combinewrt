@@ -32,6 +32,15 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
   const uci = generateUciDefaults(form, rootHash, { now: context.now });
 
   return {
+    config: {
+      profile: form.profile,
+      imageType: form.imageType,
+      hostname: form.hostname,
+      timezone: form.timezone,
+      lanIp: form.lanIp,
+      netmask: form.netmask,
+      packages: names,
+    },
     baseVersion: context.baseVersion,
     feedCommit: context.feedCommit,
     sourceNote: context.sourceNote,

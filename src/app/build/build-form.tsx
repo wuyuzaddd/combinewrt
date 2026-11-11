@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { CatalogPackage, CatalogProfile } from "@/lib/catalog/types";
-import type { BuildConflict, BuildPlan } from "@/lib/build/types";
+import type { BuildConflict, BuildConfig, BuildPlan } from "@/lib/build/types";
 import { presetPackages } from "@/lib/build/presets";
 
 const STORAGE_KEY = "combinewrt.build-form";
@@ -21,26 +21,30 @@ interface FormState {
 interface Props {
   baseVersion: string;
   profiles: CatalogProfile[];
+  initialConfig?: BuildConfig | null;
 }
 
-function defaultForm(profiles: CatalogProfile[]): FormState {
+function defaultForm(profiles: CatalogProfile[], initial?: BuildConfig | null): FormState {
+  const profile = profiles.find((item) => item.id === initial?.profile) ?? profiles[0];
+  const imageType =
+    initial && profile?.formats.includes(initial.imageType) ? initial.imageType : profile?.formats[0] ?? "ext4-efi";
   return {
-    profile: profiles[0]?.id ?? "generic",
-    imageType: profiles[0]?.formats[0] ?? "ext4-efi",
-    hostname: "ImmortalWrt",
-    timezone: "Asia/Shanghai",
-    lanIp: "192.168.1.1",
-    netmask: "255.255.255.0",
-    packages: [...presetPackages("common")],
+    profile: profile?.id ?? "generic",
+    imageType,
+    hostname: initial?.hostname ?? "ImmortalWrt",
+    timezone: initial?.timezone ?? "Asia/Shanghai",
+    lanIp: initial?.lanIp ?? "192.168.1.1",
+    netmask: initial?.netmask ?? "255.255.255.0",
+    packages: initial ? [...initial.packages] : [...presetPackages("common")],
   };
 }
 
 const inputClass =
   "mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500";
 
-export function BuildForm({ baseVersion, profiles }: Props) {
+export function BuildForm({ baseVersion, profiles, initialConfig }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(() => defaultForm(profiles));
+  const [form, setForm] = useState<FormState>(() => defaultForm(profiles, initialConfig));
   const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
   const [custom, setCustom] = useState("");
@@ -54,6 +58,10 @@ export function BuildForm({ baseVersion, profiles }: Props) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    if (initialConfig) {
+      setHydrated(true);
+      return;
+    }
     try {
       const saved = window.localStorage.getItem(STORAGE_KEY);
       if (saved) {

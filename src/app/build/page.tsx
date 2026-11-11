@@ -3,11 +3,18 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
 import { getDatabase } from "@/lib/db";
 import { createCatalogStore } from "@/lib/catalog/store";
+import { getBuildService } from "@/lib/builds";
 import { BuildForm } from "./build-form";
 
-export default async function BuildPage() {
+export default async function BuildPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string }>;
+}) {
   const session = await getSession();
   if (!session) redirect("/login?next=/build");
+  const { from } = await searchParams;
+  const initialConfig = from ? getBuildService().get(from)?.config ?? null : null;
 
   const store = createCatalogStore(getDatabase());
   const snapshot = store.getActiveSnapshot();
@@ -24,7 +31,7 @@ export default async function BuildPage() {
       </header>
 
       {snapshot ? (
-        <BuildForm baseVersion={snapshot.baseVersion} profiles={profiles} />
+        <BuildForm baseVersion={snapshot.baseVersion} profiles={profiles} initialConfig={initialConfig} />
       ) : (
         <section className="rounded-xl border border-amber-900/60 bg-amber-950/30 p-5 text-sm text-amber-200">
           还没有可用的目录快照。先到{" "}

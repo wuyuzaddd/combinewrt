@@ -19,6 +19,7 @@ vi.mock("@/lib/builds", () => ({
   getBuildService: () => ({
     submit: vi.fn(async () => state.build),
     list: vi.fn(() => state.listed),
+    count: vi.fn(() => state.listed.length),
     refreshActive: vi.fn(async () => state.listed),
   }),
 }));

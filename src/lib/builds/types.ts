@@ -1,10 +1,11 @@
-import type { BuildPlan } from "../build/types";
+import type { BuildConfig, BuildPlan } from "../build/types";
 
-export type BuildStatus = "queued" | "running" | "succeeded" | "failed";
+export type BuildStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface BuildRecord {
   id: string;
   plan: BuildPlan;
+  config?: BuildConfig | null;
   status: BuildStatus;
   runId: string | null;
   adapter: "github" | "fake";
@@ -38,5 +39,6 @@ export interface BuildAdapter {
   dispatch(plan: BuildPlan, meta: { buildId: string; artifactName: string }): Promise<{ runId: string | null }>;
   findRun(buildId: string): Promise<string | null>;
   getRun(runId: string, expectedArtifactName?: string): Promise<RunUpdate>;
+  cancelRun?(runId: string): Promise<void>;
   downloadArtifact(runId: string, artifactName: string): Promise<ArtifactDownload>;
 }

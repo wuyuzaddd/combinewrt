@@ -86,4 +86,8 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE builds ADD COLUMN artifact_size INTEGER;
     `,
   },
+  {
+    version: "005_build_config",
+    sql: `ALTER TABLE builds ADD COLUMN config_json TEXT;`,
+  },
 ];

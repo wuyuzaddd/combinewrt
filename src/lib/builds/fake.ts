@@ -3,8 +3,12 @@ import type { ArtifactDownload, BuildAdapter, RunUpdate } from "./types";
 export function createFakeAdapter(): BuildAdapter {
   let sequence = 0;
   const polls = new Map<string, number>();
+  const cancelled = new Set<string>();
 
   return {
+    async cancelRun(runId: string) {
+      cancelled.add(runId);
+    },
     name: "fake",
     async findRun() {
       return null;
@@ -16,6 +20,7 @@ export function createFakeAdapter(): BuildAdapter {
       return { runId };
     },
     async getRun(runId: string): Promise<RunUpdate> {
+      if (cancelled.has(runId)) return { status: "cancelled", logTail: "[stub] build cancelled\n" };
       const count = (polls.get(runId) ?? 0) + 1;
       polls.set(runId, count);
       if (count === 1) {

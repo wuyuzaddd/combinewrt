@@ -18,6 +18,16 @@ export interface PackageLookupEntry {
 
 export type PackageLookup = (name: string) => PackageLookupEntry | null;
 
+export interface BuildConfig {
+  profile: string;
+  imageType: ImageFormatId;
+  hostname: string;
+  timezone: string;
+  lanIp: string;
+  netmask: string;
+  packages: string[];
+}
+
 export interface ResolvedEntry {
   name: string;
   version: string | null;
@@ -39,6 +49,7 @@ export interface BuildPlan {
   baseVersion: string;
   feedCommit: string;
   sourceNote: string;
+  config?: BuildConfig;
   profileId: string;
   profileTitle: string;
   imageType: ImageFormatId;

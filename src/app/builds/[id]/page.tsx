@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
 import { BuildPoller } from "./build-poller";
+import { CancelButton } from "../cancel-button";
 
 export default async function BuildDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -25,8 +26,15 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
             {build.plan.profileTitle} · {build.plan.imageType} · {build.adapter} · run {build.runId ?? "—"}
           </p>
         </div>
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-200">{build.status}</span>
+          {active && <CancelButton buildId={build.id} />}
+          <Link
+            className="text-emerald-300 underline decoration-emerald-800"
+            href={`/build?from=${build.id}`}
+          >
+            按此配置重建
+          </Link>
           <Link className="text-slate-400" href="/builds">
             返回
           </Link>
@@ -57,6 +65,20 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
         <pre className="mt-2 max-h-96 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-300">
           {build.logTail || "（暂无日志）"}
         </pre>
+      </section>
+
+      <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
+        <p className="text-xs uppercase tracking-wider text-slate-500">构建配置</p>
+        {build.config ? (
+          <dl className="mt-2 grid gap-x-6 gap-y-1 text-slate-300 sm:grid-cols-2">
+            <div><dt className="inline text-slate-500">hostname：</dt><dd className="inline font-mono">{build.config.hostname}</dd></div>
+            <div><dt className="inline text-slate-500">时区：</dt><dd className="inline font-mono">{build.config.timezone}</dd></div>
+            <div><dt className="inline text-slate-500">LAN：</dt><dd className="inline font-mono">{build.config.lanIp} / {build.config.netmask}</dd></div>
+            <div><dt className="inline text-slate-500">镜像：</dt><dd className="inline font-mono">{build.config.imageType}</dd></div>
+          </dl>
+        ) : (
+          <p className="mt-2 text-xs text-slate-500">旧记录没有保存表单配置。</p>
+        )}
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2">

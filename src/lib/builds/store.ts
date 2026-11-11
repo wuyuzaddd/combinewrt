@@ -1,10 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { BuildPlan } from "../build/types";
+import type { BuildConfig, BuildPlan } from "../build/types";
 import type { BuildRecord, BuildStatus } from "./types";
 
 interface BuildRow {
   id: string;
   plan_json: string;
+  config_json: string | null;
   status: string;
   run_id: string | null;
   adapter: string;
@@ -21,6 +22,7 @@ function toRecord(row: BuildRow): BuildRecord {
   return {
     id: row.id,
     plan: JSON.parse(row.plan_json) as BuildPlan,
+    config: row.config_json ? (JSON.parse(row.config_json) as BuildConfig) : null,
     status: row.status as BuildStatus,
     runId: row.run_id,
     adapter: row.adapter as "github" | "fake",
@@ -37,7 +39,8 @@ function toRecord(row: BuildRow): BuildRecord {
 export interface BuildStore {
   create(build: BuildRecord): void;
   get(id: string): BuildRecord | null;
-  list(limit?: number): BuildRecord[];
+  list(limit?: number, offset?: number): BuildRecord[];
+  count(): number;
   listActive(limit?: number): BuildRecord[];
   update(
     id: string,
@@ -60,11 +63,12 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
   return {
     create(build) {
       db.prepare(
-        `INSERT INTO builds (id, plan_json, status, run_id, adapter, log_tail, error, artifact_name, artifact_sha256, artifact_size, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, artifact_name, artifact_sha256, artifact_size, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         build.id,
         JSON.stringify(build.plan),
+        build.config ? JSON.stringify(build.config) : null,
         build.status,
         build.runId,
         build.adapter,
@@ -78,12 +82,17 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
       );
     },
     get,
-    list(limit = 20) {
+    list(limit = 20, offset = 0) {
       const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 20;
+      const safeOffset = Number.isFinite(offset) ? Math.max(Math.trunc(offset), 0) : 0;
       const rows = db
-        .prepare("SELECT * FROM builds ORDER BY created_at DESC LIMIT ?")
-        .all(safeLimit) as unknown as BuildRow[];
+        .prepare("SELECT * FROM builds ORDER BY created_at DESC LIMIT ? OFFSET ?")
+        .all(safeLimit, safeOffset) as unknown as BuildRow[];
       return rows.map(toRecord);
+    },
+    count() {
+      const row = db.prepare("SELECT COUNT(*) AS total FROM builds").get() as { total: number };
+      return Number(row.total);
     },
     listActive(limit = 20) {
       const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 20;
