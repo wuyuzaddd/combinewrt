@@ -61,22 +61,23 @@ npm run dev
 | `npm test` | Vitest 单次运行 |
 | `npm run hash-password -- '<password>'` | 生成管理员密码哈希 |
 
-## 构建派发（ticket 04）
+## 构建派发（ticket 05）
 
-`/build` 提交后创建 Build 记录并调用适配器派发，跳转到 `/builds/<id>`；详情页每 4 秒刷新一次状态，展示日志尾部、失败原因与产物下载按钮。
+`/build` 提交后创建 Build 记录并调用适配器派发，跳转到 `/builds/<id>`；详情页每 4 秒刷新一次状态，展示日志尾部、失败原因、sha256/大小与产物下载按钮。
 
 - 默认 `BUILD_ADAPTER=fake`：进程内假 run（queued → running → succeeded），只用于本地联调，不会产生真实固件。
-- `BUILD_ADAPTER=github`：向 `BUILD_REPO` 派发 `BUILD_WORKFLOW`，按 `run-name` 里的 build id 找回 run；完成后拉取日志尾部与产物，经站点鉴权代理下载。
+- `BUILD_ADAPTER=github`：把完整计划作为单个 JSON input（`plan`）连同 `build_id` 派发给 `BUILD_REPO` 的 `BUILD_WORKFLOW`；工作流下载 ImageBuilder、写入 uci-defaults、执行 `make image`，上传镜像与 `manifest.json`（保留 7 天），并输出 `COMBINEWRT_MANIFEST={...}` 日志行。
+- 站点按 `run-name` 里的 build id 找回 run；完成后拉取日志与产物，解析 manifest 记录 sha256/大小，再经站点鉴权代理流式下载。首次构建约 10–20 分钟（下载 52MB ImageBuilder + 软件包）。
 - 失败原因优先取结论，其次从日志末尾的 `error`/`failed` 行提取摘要。
-- 站点只保存运行元数据；产物保留 30 天后由 GitHub 清理，届时下载返回 409/502。
+- 站点只保存运行元数据与产物摘要；GitHub 到期清理 artifact 后，下载返回 409/502。
 
 ### 首次部署（GitHub Actions）
 
-1. 新建公开构建仓库，把 `build-workflow/build.yml` 复制到 `.github/workflows/build.yml`（GitHub 只执行该路径；ticket 05 会替换为真实 ImageBuilder 构建）。
-2. 工作流必须在 `BUILD_REF`（默认 `main`）上，且 dispatch 时已存在；`run-name` 含 `${{ inputs.build_id }}`，并声明 `build_id`/`artifact_name`/`profile`/`image_type` 四个 inputs，否则 GitHub 422 或站点匹配不到 run。
-3. 创建仅授权该仓库的 fine-grained PAT，勾选 `Actions: read and write`（派发、读日志、读产物都走这一项）。放到 `BUILD_REPO_TOKEN`，不要提交。
+1. 新建公开构建仓库，把 `build-workflow/build.yml` 复制到 `.github/workflows/build.yml`（GitHub 只执行该路径）。
+2. 工作流必须在 `BUILD_REF`（默认 `main`）上，且 dispatch 时已存在；`workflow_dispatch` 只声明 `build_id` 与 `plan` 两个 string inputs，`run-name` 含 `${{ inputs.build_id }}`，否则 GitHub 422 或站点匹配不到 run。
+3. 创建仅授权该仓库的 fine-grained PAT：`Actions: read and write`（派发、读日志、读产物），`Contents: read`。放到 `BUILD_REPO_TOKEN`，不要提交。
 4. 配置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REF=main`，重启站点；缺配置会启动失败并列出全部问题。
-5. 注意：公开仓库的 Actions 日志与产物对所有人可见，不要把 secret 写进构建输入。
+5. 公开仓库的 Actions 日志与产物对所有人可见，不要把 secret 写进构建输入；公开镜像不要包含 fastnet/linkease 等许可未清的包。
 
 ## 目录快照（ticket 02）
 

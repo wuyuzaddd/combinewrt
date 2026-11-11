@@ -11,6 +11,8 @@ interface BuildRow {
   log_tail: string;
   error: string | null;
   artifact_name: string | null;
+  artifact_sha256: string | null;
+  artifact_size: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +27,8 @@ function toRecord(row: BuildRow): BuildRecord {
     logTail: row.log_tail,
     error: row.error,
     artifactName: row.artifact_name,
+    artifactSha256: row.artifact_sha256,
+    artifactSize: row.artifact_size,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -37,7 +41,12 @@ export interface BuildStore {
   listActive(limit?: number): BuildRecord[];
   update(
     id: string,
-    patch: Partial<Pick<BuildRecord, "status" | "runId" | "logTail" | "error" | "artifactName">>,
+    patch: Partial<
+      Pick<
+        BuildRecord,
+        "status" | "runId" | "logTail" | "error" | "artifactName" | "artifactSha256" | "artifactSize"
+      >
+    >,
     expectedUpdatedAt?: string,
   ): BuildRecord;
 }
@@ -51,8 +60,8 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
   return {
     create(build) {
       db.prepare(
-        `INSERT INTO builds (id, plan_json, status, run_id, adapter, log_tail, error, artifact_name, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO builds (id, plan_json, status, run_id, adapter, log_tail, error, artifact_name, artifact_sha256, artifact_size, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         build.id,
         JSON.stringify(build.plan),
@@ -62,6 +71,8 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
         build.logTail,
         build.error,
         build.artifactName,
+        build.artifactSha256 ?? null,
+        build.artifactSize ?? null,
         build.createdAt,
         build.updatedAt,
       );
@@ -90,9 +101,19 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
       }
       const next: BuildRecord = { ...current, ...patch, updatedAt };
       const sql = expectedUpdatedAt
-        ? "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, artifact_name = ?, updated_at = ? WHERE id = ? AND updated_at = ?"
-        : "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, artifact_name = ?, updated_at = ? WHERE id = ?";
-      const params = [next.status, next.runId, next.logTail, next.error, next.artifactName, next.updatedAt, id];
+        ? "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, updated_at = ? WHERE id = ? AND updated_at = ?"
+        : "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, updated_at = ? WHERE id = ?";
+      const params = [
+        next.status,
+        next.runId,
+        next.logTail,
+        next.error,
+        next.artifactName,
+        next.artifactSha256 ?? null,
+        next.artifactSize ?? null,
+        next.updatedAt,
+        id,
+      ];
       if (expectedUpdatedAt) params.push(expectedUpdatedAt);
       const result = db.prepare(sql).run(...params);
       if (Number(result.changes) === 0) {

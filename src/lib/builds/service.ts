@@ -84,6 +84,8 @@ export function createBuildService(options: {
           logTail: tail(update.logTail) ?? record.logTail,
           error: update.error ?? null,
           artifactName: update.artifactName ?? record.artifactName,
+          artifactSha256: update.artifactSha256 ?? record.artifactSha256 ?? null,
+          artifactSize: update.artifactSize ?? record.artifactSize ?? null,
         },
         record.updatedAt,
       );
@@ -109,6 +111,8 @@ export function createBuildService(options: {
         logTail: "",
         error: null,
         artifactName: null,
+        artifactSha256: null,
+        artifactSize: null,
         createdAt: timestamp,
         updatedAt: timestamp,
       });

@@ -79,4 +79,11 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS builds_created_at ON builds (created_at DESC);
     `,
   },
+  {
+    version: "004_build_artifact_metadata",
+    sql: `
+      ALTER TABLE builds ADD COLUMN artifact_sha256 TEXT;
+      ALTER TABLE builds ADD COLUMN artifact_size INTEGER;
+    `,
+  },
 ];

@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it, vi } from "vitest";
-import { createGitHubAdapter, mapRunState } from "./github";
+import { createGitHubAdapter, mapRunState, parseManifest } from "./github";
 import type { BuildPlan } from "../build/types";
 
 const plan = {
@@ -57,7 +57,19 @@ describe("github adapter", () => {
     expect(String(secondCall[0])).toContain("/actions/workflows/build.yml/runs");
     const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
     expect(body.inputs.build_id).toBe("b1");
-    expect(body.inputs.artifact_name).toBe("image.gz");
+    const payload = JSON.parse(body.inputs.plan);
+    expect(payload.buildId).toBe("b1");
+    expect(payload.artifactName).toBe("image.gz");
+    expect(payload.profileId).toBe("generic");
+  });
+
+  it("parses the manifest marker emitted by the workflow", () => {
+    const log = `make image\nCOMBINEWRT_MANIFEST=${JSON.stringify({ artifactName: "a.img.gz", sha256: "a".repeat(64), size: 123 })}\n`;
+    const manifest = parseManifest(log);
+    expect(manifest?.size).toBe(123);
+    expect(manifest?.sha256).toHaveLength(64);
+    expect(parseManifest("no marker")).toBeNull();
+    expect(parseManifest("COMBINEWRT_MANIFEST={\"sha256\":\"bad\",\"size\":1}")).toBeNull();
   });
 
   it("reads logs and artifacts for a completed run", async () => {

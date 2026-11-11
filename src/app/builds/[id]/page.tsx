@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
+import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
 import { BuildPoller } from "./build-poller";
 
@@ -37,12 +38,18 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
       )}
 
       {build.status === "succeeded" && build.artifactName && (
-        <a
-          className="w-fit rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950"
-          href={`/api/builds/${build.id}/artifact`}
-        >
-          下载产物（{build.artifactName}）
-        </a>
+        <div className="flex flex-col gap-2">
+          <a
+            className="w-fit rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950"
+            href={`/api/builds/${build.id}/artifact`}
+          >
+            下载产物（{build.artifactName}）
+          </a>
+          <p className="break-all font-mono text-xs text-slate-500">
+            {build.artifactSha256 ? `sha256 ${build.artifactSha256}` : "sha256 尚未记录"}
+            {build.artifactSize ? ` · ${formatSize(build.artifactSize)}` : ""}
+          </p>
+        </div>
       )}
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">

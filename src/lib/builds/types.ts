@@ -11,6 +11,8 @@ export interface BuildRecord {
   logTail: string;
   error: string | null;
   artifactName: string | null;
+  artifactSha256?: string | null;
+  artifactSize?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -20,6 +22,8 @@ export interface RunUpdate {
   logTail?: string;
   error?: string | null;
   artifactName?: string | null;
+  artifactSha256?: string | null;
+  artifactSize?: number | null;
 }
 
 export interface ArtifactDownload {

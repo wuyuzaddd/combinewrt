@@ -97,15 +97,24 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     },
 
     async dispatch(plan: BuildPlan, meta: { buildId: string; artifactName: string }) {
+      const payload = {
+        buildId: meta.buildId,
+        baseVersion: plan.baseVersion,
+        feedCommit: plan.feedCommit,
+        profileId: plan.profileId,
+        imageType: plan.imageType,
+        packages: plan.packages,
+        files: plan.files,
+        artifactName: meta.artifactName,
+        imageBuilderCommand: plan.imageBuilderCommand,
+      };
       await json(`/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
         method: "POST",
         body: JSON.stringify({
           ref,
           inputs: {
             build_id: meta.buildId,
-            artifact_name: meta.artifactName,
-            profile: plan.profileId,
-            image_type: plan.imageType,
+            plan: JSON.stringify(payload),
           },
         }),
       });
@@ -125,6 +134,12 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
           if (text) {
             update.logTail = text;
             if (update.status === "failed") update.error = summarizeFailure(text);
+            const manifest = parseManifest(text);
+            if (manifest) {
+              update.artifactSha256 = manifest.sha256;
+              update.artifactSize = manifest.size;
+              update.artifactName = update.artifactName ?? manifest.artifactName ?? null;
+            }
           }
         }
       } catch {
@@ -163,6 +178,30 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
       };
     },
   };
+}
+
+export interface BuildManifest {
+  artifactName?: string;
+  sha256: string;
+  size: number;
+}
+
+export function parseManifest(log: string): BuildManifest | null {
+  const matches = [...log.matchAll(/COMBINEWRT_MANIFEST=(\{[^\n]*\})/g)];
+  const last = matches.at(-1)?.[1];
+  if (!last) return null;
+  try {
+    const parsed = JSON.parse(last) as { artifactName?: unknown; sha256?: unknown; size?: unknown };
+    if (typeof parsed.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(parsed.sha256)) return null;
+    if (typeof parsed.size !== "number" || !Number.isFinite(parsed.size) || parsed.size <= 0) return null;
+    return {
+      artifactName: typeof parsed.artifactName === "string" ? parsed.artifactName : undefined,
+      sha256: parsed.sha256,
+      size: parsed.size,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function summarizeFailure(log: string): string {
