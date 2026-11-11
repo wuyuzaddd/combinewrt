@@ -1,0 +1,14 @@
+#%SCHEMA: 78646E69
+# ADB block, size: 4096, compat: 0, ver: 0
+packages: # 1 items
+  - name: 6in4
+    version: 99
+    hashes: 0000000000000000000000000000000000000000000000000000000000000000
+    description: |
+      6in4 tunnel (higher version fixture)
+    arch: x86_64
+    license: GPL-2.0
+    origin: feeds/packages/network/ipv6/6in4
+    installed-size: 4096
+    depends: # 1 items
+      - ip

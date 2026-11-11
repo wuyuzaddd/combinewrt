@@ -1,0 +1,88 @@
+#%SCHEMA: 78646E69
+# ADB block, size: 231900, compat: 0, ver: 0
+packages: # 5 items
+  - name: 464xlat
+    version: 13
+    hashes: 986cdebb1729c48b9396ef262b7d830bdc2b632ee5bf773749fdef6b6ff20afb
+    description: |
+      464xlat provides support to deploy limited IPv4 access services to mobile and wireline IPv6-only edge networks without encapsulation (RFC6877)
+    arch: x86_64
+    license: GPL-2.0
+    origin: feeds/base/network/ipv6/464xlat
+    maintainer: Hans Dedecker <dedeckeh@gmail.com>
+    installed-size: 14975
+    file-size: 4731
+    depends: # 3 items
+      - ip
+      - kmod-nat46
+      - libc
+    provides: # 1 items
+      - 464xlat-any
+  - name: 6in4
+    version: 29
+    hashes: 5cdc9af10031424087cffdba1add622774edc24b4fc282cbd5cd8524b4a2ba87
+    description: |
+      Provides support for 6in4 tunnels in /etc/config/network. Refer to http://wiki.openwrt.org/doc/uci/network for configuration details.
+    arch: noarch
+    license: GPL-2.0
+    origin: feeds/base/network/ipv6/6in4
+    maintainer: Jo-Philipp Wich <jo@mein.io>
+    installed-size: 4449
+    file-size: 2486
+    depends: # 4 items
+      - kmod-sit
+      - libc
+      - resolveip
+      - uclient-fetch
+    provides: # 1 items
+      - 6in4-any
+  - name: 6rd
+    version: 13
+    hashes: 1d9b70b8aac818de97fa49b2ecdf1d040f6a24c735ccea8c7c2b58e987126284
+    description: |
+      Provides support for 6rd tunnels in /etc/config/network. Refer to http://wiki.openwrt.org/doc/uci/network for configuration details.
+    arch: noarch
+    license: GPL-2.0
+    origin: feeds/base/network/ipv6/6rd
+    maintainer: Steven Barth <cyrus@openwrt.org>
+    installed-size: 14905
+    file-size: 3505
+    depends: # 2 items
+      - kmod-sit
+      - libc
+    provides: # 1 items
+      - 6rd-any
+  - name: 6to4
+    version: 13
+    hashes: a4385710583ce7c7270f6c6f6a0ed558ad462424a574a7f5bbc125caf168ab7e
+    description: |
+      Provides support for 6to4 tunnels in /etc/config/network. Refer to https://openwrt.org/docs/guide-user/base-system/basic-networking configuration details.
+    arch: noarch
+    license: GPL-2.0
+    origin: feeds/base/network/ipv6/6to4
+    maintainer: Jo-Philipp Wich <xm@subsignal.org>
+    installed-size: 2050
+    file-size: 1619
+    depends: # 2 items
+      - kmod-sit
+      - libc
+    provides: # 1 items
+      - 6to4-any
+  - name: adb
+    version: 5.0.2~6fe92d1a-r3
+    hashes: 9df76ca6f212e0790002e3c95cf739eca3950d451941660795feaaa68f17a211
+    description: |
+      Android Debug Bridge (adb) is a versatile command line tool that lets you communicate with an emulator instance or connected Android-powered device.
+    arch: x86_64
+    origin: feeds/base/utils/adb
+    maintainer: Henryk Heisig <hyniu@o2.pl>
+    url: http://tools.android.com/
+    installed-size: 140536
+    file-size: 61953
+    depends: # 4 items
+      - libc
+      - libopenssl3
+      - libpthread
+      - zlib
+    provides: # 1 items
+      - adb-any

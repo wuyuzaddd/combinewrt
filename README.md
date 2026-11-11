@@ -2,7 +2,7 @@
 
 自用 OpenWrt 固件在线构建站。公开页面只读，管理员登录后可提交构建、查看历史与下载产物。
 
-当前进度：ticket 01（站点骨架 + 管理员会话登录）。构建编排、镜像产物与包目录在后续 ticket 中实现。
+当前进度：ticket 02（站点骨架、管理员会话、目录快照与浏览）。构建编排与镜像产物在后续 ticket 中实现。
 
 ## 技术栈
 
@@ -38,6 +38,8 @@ npm run dev
 | `ADMIN_PASSWORD_HASH` | 是 | `scrypt$<salt>$<hash>`，由 `npm run hash-password` 生成；明文密码不落盘 |
 | `DATABASE_PATH` | 否 | 默认 `./data/combinewrt.db`，目录会自动创建 |
 | `APP_ORIGIN` | 否 | 站点对外绝对地址（含协议），默认 `http://localhost:3000`；生产必须是 `https://` |
+| `APK_BIN` | 否 | apk-tools 3 可执行文件，用于读取 feed 的 `packages.adb`；默认 `apk`。目录刷新需要它 |
+| `IMMORTALWRT_BASE_VERSION` | 否 | 锁定的 ImmortalWrt 版本，默认 `25.12.2` |
 
 缺少必填项或格式错误时，进程启动即失败，并一次性列出全部问题。
 
@@ -53,6 +55,24 @@ npm run dev
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest 单次运行 |
 | `npm run hash-password -- '<password>'` | 生成管理员密码哈希 |
+
+## 目录快照（ticket 02）
+
+管理员登录后打开 `/catalog`，点“刷新目录”：站点会从 `https://downloads.immortalwrt.org/releases/<版本>/` 拉取 `profiles.json` 与 7 个 feed 的 `packages.adb`，解析成不可变快照。
+
+- 快照按“基线版本 + `version_code`（feed commit）”键控；同一键重复刷新不会重建。
+- 只接受 `arch_packages=x86_64` 的 profiles；镜像格式从 `images[].name` 推导（ext4 EFI、squashfs EFI、rootfs.tar.gz）。
+- 软件包按名称/描述搜索、按分类浏览；详情含版本、安装大小、直接依赖、license、origin。
+- 任一解析失败则本次刷新整体失败，旧快照保持为 active，页面不会出现半空目录。
+
+刷新需要 apk-tools 3。最省事的方式是从 ImmortalWrt ImageBuilder 取：
+
+```bash
+# 解压 ImageBuilder 后
+export APK_BIN="$PWD/immortalwrt-imagebuilder-25.12.2-x86-64.Linux-x86_64/staging_dir/host/bin/apk"
+```
+
+该包装脚本依赖同目录 `../lib/`，不要只拷 `apk` 文件。也可以安装发行版自带的 apk-tools 3。
 
 ## 测试与 CI
 
@@ -95,8 +115,10 @@ npm run dev
 ## 目录
 
 ```text
-src/app/                页面与 route handlers（/api/login、/api/logout、/api/health）
+src/app/                页面与 route handlers（/api/login、/api/logout、/api/health、/api/catalog/refresh）
+src/app/catalog/        目录浏览与包详情
 src/lib/auth/           会话、密码、限速、登录服务
+src/lib/catalog/        profiles/adb 解析、快照存储、刷新服务与 ImmortalWrt 数据源
 src/lib/config.ts       环境变量校验
 src/lib/db.ts           SQLite 打开与迁移
 src/lib/migrations.ts   内置迁移

@@ -6,6 +6,8 @@ export interface AppConfig {
   databasePath: string;
   appOrigin: string;
   secureCookies: boolean;
+  apkBin: string;
+  baseVersion: string;
 }
 
 export class ConfigError extends Error {
@@ -54,7 +56,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new ConfigError(issues);
   }
 
-  return { sessionSecret, adminPasswordHash, databasePath, appOrigin, secureCookies };
+  const apkBin = env.APK_BIN?.trim() || "apk";
+  const baseVersion = env.IMMORTALWRT_BASE_VERSION?.trim() || "25.12.2";
+
+  return { sessionSecret, adminPasswordHash, databasePath, appOrigin, secureCookies, apkBin, baseVersion };
 }
 
 let cached: AppConfig | undefined;
