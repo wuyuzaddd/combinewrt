@@ -60,4 +60,23 @@ export const MIGRATIONS: Migration[] = [
         ON catalog_packages (snapshot_id, category);
     `,
   },
+  {
+    version: "003_builds",
+    sql: `
+      CREATE TABLE IF NOT EXISTS builds (
+        id TEXT PRIMARY KEY,
+        plan_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        run_id TEXT,
+        adapter TEXT NOT NULL,
+        log_tail TEXT NOT NULL DEFAULT '',
+        error TEXT,
+        artifact_name TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS builds_created_at ON builds (created_at DESC);
+    `,
+  },
 ];

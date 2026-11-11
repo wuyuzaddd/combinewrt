@@ -2,7 +2,7 @@
 
 自用 OpenWrt 固件在线构建站。公开页面只读，管理员登录后可提交构建、查看历史与下载产物。
 
-当前进度：ticket 03（站点骨架、管理员会话、目录快照与浏览、构建表单与计划预览）。构建编排与镜像产物在后续 ticket 中实现。
+当前进度：ticket 04（站点骨架、管理员会话、目录快照、构建表单与计划预览、派发与状态轮询 stub）。真实 ImageBuilder 构建与产物在 ticket 05 接入。
 
 ## 技术栈
 
@@ -40,6 +40,11 @@ npm run dev
 | `APP_ORIGIN` | 否 | 站点对外绝对地址（含协议），默认 `http://localhost:3000`；生产必须是 `https://` |
 | `APK_BIN` | 否 | apk-tools 3 可执行文件，用于读取 feed 的 `packages.adb`；默认 `apk`。目录刷新需要它 |
 | `IMMORTALWRT_BASE_VERSION` | 否 | 锁定的 ImmortalWrt 版本，默认 `25.12.2` |
+| `BUILD_ADAPTER` | 否 | `fake`（默认，本地 stub）或 `github`（派发到真实 Actions） |
+| `BUILD_REPO` | 条件 | `owner/repo`；`BUILD_ADAPTER=github` 时必填 |
+| `BUILD_REPO_TOKEN` | 条件 | 仅授权该仓库 `Actions: write` 的 PAT；`github` 适配器必填 |
+| `BUILD_WORKFLOW` | 否 | 构建仓库内的工作流文件名，默认 `build.yml` |
+| `BUILD_REF` | 否 | 工作流所在分支，默认 `main` |
 
 缺少必填项或格式错误时，进程启动即失败，并一次性列出全部问题。
 
@@ -55,6 +60,23 @@ npm run dev
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest 单次运行 |
 | `npm run hash-password -- '<password>'` | 生成管理员密码哈希 |
+
+## 构建派发（ticket 04）
+
+`/build` 提交后创建 Build 记录并调用适配器派发，跳转到 `/builds/<id>`；详情页每 4 秒刷新一次状态，展示日志尾部、失败原因与产物下载按钮。
+
+- 默认 `BUILD_ADAPTER=fake`：进程内假 run（queued → running → succeeded），只用于本地联调，不会产生真实固件。
+- `BUILD_ADAPTER=github`：向 `BUILD_REPO` 派发 `BUILD_WORKFLOW`，按 `run-name` 里的 build id 找回 run；完成后拉取日志尾部与产物，经站点鉴权代理下载。
+- 失败原因优先取结论，其次从日志末尾的 `error`/`failed` 行提取摘要。
+- 站点只保存运行元数据；产物保留 30 天后由 GitHub 清理，届时下载返回 409/502。
+
+### 首次部署（GitHub Actions）
+
+1. 新建公开构建仓库，放入 `build-workflow/build.yml`（stub 模板；ticket 05 会替换为真实 ImageBuilder 构建）。
+2. 工作流必须在 `BUILD_REF`（默认 `main`）上；`run-name` 需包含 `${{ inputs.build_id }}`，否则站点无法匹配 run。
+3. 创建仅授权该仓库的 fine-grained PAT：`Actions: write`（派发/读日志/读产物）。放到 `BUILD_REPO_TOKEN`，不要提交。
+4. 配置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REF=main`，重启站点；缺配置会启动失败并列出全部问题。
+5. 注意：公开仓库的 Actions 日志与产物对所有人可见，不要把 secret 写进构建输入。
 
 ## 目录快照（ticket 02）
 
@@ -73,6 +95,22 @@ export APK_BIN="$PWD/immortalwrt-imagebuilder-25.12.2-x86-64.Linux-x86_64/stagin
 ```
 
 该包装脚本依赖同目录 `../lib/`，不要只拷 `apk` 文件。也可以安装发行版自带的 apk-tools 3。
+
+## 构建派发（ticket 04）
+
+提交构建表单后，站点把 BuildPlan 存库并派发到公开构建仓库的 GitHub Actions：
+
+- `BUILD_ADAPTER=fake`（默认）：进程内 stub，不联网；用于开发与端到端验证（排队→运行→成功，产出 dummy zip）。
+- `BUILD_ADAPTER=github`：对 `BUILD_REPO` 的 `BUILD_WORKFLOW` 发 `workflow_dispatch`，按 run 轮询状态、日志尾部与 artifact。
+
+配置步骤：
+
+1. 建一个 public 构建仓库（如 `you/combinewrt-build`），把 `build-workflow/build.yml` 复制到它的 `.github/workflows/build.yml`。
+2. 建 fine-grained PAT，只授权该仓库 `Actions: write`（读取日志与产物还需要 `Actions: read`）。
+3. 站点环境设置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REPO_TOKEN=github_pat_...`；缺任一项启动即报错，不会静默降级。
+4. 登录后在 `/build` 生成计划 → 开始构建；`/builds` 列表与详情页每 4 秒轮询状态。产物经 `/api/builds/<id>/artifact` 鉴权代理下载，token 只存在服务端。
+
+注意：公开仓库的 Actions 日志是公开的，工作流里禁止 `echo` 任何密码；root 密码只以 crypt hash 进入生成文件。本票工作流只上传 dummy 产物，真实 ImageBuilder 在 ticket 05 接入。
 
 ## 测试与 CI
 
@@ -102,7 +140,7 @@ export APK_BIN="$PWD/immortalwrt-imagebuilder-25.12.2-x86-64.Linux-x86_64/stagin
    ```
 
 5. **备份**：定期备份 SQLite；WAL 模式下用 `sqlite3 data/combinewrt.db ".backup backup.db"`，不要只拷主文件。
-6. **公开构建仓库（后续 ticket）**：创建 public 的 build 仓库；fine-grained PAT 只授予该仓库 `Actions: write`。约定环境变量为 `BUILD_REPO=owner/repo` 与 `BUILD_REPO_TOKEN=github_pat_...`（ticket 04/05 接入，当前版本尚未读取）；PAT 只放在站点服务器的环境变量/secret 中，不下发前端。工作流日志公开，禁止 `echo` 密码，root 密码只以 crypt hash 传给构建。
+6. **公开构建仓库**：创建 public 的 build 仓库，放入 `build-workflow/build.yml`；fine-grained PAT 只授予该仓库 `Actions: write`。设置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REPO_TOKEN=github_pat_...`（详见“构建派发”）。PAT 只放在站点服务器的环境变量/secret 中，不下发前端。工作流日志公开，禁止 `echo` 密码，root 密码只以 crypt hash 传给构建。
 7. **产物下载**：构建产物放 workflow artifact（保留 30 天），站点用 token 代理下载；不要把大文件提交进 git。
 
 ## 安全说明
@@ -115,9 +153,12 @@ export APK_BIN="$PWD/immortalwrt-imagebuilder-25.12.2-x86-64.Linux-x86_64/stagin
 ## 目录
 
 ```text
-src/app/                页面与 route handlers（/api/login、/api/logout、/api/health、/api/catalog/*、/api/build/plan）
+src/app/                页面与 route handlers（/api/login、/api/logout、/api/health、/api/catalog/*、/api/build/plan、/api/builds/*）
 src/app/catalog/        目录浏览与包详情
 src/app/build/          构建表单与计划预览
+src/app/builds/         构建历史、详情与状态轮询
+src/lib/builds/         构建记录、派发适配器（fake/github）与状态服务
+build-workflow/         构建仓库用的 stub 工作流模板
 src/lib/auth/           会话、密码、限速、登录服务
 src/lib/catalog/        profiles/adb 解析、快照存储、刷新服务与 ImmortalWrt 数据源
 src/lib/build/          表单校验、依赖解析、冲突、密码哈希、uci-defaults 与计划

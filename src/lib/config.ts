@@ -8,6 +8,11 @@ export interface AppConfig {
   secureCookies: boolean;
   apkBin: string;
   baseVersion: string;
+  buildAdapter: "github" | "fake";
+  buildWorkflow: string;
+  buildRef: string;
+  buildRepo: string;
+  buildRepoToken: string;
 }
 
 export class ConfigError extends Error {
@@ -52,6 +57,27 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     issues.push("APP_ORIGIN must be a valid http:// or https:// URL");
   }
 
+  const buildAdapter = env.BUILD_ADAPTER?.trim() || "fake";
+  if (buildAdapter !== "github" && buildAdapter !== "fake") {
+    issues.push("BUILD_ADAPTER must be either github or fake");
+  }
+
+  const buildWorkflow = env.BUILD_WORKFLOW?.trim() || "build.yml";
+  if (!/^[A-Za-z0-9._-]+$/.test(buildWorkflow)) {
+    issues.push("BUILD_WORKFLOW must be a workflow file name such as build.yml");
+  }
+  const buildRef = env.BUILD_REF?.trim() || "main";
+  const buildRepo = env.BUILD_REPO?.trim() || "";
+  const buildRepoToken = env.BUILD_REPO_TOKEN?.trim() || "";
+  if (buildAdapter === "github") {
+    if (!/^[^/\s]+\/[^/\s]+$/.test(buildRepo)) {
+      issues.push("BUILD_REPO must be owner/repo when BUILD_ADAPTER=github");
+    }
+    if (!buildRepoToken) {
+      issues.push("BUILD_REPO_TOKEN is required when BUILD_ADAPTER=github (a PAT with actions:write)");
+    }
+  }
+
   if (issues.length > 0) {
     throw new ConfigError(issues);
   }
@@ -59,7 +85,20 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const apkBin = env.APK_BIN?.trim() || "apk";
   const baseVersion = env.IMMORTALWRT_BASE_VERSION?.trim() || "25.12.2";
 
-  return { sessionSecret, adminPasswordHash, databasePath, appOrigin, secureCookies, apkBin, baseVersion };
+  return {
+    sessionSecret,
+    adminPasswordHash,
+    databasePath,
+    appOrigin,
+    secureCookies,
+    apkBin,
+    baseVersion,
+    buildAdapter: buildAdapter as "github" | "fake",
+    buildWorkflow,
+    buildRef,
+    buildRepo,
+    buildRepoToken,
+  };
 }
 
 let cached: AppConfig | undefined;

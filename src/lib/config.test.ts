@@ -46,6 +46,38 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ SESSION_SECRET: "short", ADMIN_PASSWORD_HASH: HASH })).toThrow(/32/);
   });
 
+  it("requires repo and token for the github adapter", () => {
+    expect(() =>
+      loadConfig({ SESSION_SECRET: SECRET, ADMIN_PASSWORD_HASH: HASH, BUILD_ADAPTER: "github" }),
+    ).toThrow(/BUILD_REPO/);
+    expect(() =>
+      loadConfig({
+        SESSION_SECRET: SECRET,
+        ADMIN_PASSWORD_HASH: HASH,
+        BUILD_ADAPTER: "github",
+        BUILD_REPO: "me/build",
+      }),
+    ).toThrow(/BUILD_REPO_TOKEN/);
+  });
+
+  it("accepts a configured github adapter", () => {
+    const config = loadConfig({
+      SESSION_SECRET: SECRET,
+      ADMIN_PASSWORD_HASH: HASH,
+      BUILD_ADAPTER: "github",
+      BUILD_REPO: "me/build",
+      BUILD_REPO_TOKEN: "token",
+    });
+    expect(config.buildAdapter).toBe("github");
+    expect(config.buildRepo).toBe("me/build");
+  });
+
+  it("rejects an unknown adapter", () => {
+    expect(() =>
+      loadConfig({ SESSION_SECRET: SECRET, ADMIN_PASSWORD_HASH: HASH, BUILD_ADAPTER: "jenkins" }),
+    ).toThrow(/BUILD_ADAPTER/);
+  });
+
   it("rejects a malformed password hash", () => {
     expect(() => loadConfig({ SESSION_SECRET: SECRET, ADMIN_PASSWORD_HASH: "plain" })).toThrow(/ADMIN_PASSWORD_HASH/);
   });

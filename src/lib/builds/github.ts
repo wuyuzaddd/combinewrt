@@ -1,0 +1,161 @@
+import { unzipSync } from "fflate";
+import type { BuildPlan } from "../build/types";
+import type { ArtifactDownload, BuildAdapter, RunUpdate } from "./types";
+
+const API = "https://api.github.com";
+
+export interface GitHubAdapterOptions {
+  repo: string;
+  token: string;
+  workflow: string;
+  ref?: string;
+  fetchImpl?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+interface WorkflowRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  created_at: string;
+  display_title?: string;
+}
+
+export function mapRunState(run: WorkflowRun): RunUpdate {
+  if (run.status !== "completed") {
+    return { status: run.status === "in_progress" ? "running" : "queued" };
+  }
+  if (run.conclusion === "success") {
+    return { status: "succeeded", error: null };
+  }
+  return { status: "failed", error: `workflow concluded with ${run.conclusion ?? "unknown"}` };
+}
+
+function tailLogs(zip: Uint8Array): string {
+  try {
+    const files = unzipSync(zip);
+    const text = Object.entries(files)
+      .filter(([name]) => name.endsWith(".txt"))
+      .map(([, content]) => new TextDecoder().decode(content))
+      .join("\n");
+    return text.length > 20_000 ? text.slice(-20_000) : text;
+  } catch {
+    return "";
+  }
+}
+
+export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter {
+  const {
+    repo,
+    token,
+    workflow,
+    ref = "main",
+    fetchImpl = fetch,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  } = options;
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+
+  async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await fetchImpl(`${API}${path}`, {
+      ...init,
+      headers: { ...headers, ...(init.headers as Record<string, string> | undefined) },
+    });
+    if (!response.ok) {
+      const body = (await response.text()).slice(0, 500);
+      throw new Error(`GitHub ${init.method ?? "GET"} ${path} failed: ${response.status} ${body}`);
+    }
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  }
+
+  return {
+    name: "github",
+
+    async dispatch(plan: BuildPlan, meta: { buildId: string; artifactName: string }) {
+      const dispatchedAt = Date.now();
+      await json(`/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
+        method: "POST",
+        body: JSON.stringify({
+          ref,
+          inputs: {
+            build_id: meta.buildId,
+            artifact_name: meta.artifactName,
+            profile: plan.profileId,
+            image_type: plan.imageType,
+          },
+        }),
+      });
+
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        const runs = await json<{ workflow_runs: WorkflowRun[] }>(
+          `/repos/${repo}/actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=10`,
+        );
+        const match = runs.workflow_runs.find((run) => {
+          const title = run.display_title ?? run.name ?? "";
+          return title.includes(meta.buildId) && Date.parse(run.created_at) >= dispatchedAt - 15_000;
+        });
+        if (match) return { runId: String(match.id) };
+        await sleep(1_000);
+      }
+      throw new Error("workflow was dispatched but no run appeared within 15 seconds");
+    },
+
+    async getRun(runId: string): Promise<RunUpdate> {
+      const run = await json<WorkflowRun>(`/repos/${repo}/actions/runs/${runId}`);
+      const update = mapRunState(run);
+
+      try {
+        const logs = await fetchImpl(`${API}/repos/${repo}/actions/runs/${runId}/logs`, { headers });
+        if (logs.ok) {
+          const text = tailLogs(new Uint8Array(await logs.arrayBuffer()));
+          if (text) {
+            update.logTail = text;
+            if (update.status === "failed") update.error = summarizeFailure(text);
+          }
+        }
+      } catch {
+        // logs are best-effort; status remains authoritative
+      }
+
+      try {
+        const artifacts = await json<{ artifacts: { name: string }[] }>(`/repos/${repo}/actions/runs/${runId}/artifacts`);
+        update.artifactName = artifacts.artifacts[0]?.name ?? null;
+      } catch {
+        // artifacts may not exist yet
+      }
+
+      return update;
+    },
+
+    async downloadArtifact(runId: string, artifactName: string): Promise<ArtifactDownload> {
+      const artifacts = await json<{ artifacts: { name: string; archive_download_url: string }[] }>(
+        `/repos/${repo}/actions/runs/${runId}/artifacts`,
+      );
+      const artifact = artifacts.artifacts.find((item) => item.name === artifactName);
+      if (!artifact) throw new Error(`artifact ${artifactName} is no longer available`);
+
+      const response = await fetchImpl(artifact.archive_download_url, { headers });
+      if (!response.ok) throw new Error(`artifact download failed: ${response.status}`);
+      return {
+        name: `${artifact.name}.zip`,
+        contentType: "application/zip",
+        body: new Uint8Array(await response.arrayBuffer()),
+      };
+    },
+  };
+}
+
+export function summarizeFailure(log: string): string {
+  const lines = log
+    .split("\n")
+    .map((line) => line.replace(/\u001b\[[0-9;]*m/g, "").trim())
+    .filter(Boolean);
+  const relevant = lines.filter((line) => /error|failed|exit code|not found|denied/i.test(line));
+  const picked = (relevant.length > 0 ? relevant : lines).slice(-6).join(" | ");
+  return picked ? `workflow failed: ${picked.slice(0, 600)}` : "workflow failed";
+}

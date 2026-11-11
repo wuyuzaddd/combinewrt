@@ -50,6 +50,7 @@ export function BuildForm({ baseVersion, profiles }: Props) {
   const [issues, setIssues] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -173,6 +174,35 @@ export function BuildForm({ baseVersion, profiles }: Props) {
       setError("请求失败，请检查网络后重试。");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function dispatchBuild() {
+    if (!plan || plan.conflicts.length > 0) return;
+    setDispatching(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/builds", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...form, rootPassword: password }),
+      });
+      const data = (await response.json()) as { ok: boolean; build?: { id: string }; issues?: string[]; error?: string };
+      if (response.status === 401) {
+        router.push("/login?next=/build");
+        return;
+      }
+      if (!response.ok) {
+        setIssues(data.issues ?? []);
+        setError(data.error ?? "构建派发失败");
+        return;
+      }
+      router.push(`/builds/${data.build!.id}`);
+    } catch {
+      setError("请求失败，请检查网络后重试。");
+    } finally {
+      setDispatching(false);
     }
   }
 
@@ -430,6 +460,15 @@ export function BuildForm({ baseVersion, profiles }: Props) {
               <p className="text-xs uppercase tracking-wider text-slate-500">ImageBuilder 命令</p>
               <pre className="mt-1 overflow-auto rounded bg-slate-950 p-2 text-xs text-slate-300">{plan.imageBuilderCommand}</pre>
             </div>
+
+            <button
+              className="w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50"
+              disabled={dispatching || plan.conflicts.length > 0}
+              onClick={dispatchBuild}
+              type="button"
+            >
+              {dispatching ? "派发中…" : "开始构建"}
+            </button>
           </>
         )}
       </aside>
