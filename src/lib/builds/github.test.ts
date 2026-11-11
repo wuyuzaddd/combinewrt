@@ -56,8 +56,8 @@ describe("github adapter", () => {
     const [, secondCall] = fetchImpl.mock.calls;
     expect(String(secondCall[0])).toContain("/actions/workflows/build.yml/runs");
     const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
-    expect(body.inputs.build_id).toBe("b1");
-    const payload = JSON.parse(body.inputs.plan);
+    expect(body.event_type).toBe("combinewrt-build");
+    const payload = body.client_payload;
     expect(payload.buildId).toBe("b1");
     expect(payload.artifactName).toBe("image.gz");
     expect(payload.profileId).toBe("generic");

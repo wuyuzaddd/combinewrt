@@ -50,7 +50,6 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     repo,
     token,
     workflow,
-    ref = "main",
     fetchImpl = fetch,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = options;
@@ -84,7 +83,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     async findRun(buildId: string): Promise<string | null> {
       for (let attempt = 0; attempt < 15; attempt += 1) {
         const runs = await json<{ workflow_runs: WorkflowRun[] }>(
-          `/repos/${repo}/actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=20`,
+          `/repos/${repo}/actions/workflows/${workflow}/runs?event=repository_dispatch&per_page=20`,
         );
         const match = runs.workflow_runs.find((run) => {
           const title = run.display_title ?? run.name ?? "";
@@ -108,14 +107,11 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
         artifactName: meta.artifactName,
         imageBuilderCommand: plan.imageBuilderCommand,
       };
-      await json(`/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
+      await json(`/repos/${repo}/dispatches`, {
         method: "POST",
         body: JSON.stringify({
-          ref,
-          inputs: {
-            build_id: meta.buildId,
-            plan: JSON.stringify(payload),
-          },
+          event_type: "combinewrt-build",
+          client_payload: payload,
         }),
       });
 
@@ -151,11 +147,12 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
         const picked = expectedArtifactName
           ? artifacts.artifacts.find((item) => item.name === expectedArtifactName)
           : artifacts.artifacts[0];
-        update.artifactName = picked?.name ?? null;
+        if (picked) update.artifactName = picked.name;
       } catch {
         // artifacts may not exist yet
       }
 
+      update.artifactName = update.artifactName ?? null;
       return update;
     },
 

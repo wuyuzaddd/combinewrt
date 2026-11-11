@@ -9,7 +9,6 @@ export function createAdapter(config: AppConfig): BuildAdapter {
       repo: config.buildRepo,
       token: config.buildRepoToken,
       workflow: config.buildWorkflow,
-      ref: config.buildRef,
     });
   }
   if (config.buildAdapter === "fake") return createFakeAdapter();

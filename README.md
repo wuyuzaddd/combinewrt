@@ -44,7 +44,6 @@ npm run dev
 | `BUILD_REPO` | 条件 | `owner/repo`；`BUILD_ADAPTER=github` 时必填 |
 | `BUILD_REPO_TOKEN` | 条件 | 仅授权该仓库 `Actions: write` 的 PAT；`github` 适配器必填 |
 | `BUILD_WORKFLOW` | 否 | 构建仓库内的工作流文件名，默认 `build.yml` |
-| `BUILD_REF` | 否 | 工作流所在分支，默认 `main` |
 
 缺少必填项或格式错误时，进程启动即失败，并一次性列出全部问题。
 
@@ -74,9 +73,9 @@ npm run dev
 ### 首次部署（GitHub Actions）
 
 1. 新建公开构建仓库，把 `build-workflow/build.yml` 复制到 `.github/workflows/build.yml`（GitHub 只执行该路径）。
-2. 工作流必须在 `BUILD_REF`（默认 `main`）上，且 dispatch 时已存在；`workflow_dispatch` 只声明 `build_id` 与 `plan` 两个 string inputs，`run-name` 含 `${{ inputs.build_id }}`，否则 GitHub 422 或站点匹配不到 run。
+2. 工作流必须由仓库默认分支提供（`repository_dispatch` 不支持指定 ref），事件类型为 `combinewrt-build`；工作流从 `github.event.client_payload` 读取计划，`run-name` 使用 `${{ github.event.client_payload.buildId }}`，否则站点匹配不到 run。
 3. 创建仅授权该仓库的 fine-grained PAT：`Actions: read and write`（派发、读日志、读产物），`Contents: read`。放到 `BUILD_REPO_TOKEN`，不要提交。
-4. 配置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REF=main`，重启站点；缺配置会启动失败并列出全部问题。
+4. 配置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`，重启站点；缺配置会启动失败并列出全部问题。
 5. 公开仓库的 Actions 日志与产物对所有人可见，不要把 secret 写进构建输入；公开镜像不要包含 fastnet/linkease 等许可未清的包。
 
 ## 目录快照（ticket 02）

@@ -1,18 +1,10 @@
-name: image
+name: combinewrt image
 
 on:
-  workflow_dispatch:
-    inputs:
-      build_id:
-        description: combinewrt build id
-        required: true
-        type: string
-      plan:
-        description: JSON build plan
-        required: true
-        type: string
+  repository_dispatch:
+    types: [combinewrt-build]
 
-run-name: combinewrt-${{ inputs.build_id }}
+run-name: combinewrt-${{ github.event.client_payload.buildId }}
 
 permissions:
   contents: read
@@ -22,13 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Parse plan
-        env:
-          PLAN: ${{ inputs.plan }}
+      - name: Prepare plan
         run: |
           set -euo pipefail
-          echo "$PLAN" | jq -e '.artifactName and .imageType and .profileId and .baseVersion' >/dev/null
-          echo "PLAN_ARTIFACT=$(echo "$PLAN" | jq -r .artifactName)" >> "$GITHUB_ENV"
+          jq '.client_payload' "$GITHUB_EVENT_PATH" > plan.json
+          jq -e '.artifactName and .imageType and .profileId and .baseVersion' plan.json >/dev/null
+          echo "PLAN_ARTIFACT=$(jq -r .artifactName plan.json)" >> "$GITHUB_ENV"
 
       - name: Install tools
         run: |
@@ -36,11 +27,9 @@ jobs:
           sudo apt-get install -y -qq zstd jq qemu-utils genisoimage
 
       - name: Download ImageBuilder
-        env:
-          PLAN: ${{ inputs.plan }}
         run: |
           set -euo pipefail
-          BASE=$(echo "$PLAN" | jq -r .baseVersion)
+          BASE=$(jq -r .baseVersion plan.json)
           URL="https://downloads.immortalwrt.org/releases/${BASE}/targets/x86/64/immortalwrt-imagebuilder-${BASE}-x86-64.Linux-x86_64.tar.zst"
           echo "Downloading $URL"
           curl -fL --retry 3 --retry-delay 5 -o ib.tar.zst "$URL"
@@ -49,12 +38,10 @@ jobs:
           tar --zstd -xf ib.tar.zst -C ib --strip-components=1
 
       - name: Write files
-        env:
-          PLAN: ${{ inputs.plan }}
         run: |
           set -euo pipefail
           cd ib
-          echo "$PLAN" | jq -c '.files[]' | while IFS= read -r file; do
+          jq -c '.files[]' ../plan.json | while IFS= read -r file; do
             path=$(echo "$file" | jq -r .path)
             mode=$(echo "$file" | jq -r '.mode // 420')
             mkdir -p "$(dirname "$path")"
@@ -62,17 +49,14 @@ jobs:
             chmod "$(printf '%o' "$mode")" "$path"
           done
           find files -type f | sort
-          echo '--- uci-defaults ---'
-          cat files/etc/uci-defaults/99-combinewrt
+          echo 'uci-defaults written (contents not printed: they contain the root password hash)'
 
       - name: Build image
-        env:
-          PLAN: ${{ inputs.plan }}
         run: |
           set -euo pipefail
           cd ib
-          PROFILE=$(echo "$PLAN" | jq -r .profileId)
-          PACKAGES=$(echo "$PLAN" | jq -r '.packages | join(" ")')
+          PROFILE=$(jq -r .profileId ../plan.json)
+          PACKAGES=$(jq -r '.packages | join(" ")' ../plan.json)
           echo "COMBINEWRT_PROFILE=$PROFILE"
           echo "COMBINEWRT_PACKAGES=$PACKAGES"
           echo "COMBINEWRT_MAKE=make -j$(nproc) image PROFILE=\"$PROFILE\" PACKAGES=\"$PACKAGES\" FILES=files"
@@ -80,12 +64,10 @@ jobs:
             CONFIG_ISO_IMAGES= CONFIG_QCOW2_IMAGES= CONFIG_VDI_IMAGES= CONFIG_VMDK_IMAGES= CONFIG_VHDX_IMAGES= 2>&1 | tee build.log
 
       - name: Package artifact
-        env:
-          PLAN: ${{ inputs.plan }}
         run: |
           set -euo pipefail
           cd ib
-          ARTIFACT=$(echo "$PLAN" | jq -r .artifactName)
+          ARTIFACT=$(jq -r .artifactName ../plan.json)
           IMG=$(find bin/targets -type f -name "$ARTIFACT" | head -1)
           if [ -z "$IMG" ]; then
             echo "expected artifact $ARTIFACT was not produced" >&2
@@ -95,8 +77,8 @@ jobs:
           gzip -t "$IMG"
           SHA=$(sha256sum "$IMG" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$IMG")
-          jq -c -n --arg artifactName "$ARTIFACT" --arg sha256 "$SHA" --argjson size "$SIZE" \
-            '{artifactName:$artifactName,sha256:$sha256,size:$size}' > manifest.json
+          jq -c -n --arg artifactName "$ARTIFACT" --arg path "$PWD/$IMG" --arg sha256 "$SHA" --argjson size "$SIZE" \
+            '{artifactName:$artifactName,path:$path,sha256:$sha256,size:$size}' > manifest.json
           cat manifest.json
           echo "COMBINEWRT_MANIFEST=$(cat manifest.json)"
           echo "ARTIFACT_PATH=$PWD/$IMG" >> "$GITHUB_ENV"
