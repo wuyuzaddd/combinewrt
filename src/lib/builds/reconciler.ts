@@ -35,8 +35,11 @@ export function createReconciler(
     start() {
       if (timer) return;
       logger.error("[combinewrt] reconciler started");
-      void sweep();
-      timer = setInterval(() => void sweep(), intervalMs);
+      void sweep().catch((error) => logger.error("[combinewrt] reconciler sweep failed", error));
+      timer = setInterval(
+        () => void sweep().catch((error) => logger.error("[combinewrt] reconciler sweep failed", error)),
+        intervalMs,
+      );
       timer.unref?.();
     },
     stop() {

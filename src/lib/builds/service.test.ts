@@ -7,7 +7,7 @@ import { migrate, openDatabase } from "../db";
 import { createFakeAdapter } from "./fake";
 import { createBuildService } from "./service";
 import { createBuildStore } from "./store";
-import type { BuildAdapter, BuildRecord } from "./types";
+import type { BuildAdapter, BuildRecord, RunUpdate } from "./types";
 
 const dirs: string[] = [];
 
@@ -182,4 +182,51 @@ describe("build service resilience", () => {
     expect(finished?.status).toBe("succeeded");
     expect(finished?.artifactName).toBe("done.zip");
   });
+  it("re-enriches a terminal build that is missing its artifact", async () => {
+    const db = database();
+    const store = createBuildStore(db);
+    const updates: RunUpdate[] = [{ status: "succeeded" }, { status: "succeeded", artifactName: "late.zip" }];
+    const adapter: BuildAdapter = {
+      name: "github",
+      dispatch: async () => ({ runId: "r1" }),
+      findRun: async () => "r1",
+      getRun: async () => updates.shift() ?? { status: "succeeded" },
+      downloadArtifact: async () => ({ name: "x", contentType: "application/zip", body: new Uint8Array() }),
+    };
+    const service = createBuildService({ store, adapter });
+
+    const build = await service.submit(plan());
+    expect((await service.refresh(build.id))?.artifactName).toBeNull();
+    expect((await service.refresh(build.id))?.artifactName).toBe("late.zip");
+  });
+
+  it("does not let a stale poll overwrite a newer terminal state", async () => {
+    const db = database();
+    const store = createBuildStore(db);
+    let release: (update: RunUpdate) => void = () => {};
+    const gate = new Promise<RunUpdate>((resolve) => {
+      release = resolve;
+    });
+    const adapter: BuildAdapter = {
+      name: "github",
+      dispatch: async () => ({ runId: "r1" }),
+      findRun: async () => "r1",
+      getRun: async () => gate,
+      downloadArtifact: async () => ({ name: "x", contentType: "application/zip", body: new Uint8Array() }),
+    };
+    const service = createBuildService({ store, adapter });
+
+    const build = await service.submit(plan());
+    const pending = service.refresh(build.id);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Another poll (or process) finishes first.
+    store.update(build.id, { status: "succeeded", artifactName: "new.zip", logTail: "ok" }, build.updatedAt);
+    release({ status: "running" });
+
+    const result = await pending;
+    expect(result?.status).toBe("succeeded");
+    expect(result?.artifactName).toBe("new.zip");
+  });
+
 });

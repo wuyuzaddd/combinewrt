@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { BuildPlan } from "../build/types";
 import type { BuildStore } from "./store";
-import type { ArtifactDownload, BuildAdapter, BuildRecord } from "./types";
+import type { ArtifactDownload, BuildAdapter, BuildRecord, BuildStatus } from "./types";
 
 const LOG_LIMIT = 20_000;
+
+function isTerminal(status: BuildStatus): boolean {
+  return status === "succeeded" || status === "failed";
+}
 
 function tail(text: string | undefined): string | undefined {
   if (text === undefined) return undefined;
@@ -29,10 +33,16 @@ export function createBuildService(options: {
   const inFlight = new Map<string, Promise<BuildRecord | null>>();
   const lastPoll = new Map<string, number>();
 
+  function needsEnrichment(record: BuildRecord): boolean {
+    if (isTerminal(record.status) === false) return false;
+    if (Date.now() - Date.parse(record.updatedAt) > 60 * 60 * 1000) return false;
+    return record.status === "succeeded" ? !record.artifactName : !record.logTail;
+  }
+
   function refresh(id: string): Promise<BuildRecord | null> {
     const record = store.get(id);
     if (!record) return Promise.resolve(null);
-    if (record.status === "succeeded" || record.status === "failed") return Promise.resolve(record);
+    if (isTerminal(record.status) && !needsEnrichment(record)) return Promise.resolve(record);
 
     const running = inFlight.get(id);
     if (running) return running;
@@ -51,7 +61,7 @@ export function createBuildService(options: {
   async function pollOnce(id: string): Promise<BuildRecord | null> {
     const record = store.get(id);
     if (!record) return null;
-    if (record.status === "succeeded" || record.status === "failed") return record;
+    if (isTerminal(record.status) && !needsEnrichment(record)) return record;
     if (!record.runId) {
       const age = now().getTime() - Date.parse(record.createdAt);
       if (age > 120_000) {
@@ -66,7 +76,7 @@ export function createBuildService(options: {
     }
 
     try {
-      const update = await adapter.getRun(record.runId);
+      const update = await adapter.getRun(record.runId, record.plan.artifactName);
       return store.update(
         id,
         {
@@ -78,9 +88,11 @@ export function createBuildService(options: {
         record.updatedAt,
       );
     } catch (error) {
-      return store.update(id, {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      return store.update(
+        id,
+        { error: error instanceof Error ? error.message : String(error) },
+        record.updatedAt,
+      );
     }
   }
 

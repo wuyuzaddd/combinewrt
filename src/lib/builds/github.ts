@@ -113,7 +113,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
       return { runId: await this.findRun(meta.buildId) };
     },
 
-    async getRun(runId: string): Promise<RunUpdate> {
+    async getRun(runId: string, expectedArtifactName?: string): Promise<RunUpdate> {
       const run = await json<WorkflowRun>(`/repos/${repo}/actions/runs/${runId}`);
       const update = mapRunState(run);
       if (run.status !== "completed") return update;
@@ -133,7 +133,10 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
 
       try {
         const artifacts = await json<{ artifacts: { name: string }[] }>(`/repos/${repo}/actions/runs/${runId}/artifacts`);
-        update.artifactName = artifacts.artifacts[0]?.name ?? null;
+        const picked = expectedArtifactName
+          ? artifacts.artifacts.find((item) => item.name === expectedArtifactName)
+          : artifacts.artifacts[0];
+        update.artifactName = picked?.name ?? null;
       } catch {
         // artifacts may not exist yet
       }
@@ -155,6 +158,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
       return {
         name: `${artifact.name}.zip`,
         contentType: "application/zip",
+        size: Number(response.headers.get("content-length") ?? "0") || undefined,
         body: response.body ?? new Uint8Array(await response.arrayBuffer()),
       };
     },

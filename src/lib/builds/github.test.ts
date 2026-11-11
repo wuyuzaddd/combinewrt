@@ -139,4 +139,30 @@ describe("github adapter", () => {
     const streamed = new Uint8Array(await new Response(artifact.body as BodyInit).arrayBuffer());
     expect(streamed).toEqual(body);
   });
+  it("picks the artifact the site asked for", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response({
+          id: 7,
+          name: "CI",
+          status: "completed",
+          conclusion: "success",
+          created_at: "2026-11-11T00:00:00Z",
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(response({ artifacts: [{ name: "debug-log" }, { name: "image.gz" }] }));
+
+    const adapter = createGitHubAdapter({
+      repo: "me/build",
+      token: "t",
+      workflow: "build.yml",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const update = await adapter.getRun("7", "image.gz");
+    expect(update.artifactName).toBe("image.gz");
+  });
+
 });

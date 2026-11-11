@@ -67,6 +67,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     issues.push("BUILD_WORKFLOW must be a workflow file name such as build.yml");
   }
   const buildRef = env.BUILD_REF?.trim() || "main";
+  if (!/^[A-Za-z0-9._/-]+$/.test(buildRef)) {
+    issues.push("BUILD_REF must be a branch or tag name");
+  }
   const buildRepo = env.BUILD_REPO?.trim() || "";
   const buildRepoToken = env.BUILD_REPO_TOKEN?.trim() || "";
   if (buildAdapter === "github") {

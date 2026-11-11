@@ -18,14 +18,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Stub build
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+          PROFILE: ${{ inputs.profile }}
+          IMAGE_TYPE: ${{ inputs.image_type }}
         run: |
           echo "combinewrt stub build"
-          echo "build_id=${{ inputs.build_id }}"
-          echo "profile=${{ inputs.profile }}"
-          echo "image_type=${{ inputs.image_type }}"
+          echo "build_id=$BUILD_ID"
+          echo "profile=$PROFILE"
+          echo "image_type=$IMAGE_TYPE"
           sleep 5
           mkdir -p out
-          echo "dummy artifact for ${{ inputs.build_id }}" > out/dummy.txt
+          echo "dummy artifact for $BUILD_ID" > out/dummy.txt
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.artifact_name }}

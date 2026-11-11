@@ -61,6 +61,14 @@ describe("GET /api/builds/[id]/artifact", () => {
     expect(body.error).toContain("过期");
   });
 
+  it("returns the failure reason for a failed build", async () => {
+    state.build = { id: "b1", status: "failed", artifactName: null, error: "workflow concluded with failure" };
+    const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain("concluded");
+  });
+
   it("returns 502 for other upstream failures", async () => {
     state.throws = true;
     state.error = "GitHub GET /artifacts failed: 500";
@@ -72,7 +80,9 @@ describe("GET /api/builds/[id]/artifact", () => {
     state.artifact = { name: 'bad"name.zip', contentType: "application/zip", body: new Uint8Array([1, 2]) };
     const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-disposition")).toBe('attachment; filename="badname.zip"');
+    expect(response.headers.get("content-disposition")).toBe(
+      `attachment; filename="bad_name.zip"; filename*=UTF-8''bad%22name.zip`,
+    );
     expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 });

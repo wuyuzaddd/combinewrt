@@ -104,6 +104,12 @@ export function BuildForm({ baseVersion, profiles }: Props) {
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
+    setPlan(null);
+  }
+
+  function editForm(mutator: (current: FormState) => FormState) {
+    setForm(mutator);
+    setPlan(null);
   }
 
   function addCustom() {
@@ -114,19 +120,19 @@ export function BuildForm({ baseVersion, profiles }: Props) {
   }
 
   function addPackage(name: string) {
-    setForm((current) =>
+    editForm((current) =>
       current.packages.includes(name) ? current : { ...current, packages: [...current.packages, name] },
     );
   }
 
   function removePackage(name: string) {
-    setForm((current) => ({ ...current, packages: current.packages.filter((item) => item !== name) }));
+    editForm((current) => ({ ...current, packages: current.packages.filter((item) => item !== name) }));
   }
 
   function selectProfile(profileId: string) {
     const profile = profiles.find((item) => item.id === profileId);
     const formats: string[] = profile?.formats ?? [];
-    setForm((current) => ({
+    editForm((current) => ({
       ...current,
       profile: profileId,
       imageType: formats.includes(current.imageType) ? current.imageType : (formats[0] ?? current.imageType),
@@ -294,7 +300,10 @@ export function BuildForm({ baseVersion, profiles }: Props) {
             <input
               autoComplete="new-password"
               className={inputClass}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setPlan(null);
+              }}
               placeholder="8–128 字符，不会保存到浏览器"
               type="password"
               value={password}

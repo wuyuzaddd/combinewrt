@@ -7,7 +7,9 @@ import { preparePlanForForm } from "@/lib/builds/prepare";
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  return NextResponse.json({ ok: true, builds: getBuildService().list(50) });
+  const service = getBuildService();
+  await service.refreshActive(20);
+  return NextResponse.json({ ok: true, builds: service.list(50) });
 }
 
 export async function POST(request: Request) {
