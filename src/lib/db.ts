@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { getConfig } from "./config";
-import { MIGRATIONS, type Migration } from "./migrations";
+import { MIGRATIONS } from "./migrations";
 
 export function openDatabase(path: string): DatabaseSync {
   if (path !== ":memory:") {
@@ -14,7 +14,7 @@ export function openDatabase(path: string): DatabaseSync {
   return db;
 }
 
-export function migrate(db: DatabaseSync, migrations: Migration[] = MIGRATIONS): string[] {
+export function migrate(db: DatabaseSync): string[] {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY,
@@ -30,7 +30,7 @@ export function migrate(db: DatabaseSync, migrations: Migration[] = MIGRATIONS):
   );
 
   const appliedNow: string[] = [];
-  for (const migration of migrations) {
+  for (const migration of MIGRATIONS) {
     if (applied.has(migration.version)) continue;
 
     db.exec("BEGIN");

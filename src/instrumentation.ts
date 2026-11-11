@@ -6,6 +6,6 @@ export async function register() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[combinewrt] startup failed:\n${message}`);
-    throw error;
+    process.exit(1);
   }
 }

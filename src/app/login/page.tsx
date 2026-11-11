@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
+import { safeNextPath } from "@/lib/auth/next-path";
 import { LoginForm } from "./login-form";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
@@ -7,7 +8,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   if (session) redirect("/admin");
 
   const { next } = await searchParams;
-  const nextPath = next && next.startsWith("/") ? next : "/admin";
+  const nextPath = safeNextPath(next);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 px-6">

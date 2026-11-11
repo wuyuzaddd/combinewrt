@@ -8,9 +8,7 @@ export async function GET() {
     getDatabase().prepare("SELECT 1 AS ok").get();
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "unknown startup error" },
-      { status: 503 },
-    );
+    console.error("[combinewrt] health check failed:", error);
+    return NextResponse.json({ ok: false }, { status: 503 });
   }
 }

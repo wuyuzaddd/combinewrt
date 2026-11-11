@@ -47,7 +47,8 @@ npm run dev
 | --- | --- |
 | `npm run dev` | 开发服务器 |
 | `npm run build` | 生产构建 |
-| `npm start` | 启动生产构建 |
+| `npm start` | 启动生产构建（需先 `npm run build`） |
+| `npm run start:prod` | 构建后启动，首次部署一条命令 |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest 单次运行 |
@@ -60,7 +61,7 @@ npm run dev
 ## 首次部署清单
 
 1. **主机**：Node.js 24+，持久化磁盘存放 SQLite 与构建缓存，建议至少 2GB 内存。
-2. **反向代理**：Nginx/Caddy 终止 TLS，转发到 `127.0.0.1:3000`，并传递 `X-Forwarded-For` / `X-Forwarded-Proto`。
+2. **反向代理**：Nginx/Caddy 终止 TLS，转发到 `127.0.0.1:3000`，并**覆盖**（不是追加）`X-Forwarded-For` / `X-Real-IP` 与 `X-Forwarded-Proto`。登录限速按 IP 分桶，若代理放行客户端自带的转发头，攻击者可伪造 IP 绕过限速。
 3. **环境**：`APP_ORIGIN=https://your.domain`；`SESSION_SECRET` 用 `openssl rand -base64 48`；`ADMIN_PASSWORD_HASH` 离线生成；`DATABASE_PATH` 指到持久目录。
 4. **进程管理**：用 systemd 或容器托管，示例：
 
@@ -81,7 +82,7 @@ npm run dev
    ```
 
 5. **备份**：定期备份 SQLite；WAL 模式下用 `sqlite3 data/combinewrt.db ".backup backup.db"`，不要只拷主文件。
-6. **公开构建仓库（后续 ticket）**：创建 public 的 build 仓库；fine-grained PAT 只授予该仓库 `Actions: write`；PAT 只放在站点服务器的环境变量/secret 中，不下发前端。工作流日志公开，禁止 `echo` 密码，root 密码只以 crypt hash 传给构建。
+6. **公开构建仓库（后续 ticket）**：创建 public 的 build 仓库；fine-grained PAT 只授予该仓库 `Actions: write`。约定环境变量为 `BUILD_REPO=owner/repo` 与 `BUILD_REPO_TOKEN=github_pat_...`（ticket 04/05 接入，当前版本尚未读取）；PAT 只放在站点服务器的环境变量/secret 中，不下发前端。工作流日志公开，禁止 `echo` 密码，root 密码只以 crypt hash 传给构建。
 7. **产物下载**：构建产物放 workflow artifact（保留 30 天），站点用 token 代理下载；不要把大文件提交进 git。
 
 ## 安全说明

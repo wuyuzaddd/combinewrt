@@ -11,6 +11,7 @@ describe("loadConfig", () => {
     expect(config.adminPasswordHash).toBe(HASH);
     expect(config.databasePath).toBe("./data/combinewrt.db");
     expect(config.appOrigin).toBe("http://localhost:3000");
+    expect(config.secureCookies).toBe(false);
   });
 
   it("reports every missing variable at once", () => {
@@ -24,6 +25,21 @@ describe("loadConfig", () => {
       expect(issues.join("\n")).toContain("ADMIN_PASSWORD_HASH");
       expect(issues.join("\n")).toContain("npm run hash-password");
     }
+  });
+
+  it("marks cookies secure for https origins", () => {
+    const config = loadConfig({
+      SESSION_SECRET: SECRET,
+      ADMIN_PASSWORD_HASH: HASH,
+      APP_ORIGIN: "https://build.example.com",
+    });
+    expect(config.secureCookies).toBe(true);
+  });
+
+  it("rejects a malformed app origin", () => {
+    expect(() =>
+      loadConfig({ SESSION_SECRET: SECRET, ADMIN_PASSWORD_HASH: HASH, APP_ORIGIN: "ftp://example.com" }),
+    ).toThrow(/APP_ORIGIN/);
   });
 
   it("rejects a short session secret", () => {

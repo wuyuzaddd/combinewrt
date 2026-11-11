@@ -1,8 +1,11 @@
+import { PASSWORD_HASH_PATTERN } from "./auth/password-format";
+
 export interface AppConfig {
   sessionSecret: string;
   adminPasswordHash: string;
   databasePath: string;
   appOrigin: string;
+  secureCookies: boolean;
 }
 
 export class ConfigError extends Error {
@@ -14,8 +17,6 @@ export class ConfigError extends Error {
     this.issues = issues;
   }
 }
-
-const PASSWORD_HASH_PATTERN = /^scrypt\$[0-9a-f]{32}\$[0-9a-f]{128}$/;
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   const issues: string[] = [];
@@ -38,15 +39,22 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
   const databasePath = env.DATABASE_PATH?.trim() || "./data/combinewrt.db";
   const appOrigin = env.APP_ORIGIN?.trim() || "http://localhost:3000";
-  if (!/^https?:\/\//.test(appOrigin)) {
-    issues.push("APP_ORIGIN must start with http:// or https://");
+  let secureCookies = false;
+  try {
+    const origin = new URL(appOrigin);
+    if (origin.protocol !== "http:" && origin.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+    secureCookies = origin.protocol === "https:";
+  } catch {
+    issues.push("APP_ORIGIN must be a valid http:// or https:// URL");
   }
 
   if (issues.length > 0) {
     throw new ConfigError(issues);
   }
 
-  return { sessionSecret, adminPasswordHash, databasePath, appOrigin };
+  return { sessionSecret, adminPasswordHash, databasePath, appOrigin, secureCookies };
 }
 
 let cached: AppConfig | undefined;

@@ -1,21 +1,22 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import {
+  formatPasswordHash,
+  PASSWORD_HASH_PATTERN,
+  SCRYPT_KEY_BYTES,
+  SCRYPT_OPTIONS,
+  SCRYPT_SALT_BYTES,
+} from "./password-format";
 
-const SALT_BYTES = 16;
-const KEY_BYTES = 64;
-const SCRYPT_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
-
-export function hashPassword(password: string, salt: Buffer = randomBytes(SALT_BYTES)): string {
-  const derived = scryptSync(password, salt, KEY_BYTES, SCRYPT_OPTIONS);
-  return `scrypt$${salt.toString("hex")}$${derived.toString("hex")}`;
+export function hashPassword(password: string, salt: Buffer = randomBytes(SCRYPT_SALT_BYTES)): string {
+  const derived = scryptSync(password, salt, SCRYPT_KEY_BYTES, SCRYPT_OPTIONS);
+  return formatPasswordHash(salt, derived);
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
-  const parts = stored.split("$");
-  if (parts.length !== 3 || parts[0] !== "scrypt") return false;
-  const [, saltHex, hashHex] = parts;
-  if (!/^[0-9a-f]{32}$/.test(saltHex) || !/^[0-9a-f]{128}$/.test(hashHex)) return false;
+  if (!PASSWORD_HASH_PATTERN.test(stored)) return false;
 
+  const [, saltHex, hashHex] = stored.split("$");
   const expected = Buffer.from(hashHex, "hex");
-  const derived = scryptSync(password, Buffer.from(saltHex, "hex"), KEY_BYTES, SCRYPT_OPTIONS);
+  const derived = scryptSync(password, Buffer.from(saltHex, "hex"), SCRYPT_KEY_BYTES, SCRYPT_OPTIONS);
   return derived.length === expected.length && timingSafeEqual(derived, expected);
 }

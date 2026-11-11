@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   response.cookies.set(
     SESSION_COOKIE,
     result.token,
-    sessionCookieOptions(config.appOrigin.startsWith("https://")),
+    sessionCookieOptions(config.secureCookies),
   );
   return response;
 }
