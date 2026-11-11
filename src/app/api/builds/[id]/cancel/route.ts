@@ -15,5 +15,12 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   }
 
   const build = await service.cancel(id);
+  if (!build) return NextResponse.json({ ok: false, error: "build not found" }, { status: 404 });
+  if (build.status !== "cancelled") {
+    return NextResponse.json(
+      { ok: false, error: build.error ?? "cancellation failed" },
+      { status: 502 },
+    );
+  }
   return NextResponse.json({ ok: true, build });
 }

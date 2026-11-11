@@ -5,7 +5,7 @@ import { createBuildService, type BuildService } from "./service";
 import { createBuildStore } from "./store";
 
 import { createReconciler, type Reconciler } from "./reconciler";
-import { pruneArtifactCache } from "./retention";
+import { pruneArtifactCache, recordRetention } from "./retention";
 
 let cached: BuildService | undefined;
 let reconciler: Reconciler | undefined;
@@ -28,16 +28,24 @@ export function startRetention(): void {
     try {
       const config = getConfig();
       const result = pruneArtifactCache(config.artifactCacheDir, config.artifactRetentionDays);
-      const db = getDatabase();
-      const value = JSON.stringify({ at: new Date().toISOString(), ...result });
-      db.prepare(
-        "INSERT INTO app_meta (key, value) VALUES ('retention.last', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-      ).run(value);
+      recordRetention(getDatabase(), { at: new Date().toISOString(), ...result });
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       console.error("[combinewrt] artifact retention failed", error);
+      try {
+        recordRetention(getDatabase(), {
+          at: new Date().toISOString(),
+          removed: 0,
+          failed: [],
+          error: message,
+        });
+      } catch {
+        // the database may be unavailable during boot
+      }
     }
   };
-  run();
+  const first = setTimeout(run, 5_000);
+  first.unref();
   retentionTimer = setInterval(run, 24 * 60 * 60 * 1000);
   retentionTimer.unref();
 }

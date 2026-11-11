@@ -12,6 +12,18 @@ describe("loadConfig", () => {
     expect(config.databasePath).toBe("./data/combinewrt.db");
     expect(config.appOrigin).toBe("http://localhost:3000");
     expect(config.secureCookies).toBe(false);
+    expect(config.artifactRetentionDays).toBe(7);
+    expect(config.artifactCacheDir).toContain("artifacts");
+  });
+
+  it("rejects an out-of-range artifact retention", () => {
+    expect(() =>
+      loadConfig({
+        SESSION_SECRET: SECRET,
+        ADMIN_PASSWORD_HASH: HASH,
+        ARTIFACT_RETENTION_DAYS: "999",
+      }),
+    ).toThrow(/ARTIFACT_RETENTION_DAYS/);
   });
 
   it("reports every missing variable at once", () => {

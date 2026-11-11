@@ -21,6 +21,23 @@ describe("github adapter", () => {
       status: "failed",
       error: "workflow concluded with failure",
     });
+    expect(mapRunState({ id: 1, name: "", status: "completed", conclusion: "cancelled", created_at: "" }).status).toBe(
+      "cancelled",
+    );
+  });
+
+  it("cancels a run through the GitHub API", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(null, { status: 202 }));
+    const adapter = createGitHubAdapter({
+      repo: "me/build",
+      token: "token",
+      workflow: "build.yml",
+      fetchImpl,
+    });
+    await adapter.cancelRun!("42");
+    const [url, init] = fetchImpl.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe("https://api.github.com/repos/me/build/actions/runs/42/cancel");
+    expect(init.method).toBe("POST");
   });
 
   it("dispatches the workflow and finds the newest run", async () => {

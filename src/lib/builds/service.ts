@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { once } from "node:events";
+import { pipeline } from "node:stream/promises";
 import type { BuildPlan } from "../build/types";
 import type { BuildStore } from "./store";
 import type { ArtifactDownload, BuildAdapter, BuildRecord, BuildStatus } from "./types";
@@ -10,7 +10,7 @@ import type { ArtifactDownload, BuildAdapter, BuildRecord, BuildStatus } from ".
 const LOG_LIMIT = 20_000;
 
 function isTerminal(status: BuildStatus): boolean {
-  return status === "succeeded" || status === "failed";
+  return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
 function tail(text: string | undefined): string | undefined {
@@ -43,6 +43,7 @@ export function createBuildService(options: {
 
   function needsEnrichment(record: BuildRecord): boolean {
     if (isTerminal(record.status) === false) return false;
+    if (record.status === "cancelled") return false;
     if (Date.now() - Date.parse(record.updatedAt) > 60 * 60 * 1000) return false;
     return record.status === "succeeded" ? !record.artifactName : !record.logTail;
   }
@@ -198,44 +199,51 @@ export function createBuildService(options: {
           // cancellation already accepted; keep the last known log tail
         }
       }
-      return store.update(id, { status: "cancelled", logTail, error: null }, record.updatedAt);
+      let updated = store.update(id, { status: "cancelled", logTail, error: null }, record.updatedAt);
+      if (updated.status !== "cancelled") {
+        const latest = store.get(id);
+        if (latest && !isTerminal(latest.status)) {
+          updated = store.update(id, { status: "cancelled", logTail, error: null }, latest.updatedAt);
+        }
+      }
+      return updated;
     },
 
     async artifact(id) {
       const record = await refresh(id);
       if (!record || record.status !== "succeeded" || !record.runId || !record.artifactName) return null;
-      const download = await adapter.downloadArtifact(record.runId, record.artifactName);
 
-      if (!cacheDir) return download;
+      const cachedPath = cacheDir ? join(cacheDir, `${id}.zip`) : null;
+      if (cachedPath && existsSync(cachedPath)) {
+        return {
+          name: record.artifactName,
+          contentType: "application/zip",
+          size: statSync(cachedPath).size,
+          body: Readable.toWeb(createReadStream(cachedPath)) as ReadableStream<Uint8Array>,
+        };
+      }
+
+      const download = await adapter.downloadArtifact(record.runId, record.artifactName);
+      if (!cachedPath) return download;
+
       try {
-        mkdirSync(cacheDir, { recursive: true });
-        const path = join(cacheDir, `${id}.zip`);
-        if (!existsSync(path)) {
-          const tmp = `${path}.${randomUUID()}.tmp`;
+        mkdirSync(cacheDir!, { recursive: true });
+        const tmp = `${cachedPath}.${randomUUID()}.tmp`;
+        try {
           if (download.body instanceof Uint8Array) {
-            const { writeFileSync } = await import("node:fs");
             writeFileSync(tmp, download.body);
           } else {
-            const out = createWriteStream(tmp);
-            const reader = download.body.getReader();
-            try {
-              for (;;) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                if (!out.write(Buffer.from(value))) await once(out, "drain");
-              }
-            } finally {
-              reader.releaseLock();
-            }
-            await new Promise<void>((resolve, reject) => out.end((error?: Error | null) => (error ? reject(error) : resolve())));
+            await pipeline(Readable.fromWeb(download.body as never), createWriteStream(tmp));
           }
-          renameSync(tmp, path);
+          renameSync(tmp, cachedPath);
+        } catch (error) {
+          rmSync(tmp, { force: true });
+          throw error;
         }
-        const size = statSync(path).size;
         return {
           ...download,
-          size,
-          body: Readable.toWeb(createReadStream(path)) as ReadableStream<Uint8Array>,
+          size: statSync(cachedPath).size,
+          body: Readable.toWeb(createReadStream(cachedPath)) as ReadableStream<Uint8Array>,
         };
       } catch (error) {
         console.error("artifact cache failed", error);

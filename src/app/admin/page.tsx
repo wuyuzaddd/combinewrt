@@ -53,6 +53,7 @@ export default async function AdminPage() {
             {retention.failed.length > 0 && (
               <span className="text-amber-300"> · {retention.failed.length} 个文件清理失败</span>
             )}
+            {retention.error && <span className="text-rose-300"> · 清理运行失败：{retention.error}</span>}
           </p>
         ) : (
           <p className="mt-1 text-slate-500">尚未运行清理。</p>

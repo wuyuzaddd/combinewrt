@@ -55,13 +55,10 @@ export function BuildForm({ baseVersion, profiles, initialConfig }: Props) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dispatching, setDispatching] = useState(false);
-  const [hydrated, setHydrated] = useState(false);
+  const [hydrated, setHydrated] = useState(() => Boolean(initialConfig));
 
   useEffect(() => {
-    if (initialConfig) {
-      setHydrated(true);
-      return;
-    }
+    if (initialConfig) return;
     try {
       const saved = window.localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -77,13 +74,13 @@ export function BuildForm({ baseVersion, profiles, initialConfig }: Props) {
       // ignore corrupt local state
     }
     setHydrated(true);
-  }, []);
+  }, [initialConfig]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || initialConfig) return;
     const { packages, ...rest } = form;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...rest, packages }));
-  }, [form, hydrated]);
+  }, [form, hydrated, initialConfig]);
 
   useEffect(() => {
     if (search.trim().length < 2) return;

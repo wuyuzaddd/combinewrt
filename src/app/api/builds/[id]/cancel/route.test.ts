@@ -45,6 +45,13 @@ describe("POST /api/builds/[id]/cancel", () => {
     expect(response.status).toBe(409);
   });
 
+  it("returns 502 when the adapter cannot cancel", async () => {
+    state.current = { id: "b1", status: "running" };
+    state.cancelled = { id: "b1", status: "running", error: "GitHub cancel failed" };
+    const response = await POST(new Request("http://localhost"), params);
+    expect(response.status).toBe(502);
+  });
+
   it("cancels an active build", async () => {
     state.current = { id: "b1", status: "running" };
     state.cancelled = { id: "b1", status: "cancelled" };

@@ -47,6 +47,17 @@ afterEach(() => {
 });
 
 describe("build service", () => {
+  it("cancels a running build and keeps it terminal", async () => {
+    const db = database();
+    const service = createBuildService({ store: createBuildStore(db), adapter: createFakeAdapter() });
+    const submitted = await service.submit(plan());
+    expect((await service.refresh(submitted.id))?.status).toBe("queued");
+
+    const cancelled = await service.cancel(submitted.id);
+    expect(cancelled?.status).toBe("cancelled");
+    expect((await service.refresh(submitted.id))?.status).toBe("cancelled");
+  });
+
   it("records queued, polls to succeeded, and survives a restart", async () => {
     const db = database();
     const service = createBuildService({ store: createBuildStore(db), adapter: createFakeAdapter() });

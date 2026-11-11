@@ -164,7 +164,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
         `${API}/repos/${repo}/actions/runs/${runId}/cancel`,
         withTimeout({ method: "POST", headers }),
       );
-      if (!response.ok && response.status !== 202) {
+      if (!response.ok && response.status !== 409 && response.status !== 404) {
         const body = (await response.text()).slice(0, 500);
         throw new Error(`GitHub POST cancel failed: ${response.status} ${body}`);
       }

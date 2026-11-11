@@ -2,7 +2,7 @@
 
 自用 OpenWrt 固件在线构建站。公开页面只读，管理员登录后可提交构建、查看历史与下载产物。
 
-当前进度：ticket 05（站点骨架、管理员会话、目录快照、构建表单与计划预览、真实 ImageBuilder 构建与产物下载）。
+当前进度：ticket 06（站点骨架、管理员会话、目录快照、构建表单与计划预览、真实 ImageBuilder 构建、产物下载、历史/重建/取消/保留）。
 
 ## 技术栈
 
@@ -44,6 +44,9 @@ npm run dev
 | `BUILD_REPO` | 条件 | `owner/repo`；`BUILD_ADAPTER=github` 时必填 |
 | `BUILD_REPO_TOKEN` | 条件 | 仅授权该仓库 `Actions: write` 的 PAT；`github` 适配器必填 |
 | `BUILD_WORKFLOW` | 否 | 构建仓库内的工作流文件名，默认 `build.yml` |
+| `BUILD_REF` | 否 | 构建仓库的分支名，默认 `main` |
+| `ARTIFACT_CACHE_DIR` | 否 | 站点产物缓存目录，默认与数据库同目录的 `artifacts/` |
+| `ARTIFACT_RETENTION_DAYS` | 否 | 产物缓存保留天数，默认 `7`；`0` 表示不清理 |
 
 缺少必填项或格式错误时，进程启动即失败，并一次性列出全部问题。
 
@@ -65,10 +68,10 @@ npm run dev
 `/build` 提交后创建 Build 记录并调用适配器派发，跳转到 `/builds/<id>`；详情页每 4 秒刷新一次状态，展示日志尾部、失败原因、sha256/大小与产物下载按钮。
 
 - 默认 `BUILD_ADAPTER=fake`：进程内假 run（queued → running → succeeded），只用于本地联调，不会产生真实固件。
-- `BUILD_ADAPTER=github`：把完整计划作为单个 JSON input（`plan`）连同 `build_id` 派发给 `BUILD_REPO` 的 `BUILD_WORKFLOW`；工作流下载 ImageBuilder、写入 uci-defaults、执行 `make image`，上传镜像与 `manifest.json`（保留 7 天），并输出 `COMBINEWRT_MANIFEST={...}` 日志行。
+- `BUILD_ADAPTER=github`：通过 `repository_dispatch`（事件 `combinewrt-build`）把完整计划放进 `client_payload` 派发给 `BUILD_REPO` 的 `BUILD_WORKFLOW`；工作流下载 ImageBuilder、写入 uci-defaults、执行 `make image`，上传镜像与 `manifest.json`（保留 7 天），并输出 `COMBINEWRT_MANIFEST={...}` 日志行。
 - 站点按 `run-name` 里的 build id 找回 run；完成后拉取日志与产物，解析 manifest 记录 sha256/大小，再经站点鉴权代理流式下载。首次构建约 10–20 分钟（下载 52MB ImageBuilder + 软件包）。
 - 失败原因优先取结论，其次从日志末尾的 `error`/`failed` 行提取摘要。
-- 站点只保存运行元数据与产物摘要；GitHub 到期清理 artifact 后，下载返回 409/502。
+- 站点在 `ARTIFACT_CACHE_DIR` 按需缓存产物 zip，按 `ARTIFACT_RETENTION_DAYS` 清理；构建历史与元数据保留。GitHub 到期清理 artifact 且本地无缓存时，下载返回 409/502。
 
 ### 首次部署（GitHub Actions）
 
@@ -125,7 +128,7 @@ export APK_BIN="$PWD/immortalwrt-imagebuilder-25.12.2-x86-64.Linux-x86_64/stagin
 
 5. **备份**：定期备份 SQLite；WAL 模式下用 `sqlite3 data/combinewrt.db ".backup backup.db"`，不要只拷主文件。
 6. **公开构建仓库**：创建 public 的 build 仓库，放入 `build-workflow/build.yml`；fine-grained PAT 只授予该仓库 `Actions: write`。设置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REPO_TOKEN=github_pat_...`（详见“构建派发”）。PAT 只放在站点服务器的环境变量/secret 中，不下发前端。工作流日志公开，禁止 `echo` 密码，root 密码只以 crypt hash 传给构建。
-7. **产物下载**：构建产物放 workflow artifact（保留 30 天），站点用 token 代理下载；不要把大文件提交进 git。
+7. **产物下载**：构建产物放 workflow artifact（保留 7 天），站点按需缓存到 `ARTIFACT_CACHE_DIR` 并用 token 代理下载；缓存按 `ARTIFACT_RETENTION_DAYS` 清理。不要把大文件提交进 git。
 
 ## 安全说明
 
