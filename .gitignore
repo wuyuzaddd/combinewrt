@@ -1,0 +1,35 @@
+# ── 外部上游仓库（按锁定 commit 拉取，不 vendoring 进公开仓库）──
+/Kwrt/
+/op-packages/
+/packages-compile/
+
+# ── 调研与背景资料（仅本地保留，不上传）──
+/research/
+/docs/research/
+
+# ── 代理/工具状态，不属于公开项目 ──
+.agents/
+skills-lock.json
+
+# ── 本地环境与密钥 ──
+.env
+.env.*
+!.env.example
+
+# ── 构建产物 ──
+/out/
+/build/
+/dist/
+*.ipk
+*.img.gz
+
+# ── 本地规格与 tickets（不上传）──
+/.scratch/
+
+# next.js app
+/node_modules
+/.next/
+/coverage
+/data/
+*.tsbuildinfo
+next-env.d.ts

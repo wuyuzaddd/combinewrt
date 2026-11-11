@@ -1,0 +1,11 @@
+export async function register() {
+  if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  const { getDatabase } = await import("./lib/db");
+  try {
+    getDatabase();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[combinewrt] startup failed:\n${message}`);
+    throw error;
+  }
+}
