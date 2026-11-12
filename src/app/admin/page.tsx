@@ -2,20 +2,22 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
 import { getDatabase } from "@/lib/db";
+import { readBaseVersionState } from "@/lib/base";
 import { readRetentionSummary } from "@/lib/builds/retention";
+import { BaseVersionPanel } from "./base-version-panel";
 import { LogoutButton } from "./logout-button";
 
 const sections = [
   { title: "固件构建", body: "选择设备、镜像格式、软件包并预览构建计划。", href: "/build" },
   { title: "构建历史", body: "查看排队、运行、成功/失败记录并下载产物。", href: "/builds" },
   { title: "软件包目录", body: "浏览 ImmortalWrt 官方 feed 的目录快照。", href: "/catalog" },
-  { title: "基础版本", body: "ImmortalWrt 版本与冒烟状态（后续版本）。", href: null },
 ];
 
 export default async function AdminPage() {
   const session = await getSession();
   if (!session) redirect("/login?next=/admin");
   const retention = readRetentionSummary(getDatabase());
+  const baseVersion = await readBaseVersionState();
 
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 px-6 py-12">
@@ -44,6 +46,8 @@ export default async function AdminPage() {
           </section>
         ))}
       </div>
+
+      <BaseVersionPanel state={baseVersion} />
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
         <h2 className="font-medium">产物清理</h2>

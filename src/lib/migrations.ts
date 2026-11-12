@@ -135,4 +135,28 @@ export const MIGRATIONS: Migration[] = [
         ADD COLUMN source_pins TEXT NOT NULL DEFAULT '{"official":{},"dllkids":null,"supplement":null,"kernel":null}';
     `,
   },
+  {
+    version: "007_base_versions",
+    sql: `
+      CREATE TABLE IF NOT EXISTS base_versions (
+        version TEXT PRIMARY KEY,
+        release_date TEXT,
+        image_builder_url TEXT NOT NULL,
+        image_builder_sha256 TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO base_versions (version, release_date, image_builder_url, image_builder_sha256)
+      VALUES (
+        '25.12.2',
+        '2026-09-08',
+        'https://downloads.immortalwrt.org/releases/25.12.2/targets/x86/64/immortalwrt-imagebuilder-25.12.2-x86-64.Linux-x86_64.tar.zst',
+        'b9b290f5ef60a22bccd5bdca9c1e7523b8fc84e60462afbf550e20db94acf2c6'
+      )
+      ON CONFLICT (version) DO NOTHING;
+
+      INSERT INTO app_meta (key, value) VALUES ('base.active', '25.12.2')
+      ON CONFLICT (key) DO NOTHING;
+    `,
+  },
 ];

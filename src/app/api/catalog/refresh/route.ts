@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/current-session";
 import { getConfig } from "@/lib/config";
 import { getDatabase } from "@/lib/db";
+import { createBaseVersionStore } from "@/lib/base/store";
 import { refreshCatalog } from "@/lib/catalog/service";
 import { createImmortalWrtSource } from "@/lib/catalog/source";
 
@@ -13,9 +14,11 @@ export async function POST() {
 
   try {
     const config = getConfig();
+    const db = getDatabase();
+    const baseVersion = createBaseVersionStore(db).active()?.version ?? config.baseVersion;
     const result = await refreshCatalog({
       source: createImmortalWrtSource({
-        baseVersion: config.baseVersion,
+        baseVersion,
         apkBin: config.apkBin,
         dllkids: { baseUrl: config.dllkidsFeedUrl, indexSha256: config.dllkidsIndexSha256 },
         supplement:
@@ -26,7 +29,7 @@ export async function POST() {
               }
             : null,
       }),
-      db: getDatabase(),
+      db,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
