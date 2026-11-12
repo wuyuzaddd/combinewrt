@@ -14,7 +14,18 @@ export async function POST() {
   try {
     const config = getConfig();
     const result = await refreshCatalog({
-      source: createImmortalWrtSource({ baseVersion: config.baseVersion, apkBin: config.apkBin }),
+      source: createImmortalWrtSource({
+        baseVersion: config.baseVersion,
+        apkBin: config.apkBin,
+        dllkids: { baseUrl: config.dllkidsFeedUrl, indexSha256: config.dllkidsIndexSha256 },
+        supplement:
+          config.supplementFeedCommit || config.supplementKeyFingerprint
+            ? {
+                commit: config.supplementFeedCommit,
+                fingerprint: config.supplementKeyFingerprint,
+              }
+            : null,
+      }),
       db: getDatabase(),
     });
     return NextResponse.json({ ok: true, ...result });

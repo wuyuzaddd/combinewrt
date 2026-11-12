@@ -5,15 +5,19 @@ import type {
   ImageFormatId,
   PackageSearch,
   PackageSearchOptions,
+  PackageSource,
   SnapshotInput,
   SnapshotMeta,
+  SourcePins,
 } from "./types";
+import { EMPTY_SOURCE_PINS, sourcePriority } from "./types";
 
 interface SnapshotRow {
   id: number;
   base_version: string;
   feed_commit: string;
   source_note: string;
+  source_pins: string | null;
   created_at: string;
   profile_count: number;
   package_count: number;
@@ -31,6 +35,30 @@ interface PackageRow {
   depends: string;
   feed: string;
   proprietary: number;
+  source: PackageSource;
+  source_pin: string;
+  sha256: string | null;
+  file_size: number | null;
+  filename: string | null;
+  download_url: string | null;
+  kmod: number;
+}
+
+const SOURCE_ORDER = `CASE source WHEN 'official' THEN 0 WHEN 'dllkids' THEN 1 ELSE 2 END`;
+
+function parsePins(value: string | null): SourcePins {
+  if (!value) return EMPTY_SOURCE_PINS;
+  try {
+    const parsed = JSON.parse(value) as Partial<SourcePins>;
+    return {
+      official: parsed.official ?? {},
+      dllkids: parsed.dllkids ?? null,
+      supplement: parsed.supplement ?? null,
+      kernel: parsed.kernel ?? null,
+    };
+  } catch {
+    return EMPTY_SOURCE_PINS;
+  }
 }
 
 function toMeta(row: SnapshotRow): SnapshotMeta {
@@ -39,6 +67,7 @@ function toMeta(row: SnapshotRow): SnapshotMeta {
     baseVersion: row.base_version,
     feedCommit: row.feed_commit,
     sourceNote: row.source_note,
+    sourcePins: parsePins(row.source_pins),
     createdAt: row.created_at,
     profileCount: row.profile_count,
     packageCount: row.package_count,
@@ -58,6 +87,13 @@ function toPackage(row: PackageRow): CatalogPackage {
     depends: JSON.parse(row.depends) as string[],
     feed: row.feed,
     proprietary: row.proprietary === 1,
+    source: row.source,
+    sourcePin: row.source_pin,
+    sha256: row.sha256,
+    fileSize: row.file_size ?? 0,
+    filename: row.filename,
+    downloadUrl: row.download_url,
+    kmod: row.kmod === 1,
   };
 }
 
@@ -68,6 +104,8 @@ export interface CatalogStore {
   listProfiles(snapshotId: number): CatalogProfile[];
   searchPackages(snapshotId: number, options: PackageSearchOptions): PackageSearch;
   getPackage(snapshotId: number, name: string): CatalogPackage | null;
+  getPackageCandidates(snapshotId: number, name: string): CatalogPackage[];
+  sourceCounts(snapshotId: number): Record<PackageSource, number>;
   listCategories(snapshotId: number): string[];
 }
 
@@ -99,10 +137,17 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
       const result = db
         .prepare(
           `INSERT INTO catalog_snapshots
-             (base_version, feed_commit, source_note, profile_count, package_count)
-           VALUES (?, ?, ?, ?, ?)`,
+             (base_version, feed_commit, source_note, source_pins, profile_count, package_count)
+           VALUES (?, ?, ?, ?, ?, ?)`,
         )
-        .run(input.baseVersion, input.feedCommit, input.sourceNote, input.profiles.length, input.packages.length);
+        .run(
+          input.baseVersion,
+          input.feedCommit,
+          input.sourceNote,
+          JSON.stringify(input.sourcePins),
+          input.profiles.length,
+          input.packages.length,
+        );
       const snapshotId = Number(result.lastInsertRowid);
 
       const insertProfile = db.prepare(
@@ -115,8 +160,9 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
       const insertPackage = db.prepare(
         `INSERT INTO catalog_packages
            (snapshot_id, name, version, arch, description, license, origin, category,
-            installed_size, depends, feed, proprietary)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            installed_size, depends, feed, proprietary, source, source_pin, sha256,
+            file_size, filename, download_url, kmod)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const pkg of input.packages) {
         insertPackage.run(
@@ -132,6 +178,13 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
           JSON.stringify(pkg.depends),
           pkg.feed,
           pkg.proprietary ? 1 : 0,
+          pkg.source,
+          pkg.sourcePin,
+          pkg.sha256,
+          pkg.fileSize,
+          pkg.filename,
+          pkg.downloadUrl,
+          pkg.kmod ? 1 : 0,
         );
       }
 
@@ -170,35 +223,52 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
     const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
     const offset = Math.max(options.offset ?? 0, 0);
 
-    const where: string[] = ["snapshot_id = ?"];
-    const params: Array<string | number> = [snapshotId];
+    const filters: string[] = [];
+    const params: Array<string | number> = [];
     if (query) {
       const escaped = query.replace(/[\\%_]/g, (char) => `\\${char}`);
-      where.push("(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
+      filters.push("(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
       params.push(`%${escaped}%`, `%${escaped}%`);
     }
     if (category) {
-      where.push("category = ?");
+      filters.push("category = ?");
       params.push(category);
     }
-    const whereSql = where.join(" AND ");
+    const filterSql = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+    const ranked = `WITH ranked AS (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY name ORDER BY ${SOURCE_ORDER}) AS rn
+      FROM catalog_packages WHERE snapshot_id = ?
+    ), winners AS (SELECT * FROM ranked WHERE rn = 1)`;
 
     const total = Number(
-      (db.prepare(`SELECT COUNT(*) AS count FROM catalog_packages WHERE ${whereSql}`).get(...params) as {
+      (db.prepare(`${ranked} SELECT COUNT(*) AS count FROM winners ${filterSql}`).get(snapshotId, ...params) as {
         count: number;
       }).count,
     );
     const rows = db
-      .prepare(`SELECT * FROM catalog_packages WHERE ${whereSql} ORDER BY name LIMIT ? OFFSET ?`)
-      .all(...params, limit, offset) as unknown as PackageRow[];
+      .prepare(`${ranked} SELECT * FROM winners ${filterSql} ORDER BY name LIMIT ? OFFSET ?`)
+      .all(snapshotId, ...params, limit, offset) as unknown as PackageRow[];
     return { items: rows.map(toPackage), total };
   }
 
+  function getPackageCandidates(snapshotId: number, name: string): CatalogPackage[] {
+    const rows = db
+      .prepare(`SELECT * FROM catalog_packages WHERE snapshot_id = ? AND name = ? ORDER BY ${SOURCE_ORDER}`)
+      .all(snapshotId, name) as unknown as PackageRow[];
+    return rows.map(toPackage);
+  }
+
   function getPackage(snapshotId: number, name: string): CatalogPackage | null {
-    const row = db
-      .prepare("SELECT * FROM catalog_packages WHERE snapshot_id = ? AND name = ?")
-      .get(snapshotId, name) as PackageRow | undefined;
-    return row ? toPackage(row) : null;
+    return getPackageCandidates(snapshotId, name)[0] ?? null;
+  }
+
+  function sourceCounts(snapshotId: number): Record<PackageSource, number> {
+    const rows = db
+      .prepare("SELECT source, COUNT(*) AS count FROM catalog_packages WHERE snapshot_id = ? GROUP BY source")
+      .all(snapshotId) as Array<{ source: PackageSource; count: number }>;
+    const counts: Record<PackageSource, number> = { official: 0, dllkids: 0, supplement: 0 };
+    for (const row of rows) counts[row.source] = Number(row.count);
+    return counts;
   }
 
   function listCategories(snapshotId: number): string[] {
@@ -208,5 +278,17 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
     return rows.map((row) => row.category);
   }
 
-  return { findSnapshot, getActiveSnapshot, saveSnapshot, listProfiles, searchPackages, getPackage, listCategories };
+  return {
+    findSnapshot,
+    getActiveSnapshot,
+    saveSnapshot,
+    listProfiles,
+    searchPackages,
+    getPackage,
+    getPackageCandidates,
+    sourceCounts,
+    listCategories,
+  };
 }
+
+export { sourcePriority };

@@ -1,4 +1,5 @@
-import type { CatalogPackage } from "./types";
+import type { CatalogPackage, PackageSource } from "./types";
+import { sourcePriority } from "./types";
 
 const FIELD = /^    ([a-z][a-z0-9-]*):\s?(.*)$/;
 const NEXT_PACKAGE = /^  - name: (.+)$/;
@@ -31,7 +32,16 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-export function parseAdbDump(dump: string, feed: string): CatalogPackage[] {
+export interface ParseAdbOptions {
+  source?: PackageSource;
+  sourcePin?: string;
+  downloadBase?: string | null;
+}
+
+export function parseAdbDump(dump: string, feed: string, options: ParseAdbOptions = {}): CatalogPackage[] {
+  const source = options.source ?? "official";
+  const sourcePin = options.sourcePin ?? "";
+  const downloadBase = options.downloadBase ?? null;
   const lines = dump.split(/\r?\n/);
   const packages: CatalogPackage[] = [];
   let i = 0;
@@ -55,6 +65,8 @@ export function parseAdbDump(dump: string, feed: string): CatalogPackage[] {
     let license: string | null = null;
     let origin: string | null = null;
     let installedSize = 0;
+    let fileSize = 0;
+    let sha256: string | null = null;
     let depends: string[] = [];
     i += 1;
 
@@ -108,8 +120,11 @@ export function parseAdbDump(dump: string, feed: string): CatalogPackage[] {
       else if (key === "license") license = value || null;
       else if (key === "origin") origin = value || null;
       else if (key === "installed-size") installedSize = Number(value) || 0;
+      else if (key === "file-size") fileSize = Number(value) || 0;
+      else if (key === "hashes") sha256 = /^[0-9a-f]{64}$/.exec(value)?.[0] ?? null;
     }
 
+    const filename = version ? `${name}-${version}.apk` : null;
     packages.push({
       name,
       version,
@@ -122,6 +137,13 @@ export function parseAdbDump(dump: string, feed: string): CatalogPackage[] {
       depends,
       feed,
       proprietary: !license || /proprietary/i.test(license),
+      source,
+      sourcePin,
+      sha256,
+      fileSize,
+      filename,
+      downloadUrl: filename && downloadBase ? `${downloadBase.replace(/\/$/, "")}/${encodeURIComponent(filename)}` : null,
+      kmod: name.startsWith("kmod-"),
     });
   }
 
@@ -135,17 +157,26 @@ export function parseAdbDump(dump: string, feed: string): CatalogPackage[] {
   return packages;
 }
 
+export function comparePackageSource(a: CatalogPackage, b: CatalogPackage): number {
+  return sourcePriority(a.source) - sourcePriority(b.source) || a.name.localeCompare(b.name);
+}
+
+export function preferredPackage(packages: CatalogPackage[]): CatalogPackage | null {
+  return [...packages].sort(comparePackageSource)[0] ?? null;
+}
+
 export function dedupePackages(packages: CatalogPackage[]): CatalogPackage[] {
   const byName = new Map<string, CatalogPackage>();
   for (const pkg of packages) {
-    const existing = byName.get(pkg.name);
+    const key = `${pkg.source}:${pkg.name}`;
+    const existing = byName.get(key);
     if (!existing) {
-      byName.set(pkg.name, pkg);
+      byName.set(key, pkg);
       continue;
     }
     if (compareVersions(pkg.version, existing.version) > 0) {
-      byName.set(pkg.name, pkg);
+      byName.set(key, pkg);
     }
   }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name) || sourcePriority(a.source) - sourcePriority(b.source));
 }

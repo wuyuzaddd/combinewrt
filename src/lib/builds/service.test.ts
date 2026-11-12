@@ -32,7 +32,12 @@ function plan(): BuildPlan {
     profileTitle: "Generic x86/64",
     imageType: "ext4-efi",
     packages: ["luci"],
-    resolved: [{ name: "luci", version: "1", source: "selected" }],
+    resolved: [
+      { name: "luci", version: "1", source: "selected", packageSource: "official", sourcePin: "", sha256: null, feed: "luci" },
+    ],
+    topLevelPackages: ["luci"],
+    downloads: [],
+    sourcePins: { official: {}, dllkids: null, supplement: null, kernel: null },
     missingDependencies: [],
     conflicts: [],
     files: [],

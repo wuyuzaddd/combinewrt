@@ -24,7 +24,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq zstd jq qemu-utils genisoimage
+          sudo apt-get install -y -qq zstd jq qemu-utils genisoimage e2fsprogs squashfs-tools
 
       - name: Download ImageBuilder
         run: |
@@ -36,6 +36,56 @@ jobs:
           ls -l ib.tar.zst
           mkdir ib
           tar --zstd -xf ib.tar.zst -C ib --strip-components=1
+
+      - name: Download pinned third-party packages
+        run: |
+          set -euo pipefail
+          cd ib
+          mkdir -p packages
+          APK_BIN="$PWD/staging_dir/host/bin/apk"
+          COUNT=$(jq '.composition.downloads // [] | length' ../plan.json)
+          echo "COMBINEWRT_DOWNLOADS=$COUNT"
+          jq -c '.composition.downloads[]?' ../plan.json | while IFS= read -r download; do
+            filename=$(echo "$download" | jq -r .filename)
+            url=$(echo "$download" | jq -r .url)
+            sha=$(echo "$download" | jq -r .sha256)
+            name=$(echo "$download" | jq -r .name)
+            version=$(echo "$download" | jq -r .version)
+            case "$filename" in
+              *.apk) ;;
+              *) echo "refusing unexpected package filename: $filename" >&2; exit 1 ;;
+            esac
+            case "$filename" in
+              */*|*..*) echo "refusing unsafe package filename: $filename" >&2; exit 1 ;;
+            esac
+            echo "downloading $name $version from pinned source: $filename"
+            curl -fL --retry 3 --retry-delay 5 -o "packages/$filename" "$url"
+            # The feed index's "hashes" value is the APK package hash that apk
+            # itself computes (a sha256 over the signed package), not the
+            # sha256 of the .apk file bytes. Rebuilding a one-package index
+            # with apk is the authoritative check against the pinned index.
+            "$APK_BIN" verify --allow-untrusted "packages/$filename" >/dev/null
+            verify_dir=$(mktemp -d)
+            cp "packages/$filename" "$verify_dir/"
+            (
+              cd "$verify_dir"
+              "$APK_BIN" mkndx --allow-untrusted --output packages.adb ./*.apk >/dev/null
+              "$APK_BIN" adbdump packages.adb |
+                awk '/^  - name:/{seen=1} seen && /^    hashes:/{print $2; exit}'
+            ) > "$verify_dir/actual"
+            actual=$(cat "$verify_dir/actual")
+            rm -rf "$verify_dir"
+            if [ "$actual" != "$sha" ]; then
+              echo "package sha256 does not match pinned index: $filename expected=$sha actual=$actual" >&2
+              exit 1
+            fi
+            echo "verified pinned package sha256: $filename $actual"
+            echo "COMBINEWRT_DOWNLOAD_SHA256=$filename $(sha256sum "packages/$filename" | cut -d' ' -f1)"
+          done
+          rm -f packages/packages.adb
+          (cd packages && ../staging_dir/host/bin/apk mkndx --allow-untrusted --output packages.adb ./*.apk)
+          ls -l packages/*.apk | head -20
+          echo "local package index rebuilt with pinned apks"
 
       - name: Write files
         run: |
@@ -60,8 +110,94 @@ jobs:
           echo "COMBINEWRT_PROFILE=$PROFILE"
           echo "COMBINEWRT_PACKAGES=$PACKAGES"
           echo "COMBINEWRT_MAKE=make -j$(nproc) image PROFILE=\"$PROFILE\" PACKAGES=\"$PACKAGES\" FILES=files"
+          # The local ib/packages/packages.adb is intentionally unsigned. The
+          # ImageBuilder ships with CONFIG_SIGNATURE_CHECK=y, and its recursive
+          # make re-reads .config, so the unsigned local index would be ignored.
+          # Disable the check in .config and assert that apk will actually be
+          # invoked with --allow-untrusted before building.
+          # The recursive make re-reads .config and defines APK before that,
+          # so patching the Makefile expression is the reliable way to make
+          # the unsigned local index consumable.
+          if grep -q '^CONFIG_SIGNATURE_CHECK=y' .config; then
+            sed -i 's/^CONFIG_SIGNATURE_CHECK=y/# CONFIG_SIGNATURE_CHECK is not set/' .config
+          fi
+          sed -i 's/$(if $(CONFIG_SIGNATURE_CHECK),,--allow-untrusted)/--allow-untrusted/' Makefile
+          if ! make -n package_reload 2>/dev/null | grep -q -- '--allow-untrusted'; then
+            echo 'local package index would not be trusted by apk' >&2
+            exit 1
+          fi
           make -j"$(nproc)" image PROFILE="$PROFILE" PACKAGES="$PACKAGES" FILES=files \
             CONFIG_ISO_IMAGES= CONFIG_QCOW2_IMAGES= CONFIG_VDI_IMAGES= CONFIG_VMDK_IMAGES= CONFIG_VHDX_IMAGES= 2>&1 | tee build.log
+
+      - name: Assert top-level packages
+        run: |
+          set -euo pipefail
+          cd ib
+          IMAGE_TYPE=$(jq -r .imageType ../plan.json)
+          ARTIFACT=$(jq -r .artifactName ../plan.json)
+          IMG=$(find bin/targets -type f -name "$ARTIFACT" | head -1)
+          if [ -z "$IMG" ]; then
+            echo "expected artifact $ARTIFACT was not produced" >&2
+            exit 1
+          fi
+          ROOT=$(mktemp -d)
+          CLEANUP_LOOP=""
+          cleanup() {
+            set +e
+            if mountpoint -q "$ROOT"; then sudo umount "$ROOT"; fi
+            if [ -n "$CLEANUP_LOOP" ]; then sudo losetup -d "$CLEANUP_LOOP"; fi
+            rm -rf "$ROOT"
+          }
+          trap cleanup EXIT
+          case "$IMAGE_TYPE" in
+            rootfs-tar)
+              tar -xzf "$IMG" -C "$ROOT"
+              ;;
+            ext4-efi|squashfs-efi)
+              RAW=$(mktemp --suffix=.img)
+              gzip -dc "$IMG" > "$RAW"
+              LOOP=$(sudo losetup -Pf --show "$RAW")
+              CLEANUP_LOOP="$LOOP"
+              # The runner's udev does not always probe loop partition
+              # filesystems, so try each partition until one contains the apk
+              # database instead of trusting lsblk FSTYPE.
+              MOUNTED=""
+              for part in "$LOOP"p*; do
+                if sudo mount -o ro "$part" "$ROOT" 2>/dev/null; then
+                  if [ -f "$ROOT/lib/apk/db/installed" ]; then MOUNTED="$part"; break; fi
+                  sudo umount "$ROOT"
+                fi
+                if sudo mount -t squashfs -o ro "$part" "$ROOT" 2>/dev/null; then
+                  if [ -f "$ROOT/lib/apk/db/installed" ]; then MOUNTED="$part"; break; fi
+                  sudo umount "$ROOT"
+                fi
+              done
+              if [ -z "$MOUNTED" ]; then
+                echo "no apk rootfs partition found in $ARTIFACT" >&2
+                lsblk -f "$LOOP" >&2 || true
+                exit 1
+              fi
+              echo "rootfs partition: $MOUNTED"
+              ;;
+            *)
+              echo "unknown image type: $IMAGE_TYPE" >&2
+              exit 1
+              ;;
+          esac
+          jq -r '.composition.topLevelPackages[]?' ../plan.json > /tmp/combinewrt-top-level.txt
+          if [ ! -s /tmp/combinewrt-top-level.txt ]; then
+            echo "plan has no top-level packages" >&2
+            exit 1
+          fi
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            if ! sudo staging_dir/host/bin/apk --root "$ROOT" info -e "$pkg" >/dev/null 2>&1; then
+              echo "COMBINEWRT_FAILED_PACKAGE=$pkg"
+              echo "package $pkg is missing from the generated image" >&2
+              exit 1
+            fi
+            echo "verified package: $pkg"
+          done < /tmp/combinewrt-top-level.txt
 
       - name: Package artifact
         run: |

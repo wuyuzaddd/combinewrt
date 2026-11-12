@@ -4,19 +4,56 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CatalogSource } from "./service";
+import type { KernelPin, SourcePins, SupplementPin } from "./types";
 
 const RELEASE_ROOT = "https://downloads.immortalwrt.org/releases";
 
-interface KernelInfo {
-  version: string;
-  release: string;
-  vermagic: string;
+export interface DllkidsSourceOptions {
+  baseUrl: string;
+  indexSha256: string;
 }
 
 export interface ImmortalWrtSourceOptions {
   baseVersion: string;
   apkBin?: string;
   fetchImpl?: typeof fetch;
+  dllkids?: DllkidsSourceOptions | null;
+  supplement?: SupplementPin | null;
+}
+
+export interface BuildinfoEntry {
+  feed: string;
+  commit: string;
+}
+
+export function parseBuildinfoEntries(text: string): BuildinfoEntry[] {
+  const entries = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = /^src-git\s+(\S+)\s+\S+\^([0-9a-f]{40})$/.exec(line);
+      if (!match) throw new Error(`unexpected feeds.buildinfo line: ${line}`);
+      return { feed: match[1], commit: match[2] };
+    })
+    .sort((a, b) => a.feed.localeCompare(b.feed));
+
+  if (entries.length === 0) throw new Error("feeds.buildinfo is empty");
+  return entries;
+}
+
+export function parseBuildinfo(text: string): string {
+  const entries = parseBuildinfoEntries(text).map((entry) => `${entry.feed} ${entry.commit}`);
+  return createHash("sha256").update(entries.join("\n")).digest("hex").slice(0, 16);
+}
+
+export function composeFeedCommit(pins: SourcePins): string {
+  const canonical = JSON.stringify({
+    official: Object.fromEntries(Object.entries(pins.official).sort(([a], [b]) => a.localeCompare(b))),
+    dllkids: pins.dllkids,
+    supplement: pins.supplement,
+  });
+  return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 }
 
 function dumpAdb(apkBin: string, file: string): Promise<string> {
@@ -28,26 +65,17 @@ function dumpAdb(apkBin: string, file: string): Promise<string> {
   });
 }
 
-export function parseBuildinfo(text: string): string {
-  const entries = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const match = /^src-git\s+(\S+)\s+\S+\^([0-9a-f]{40})$/.exec(line);
-      if (!match) throw new Error(`unexpected feeds.buildinfo line: ${line}`);
-      return `${match[1]} ${match[2]}`;
-    })
-    .sort();
-
-  if (entries.length === 0) throw new Error("feeds.buildinfo is empty");
-  return createHash("sha256").update(entries.join("\n")).digest("hex").slice(0, 16);
+function sha256(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
 }
 
 export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): CatalogSource {
-  const { baseVersion, apkBin = "apk", fetchImpl = fetch } = options;
+  const { baseVersion, apkBin = "apk", fetchImpl = fetch, dllkids = null, supplement = null } = options;
   const root = `${RELEASE_ROOT}/${baseVersion}`;
-  let kernel: KernelInfo | undefined;
+  let kernel: KernelPin | undefined;
+  let pins: SourcePins | undefined;
+  let dllkidsDump: string | undefined;
+  let dllkidsUrl: string | undefined;
 
   async function get(url: string): Promise<Response> {
     const response = await fetchImpl(url);
@@ -55,48 +83,120 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
     return response;
   }
 
+  async function loadDllkidsIndex(): Promise<string | undefined> {
+    if (!dllkids) return undefined;
+    const url = `${dllkids.baseUrl.replace(/\/$/, "")}/packages.adb`;
+    dllkidsUrl = url;
+    const response = await get(url);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const actual = sha256(buffer);
+    if (actual !== dllkids.indexSha256) {
+      throw new Error(
+        `dllkids packages.adb sha256 mismatch: expected ${dllkids.indexSha256}, got ${actual} (${url})`,
+      );
+    }
+    const dir = await mkdtemp(join(tmpdir(), "combinewrt-dllkids-"));
+    try {
+      const file = join(dir, "packages.adb");
+      await writeFile(file, buffer);
+      return await dumpAdb(apkBin, file);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
   async function loadMeta() {
     const profilesUrl = `${root}/targets/x86/64/profiles.json`;
     const buildinfoUrl = `${root}/targets/x86/64/feeds.buildinfo`;
 
-    const json = (await (await get(profilesUrl)).json()) as {
-      linux_kernel?: KernelInfo;
+    const [profilesResponse, buildinfoResponse, dllkidsIndex] = await Promise.all([
+      get(profilesUrl),
+      get(buildinfoUrl),
+      loadDllkidsIndex(),
+    ]);
+
+    const json = (await profilesResponse.json()) as {
+      linux_kernel?: KernelPin;
     };
     kernel = json.linux_kernel;
     if (!kernel) throw new Error("profiles.json is missing linux_kernel");
+    dllkidsDump = dllkidsIndex;
 
-    const buildinfo = await (await get(buildinfoUrl)).text();
+    const buildinfoEntries = parseBuildinfoEntries(await buildinfoResponse.text());
+    const official: Record<string, string> = Object.fromEntries(
+      buildinfoEntries.map((entry) => [entry.feed, entry.commit]),
+    );
+    // base/target/kmods are part of the release rather than feeds.buildinfo;
+    // pin them to the release version and the kernel ABI respectively.
+    official.base = `release:${baseVersion}`;
+    official.target = `release:${baseVersion}`;
+    official.kmods = `kernel:${kernel.version}-${kernel.release}-${kernel.vermagic}`;
+
+    pins = {
+      official,
+      dllkids: dllkids ? dllkids.indexSha256 : null,
+      supplement,
+      kernel,
+    };
+
+    const notes = [profilesUrl, buildinfoUrl];
+    if (dllkidsUrl) notes.push(dllkidsUrl);
+    if (supplement?.commit) notes.push(`supplement commit ${supplement.commit}`);
+    if (supplement?.fingerprint) notes.push(`supplement key ${supplement.fingerprint}`);
+
     return {
       profilesJson: json,
-      feedCommit: parseBuildinfo(buildinfo),
-      sourceNote: `${profilesUrl} | ${buildinfoUrl}`,
+      feedCommit: composeFeedCommit(pins),
+      sourceNote: notes.join(" | "),
+      sourcePins: pins,
     };
   }
 
   async function loadDumps() {
-    if (!kernel) throw new Error("loadMeta must run before loadDumps");
-    const feeds = [
-      { feed: "base", url: `${root}/packages/x86_64/base/packages.adb` },
-      { feed: "luci", url: `${root}/packages/x86_64/luci/packages.adb` },
-      { feed: "packages", url: `${root}/packages/x86_64/packages/packages.adb` },
-      { feed: "routing", url: `${root}/packages/x86_64/routing/packages.adb` },
-      { feed: "telephony", url: `${root}/packages/x86_64/telephony/packages.adb` },
-      { feed: "target", url: `${root}/targets/x86/64/packages/packages.adb` },
-      {
-        feed: "kmods",
-        url: `${root}/targets/x86/64/kmods/${kernel.version}-${kernel.release}-${kernel.vermagic}/packages.adb`,
-      },
+    if (!kernel || !pins) throw new Error("loadMeta must run before loadDumps");
+    const officialRoot = `${root}/packages/x86_64`;
+    const targetRoot = `${root}/targets/x86/64`;
+    const kmodsRoot = `${targetRoot}/kmods/${kernel.version}-${kernel.release}-${kernel.vermagic}`;
+    const feeds: Array<{ feed: string; url: string; downloadBase: string }> = [
+      { feed: "base", url: `${officialRoot}/base/packages.adb`, downloadBase: `${officialRoot}/base` },
+      { feed: "luci", url: `${officialRoot}/luci/packages.adb`, downloadBase: `${officialRoot}/luci` },
+      { feed: "packages", url: `${officialRoot}/packages/packages.adb`, downloadBase: `${officialRoot}/packages` },
+      { feed: "routing", url: `${officialRoot}/routing/packages.adb`, downloadBase: `${officialRoot}/routing` },
+      { feed: "telephony", url: `${officialRoot}/telephony/packages.adb`, downloadBase: `${officialRoot}/telephony` },
+      { feed: "target", url: `${targetRoot}/packages/packages.adb`, downloadBase: `${targetRoot}/packages` },
+      { feed: "kmods", url: `${kmodsRoot}/packages.adb`, downloadBase: kmodsRoot },
     ];
 
     const dir = await mkdtemp(join(tmpdir(), "combinewrt-catalog-"));
     try {
-      const dumps: Array<{ feed: string; dump: string }> = [];
-      for (const { feed, url } of feeds) {
+      const dumps: Array<{
+        feed: string;
+        dump: string;
+        source: "official" | "dllkids";
+        sourcePin: string;
+        downloadBase: string;
+      }> = [];
+      for (const { feed, url, downloadBase } of feeds) {
         const response = await get(url);
         const buffer = Buffer.from(await response.arrayBuffer());
         const file = join(dir, `${feed}.adb`);
         await writeFile(file, buffer);
-        dumps.push({ feed, dump: await dumpAdb(apkBin, file) });
+        dumps.push({
+          feed,
+          dump: await dumpAdb(apkBin, file),
+          source: "official",
+          sourcePin: pins.official[feed] ?? "",
+          downloadBase,
+        });
+      }
+      if (dllkidsDump && dllkids) {
+        dumps.push({
+          feed: "dllkids",
+          dump: dllkidsDump,
+          source: "dllkids",
+          sourcePin: dllkids.indexSha256,
+          downloadBase: dllkids.baseUrl.replace(/\/$/, ""),
+        });
       }
       return dumps;
     } catch (error) {

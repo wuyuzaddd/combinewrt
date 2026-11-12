@@ -1,3 +1,4 @@
+import { toLookupEntry } from "../build/lookup";
 import { createBuildPlan } from "../build/plan";
 import { hashRootPassword } from "../build/password";
 import type { BuildFormInput } from "../build/types";
@@ -31,8 +32,13 @@ export async function preparePlanForForm(form: BuildFormInput): Promise<Prepared
     baseVersion: snapshot.baseVersion,
     feedCommit: snapshot.feedCommit,
     sourceNote: snapshot.sourceNote,
+    sourcePins: snapshot.sourcePins,
     profile,
-    lookup: (name) => store.getPackage(snapshot.id, name),
+    lookup: (name) => {
+      const pkg = store.getPackage(snapshot.id, name);
+      return pkg ? toLookupEntry(pkg) : null;
+    },
+    lookupAll: (name) => store.getPackageCandidates(snapshot.id, name).map(toLookupEntry),
     hashPassword: (password) => hashRootPassword(password),
   });
   return { ok: true, plan };

@@ -50,6 +50,7 @@ beforeAll(() => {
     baseVersion: "25.12.2",
     feedCommit: "feed123",
     sourceNote: "fixture",
+    sourcePins: { official: {}, dllkids: null, supplement: null, kernel: null },
     profiles: [{ id: "generic", title: "Generic x86/64", formats: ["ext4-efi"], imageCount: 25 }],
     packages: [
       {
@@ -64,6 +65,13 @@ beforeAll(() => {
         depends: [],
         feed: "luci",
         proprietary: false,
+        source: "official",
+        sourcePin: "",
+        sha256: null,
+        fileSize: 0,
+        filename: "luci-1.apk",
+        downloadUrl: null,
+        kmod: false,
       },
       {
         name: "dnsmasq",
@@ -77,6 +85,13 @@ beforeAll(() => {
         depends: [],
         feed: "base",
         proprietary: false,
+        source: "official",
+        sourcePin: "",
+        sha256: null,
+        fileSize: 0,
+        filename: "dnsmasq-1.apk",
+        downloadUrl: null,
+        kmod: false,
       },
       {
         name: "dnsmasq-full",
@@ -90,6 +105,13 @@ beforeAll(() => {
         depends: [],
         feed: "base",
         proprietary: false,
+        source: "official",
+        sourcePin: "",
+        sha256: null,
+        fileSize: 0,
+        filename: "dnsmasq-1.apk",
+        downloadUrl: null,
+        kmod: false,
       },
     ],
   });
@@ -121,6 +143,14 @@ describe("POST /api/build/plan", () => {
     expect(response.status).toBe(409);
     const body = (await response.json()) as { conflicts: { message: string }[] };
     expect(body.conflicts[0].message).toContain("dnsmasq");
+  });
+
+  it("rejects a request that forces an unavailable source", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(request({ ...validForm, packages: ["dllkids/luci"] }));
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { message: string }[] };
+    expect(body.conflicts[0].message).toContain("dllkids");
   });
 
   it("returns a plan without the plaintext password", async () => {

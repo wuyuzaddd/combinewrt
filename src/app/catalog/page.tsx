@@ -29,6 +29,8 @@ export default async function CatalogPage({
 
   const profiles = snapshot ? store.listProfiles(snapshot.id) : [];
   const categories = snapshot ? store.listCategories(snapshot.id) : [];
+  const sourceCounts = snapshot ? store.sourceCounts(snapshot.id) : { official: 0, dllkids: 0, supplement: 0 };
+  const pins = snapshot?.sourcePins;
   const result = snapshot
     ? store.searchPackages(snapshot.id, {
         query,
@@ -52,7 +54,7 @@ export default async function CatalogPage({
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-400">catalog</p>
           <h1 className="mt-2 text-2xl font-semibold">设备与软件包目录</h1>
-          <p className="mt-1 text-sm text-slate-400">ImmortalWrt 官方 x86_64 feed 的只读快照。</p>
+          <p className="mt-1 text-sm text-slate-400">ImmortalWrt 官方 x86_64 feed 与 dllkids 组合来源的只读快照。</p>
         </div>
         <div className="flex items-center gap-4">
           <Link className="text-sm text-slate-300 underline decoration-slate-600" href="/">
@@ -81,10 +83,47 @@ export default async function CatalogPage({
               feed commit <code className="text-slate-200">{snapshot.feedCommit}</code>
             </span>
             <span>
-              {snapshot.profileCount} 个设备 · {snapshot.packageCount} 个软件包
+              {snapshot.profileCount} 个设备 · {snapshot.packageCount} 个软件包（官方 {sourceCounts.official} · dllkids{" "}
+              {sourceCounts.dllkids} · 自有 {sourceCounts.supplement}）
             </span>
             <span className="text-xs">生成于 {snapshot.createdAt} UTC</span>
             <span className="w-full break-all text-xs text-slate-500">来源：{snapshot.sourceNote}</span>
+          </section>
+
+          <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
+            <h2 className="font-medium">来源 pin</h2>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-slate-500">官方 feed commits</p>
+                <ul className="mt-1 space-y-1 font-mono text-xs text-slate-300">
+                  {Object.entries(pins?.official ?? {}).map(([feed, pin]) => (
+                    <li key={feed}>
+                      {feed}: {pin}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="space-y-2 break-all font-mono text-xs text-slate-300">
+                <p>
+                  <span className="text-slate-500">dllkids index sha256：</span>
+                  {pins?.dllkids ?? "未配置"}
+                </p>
+                <p>
+                  <span className="text-slate-500">自有源 commit：</span>
+                  {pins?.supplement?.commit ?? "未配置"}
+                </p>
+                <p>
+                  <span className="text-slate-500">自有源签名：</span>
+                  {pins?.supplement?.fingerprint ?? "未配置"}
+                </p>
+                <p>
+                  <span className="text-slate-500">kernel：</span>
+                  {pins?.kernel
+                    ? `${pins.kernel.version}-${pins.kernel.release}-${pins.kernel.vermagic}`
+                    : "未记录"}
+                </p>
+              </div>
+            </div>
           </section>
 
           <section className="flex flex-col gap-3">
@@ -142,7 +181,7 @@ export default async function CatalogPage({
                     <th className="px-4 py-2">安装大小</th>
                     <th className="px-4 py-2">分类</th>
                     <th className="px-4 py-2">license</th>
-                    <th className="px-4 py-2">feed</th>
+                    <th className="px-4 py-2">来源</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/70">
@@ -162,7 +201,10 @@ export default async function CatalogPage({
                       <td className="px-4 py-2 text-slate-400">
                         {pkg.proprietary ? <span className="text-amber-300">需注意</span> : pkg.license}
                       </td>
-                      <td className="px-4 py-2 text-slate-500">{pkg.feed}</td>
+                      <td className="px-4 py-2 text-slate-500">
+                        <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs">{pkg.source}</span>
+                        <span className="ml-2 text-xs">{pkg.feed}</span>
+                      </td>
                     </tr>
                   ))}
                   {result.items.length === 0 ? (

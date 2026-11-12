@@ -78,6 +78,8 @@ describe("github adapter", () => {
     expect(payload.buildId).toBe("b1");
     expect(payload.artifactName).toBe("image.gz");
     expect(payload.profileId).toBe("generic");
+    expect(payload.composition.topLevelPackages).toEqual(plan.topLevelPackages);
+    expect(payload.composition.downloads).toEqual(plan.downloads);
   });
 
   it("parses the manifest marker emitted by the workflow", () => {

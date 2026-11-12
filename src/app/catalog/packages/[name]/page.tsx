@@ -12,6 +12,7 @@ export default async function PackageDetailPage({ params }: { params: Promise<{ 
 
   const pkg = store.getPackage(snapshot.id, name);
   if (!pkg) notFound();
+  const candidates = store.getPackageCandidates(snapshot.id, name);
 
   const dependencies = pkg.depends.map((dependency) => ({
     name: dependency,
@@ -26,7 +27,10 @@ export default async function PackageDetailPage({ params }: { params: Promise<{ 
         </Link>
         <h1 className="mt-3 text-2xl font-semibold">{pkg.name}</h1>
         <p className="mt-1 text-sm text-slate-400">
-          {pkg.version || "—"} · {pkg.arch || "—"} · feed {pkg.feed}
+          {pkg.version || "—"} · {pkg.arch || "—"} · feed {pkg.feed} ·{" "}
+          <span className="rounded-full border border-emerald-800 px-2 py-0.5 text-xs text-emerald-300">
+            {pkg.source}
+          </span>
         </p>
       </header>
 
@@ -46,10 +50,50 @@ export default async function PackageDetailPage({ params }: { params: Promise<{ 
           </dd>
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:col-span-2">
+          <dt className="text-xs uppercase tracking-wider text-slate-500">来源 pin</dt>
+          <dd className="mt-1 break-all font-mono text-xs text-slate-400">{pkg.sourcePin || "—"}</dd>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:col-span-2">
+          <dt className="text-xs uppercase tracking-wider text-slate-500">sha256</dt>
+          <dd className="mt-1 break-all font-mono text-xs text-slate-400">{pkg.sha256 || "—"}</dd>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <dt className="text-xs uppercase tracking-wider text-slate-500">文件</dt>
+          <dd className="mt-1 break-all font-mono text-xs text-slate-400">
+            {pkg.filename ?? "—"}（{formatSize(pkg.fileSize)}）
+          </dd>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <dt className="text-xs uppercase tracking-wider text-slate-500">kmod</dt>
+          <dd className="mt-1 text-sm">{pkg.kmod ? "是（仅允许官方来源）" : "否"}</dd>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:col-span-2">
           <dt className="text-xs uppercase tracking-wider text-slate-500">origin</dt>
           <dd className="mt-1 font-mono text-xs text-slate-400">{pkg.origin || "—"}</dd>
         </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:col-span-2">
+          <dt className="text-xs uppercase tracking-wider text-slate-500">下载地址</dt>
+          <dd className="mt-1 break-all font-mono text-xs text-slate-400">{pkg.downloadUrl || "—"}</dd>
+        </div>
       </dl>
+
+      {candidates.length > 1 ? (
+        <section>
+          <h2 className="text-lg font-medium">同名包的其他来源（{candidates.length - 1}）</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {candidates
+              .filter((candidate) => candidate.source !== pkg.source)
+              .map((candidate) => (
+                <li className="rounded-lg border border-slate-800 bg-slate-900/60 p-3" key={candidate.source}>
+                  <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs">{candidate.source}</span>
+                  <span className="ml-2 font-mono text-xs text-slate-400">
+                    {candidate.version} · {candidate.filename ?? "—"}
+                  </span>
+                </li>
+              ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section>
         <h2 className="text-lg font-medium">直接依赖（{dependencies.length}）</h2>

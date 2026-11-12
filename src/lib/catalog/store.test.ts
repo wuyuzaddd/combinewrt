@@ -16,6 +16,13 @@ function pkg(overrides: Partial<CatalogPackage>): CatalogPackage {
     depends: ["libc"],
     feed: "base",
     proprietary: false,
+    source: "official",
+    sourcePin: "",
+    sha256: null,
+    fileSize: 0,
+    filename: `${overrides.name ?? "demo"}-1.0.apk`,
+    downloadUrl: null,
+    kmod: (overrides.name ?? "demo").startsWith("kmod-"),
     ...overrides,
   };
 }
@@ -25,6 +32,12 @@ function input(overrides: Partial<SnapshotInput> = {}): SnapshotInput {
     baseVersion: "25.12.2",
     feedCommit: "r38135-test",
     sourceNote: "fixture",
+    sourcePins: {
+      official: { base: "base-commit" },
+      dllkids: "dllkids-sha",
+      supplement: null,
+      kernel: { version: "6.12.103", release: "1", vermagic: "abc" },
+    },
     profiles: [
       { id: "generic", title: "Generic x86/64", formats: ["ext4-efi", "squashfs-efi"], imageCount: 25 },
       { id: "tiny", title: "Tiny", formats: ["rootfs-tar"], imageCount: 1 },
@@ -90,6 +103,28 @@ describe("catalog store", () => {
     const page = store.searchPackages(snapshot.id, { limit: 3, offset: 3 });
     expect(page.total).toBe(7);
     expect(page.items.map((item) => item.name)).toEqual(["pkg-3", "pkg-4", "pkg-5"]);
+  });
+
+  it("keeps same-name packages from multiple sources and prefers official", () => {
+    const { store } = freshStore();
+    const snapshot = store.saveSnapshot(
+      input({
+        packages: [
+          pkg({ name: "lucky", version: "3.5.0-r1", feed: "dllkids", source: "dllkids", sourcePin: "idx" }),
+          pkg({ name: "lucky", version: "3.4.0-r1" }),
+          pkg({ name: "geo2txt", feed: "dllkids", source: "dllkids", sourcePin: "idx" }),
+        ],
+      }),
+    );
+    expect(store.sourceCounts(snapshot.id)).toEqual({ official: 1, dllkids: 2, supplement: 0 });
+    expect(store.getPackageCandidates(snapshot.id, "lucky").map((item) => item.source)).toEqual([
+      "official",
+      "dllkids",
+    ]);
+    expect(store.getPackage(snapshot.id, "lucky")?.version).toBe("3.4.0-r1");
+    expect(store.searchPackages(snapshot.id, { query: "lucky" }).items.map((item) => item.source)).toEqual([
+      "official",
+    ]);
   });
 
   it("loads a package detail and moves the active pointer on a new snapshot", () => {
