@@ -26,6 +26,9 @@ skills-lock.json
 # ── 本地规格与 tickets（不上传）──
 /.scratch/
 
+# ── 本地工作树（含独立仓库 checkout，不上传）──
+/.worktrees/
+
 # next.js app
 /node_modules
 /.next/
