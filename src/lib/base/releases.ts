@@ -2,7 +2,7 @@ import type { ReleaseCandidate, ReleaseInfo } from "./types";
 
 export const RELEASES_ROOT = "https://downloads.immortalwrt.org/releases";
 
-const STABLE_VERSION = /^\d+\.\d+\.\d+$/;
+export const STABLE_VERSION = /^\d+\.\d+\.\d+$/;
 const RELEASE_ROW = /<a href="([^"]+)\/">[^<]*<\/a>\/<\/td><td class="s">[^<]*<\/td><td class="d">([^<]+)<\/td>/g;
 const IMAGEBUILDER_SUM = /\b([0-9a-f]{64})\s+\*?immortalwrt-imagebuilder-([0-9.]+)-x86-64\.Linux-x86_64\.tar\.zst\b/;
 

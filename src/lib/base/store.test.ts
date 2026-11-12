@@ -52,6 +52,8 @@ describe("base version store", () => {
       phase: "building",
       buildId: "b1",
       snapshotId: 7,
+      targetVersion: "25.12.3",
+      rollbackSnapshotId: null,
       error: null,
       startedAt: "2026-10-02T00:00:00.000Z",
       updatedAt: "2026-10-02T00:00:00.000Z",

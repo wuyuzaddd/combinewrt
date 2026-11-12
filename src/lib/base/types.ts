@@ -18,6 +18,7 @@ export interface ReleaseCandidate extends ReleaseInfo {
 
 export interface BaseCheckState {
   checkedAt: string;
+  /** The newest upstream release, but only when it is newer than the active baseline. */
   latest: ReleaseCandidate | null;
   error: string | null;
 }
@@ -28,6 +29,8 @@ export interface SmokeState {
   phase: SmokePhase;
   buildId: string | null;
   snapshotId: number | null;
+  targetVersion: string | null;
+  rollbackSnapshotId: number | null;
   error: string | null;
   startedAt: string;
   updatedAt: string;

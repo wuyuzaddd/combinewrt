@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrate, openDatabase } from "../db";
+import { createCatalogStore } from "../catalog/store";
 import { RELEASES_ROOT } from "./releases";
 import { createBaseVersionService } from "./service";
 import { createBaseVersionStore } from "./store";
@@ -91,7 +92,7 @@ describe("base version service", () => {
 
     await service.checkForNewRelease();
     await service.bump("25.12.3");
-    await service.waitForPipeline();
+    await vi.waitFor(() => expect(service.readState().smoke?.buildId).toBe("build-1"));
 
     expect(refresh).toHaveBeenCalledWith("25.12.3");
     expect(submitSmoke).toHaveBeenCalledWith("25.12.3", 9);
@@ -110,6 +111,38 @@ describe("base version service", () => {
       value: string;
     };
     expect(pointer.value).toBe("1");
+    db.close();
+  });
+
+  it("rolls the baseline back when catalog refresh fails", async () => {
+    const db = database();
+    const store = createBaseVersionStore(db);
+    db.prepare(
+      `INSERT INTO catalog_snapshots (base_version, feed_commit, source_note, source_pins, profile_count, package_count)
+       VALUES ('25.12.2', 'old', 'fixture', '{}', 1, 1)`,
+    ).run();
+    const catalog = createCatalogStore(db);
+    catalog.activateSnapshot(1);
+    const service = createBaseVersionService({
+      store,
+      fetchImpl: fakeFetch(),
+      refresh: vi.fn(async () => {
+        throw new Error("feed refresh failed");
+      }),
+      submitSmoke: vi.fn(),
+      activeSnapshotId: () => catalog.getActiveSnapshot()?.id ?? null,
+      activateSnapshot: (id) => catalog.activateSnapshot(id),
+    });
+
+    await service.checkForNewRelease();
+    await service.bump("25.12.3");
+    await vi.waitFor(() => expect(service.readState().smoke?.phase).toBe("failed"));
+
+    const state = service.readState();
+    expect(state.active?.version).toBe("25.12.2");
+    expect(state.previous).toBeNull();
+    expect(state.smoke?.error).toContain("feed refresh failed");
+    expect(catalog.getActiveSnapshot()?.id).toBe(1);
     db.close();
   });
 

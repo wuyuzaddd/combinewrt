@@ -121,6 +121,9 @@ export function BaseVersionPanel({ state }: { state: BaseVersionState }) {
         <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
           <p className={state.smoke.phase === "failed" ? "text-rose-300" : "text-slate-300"}>
             冒烟状态：{PHASE_LABELS[state.smoke.phase] ?? state.smoke.phase}
+            {state.smoke.targetVersion && (
+              <span className="ml-2 font-mono text-xs text-slate-500">目标 {state.smoke.targetVersion}</span>
+            )}
             {state.smoke.updatedAt && (
               <span className="ml-2 text-xs text-slate-500">
                 {new Date(state.smoke.updatedAt).toLocaleString("zh-CN")}

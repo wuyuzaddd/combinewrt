@@ -21,6 +21,8 @@ function createService(): BaseVersionService {
 
   return createBaseVersionService({
     store: createBaseVersionStore(db),
+    activeSnapshotId: () => catalogStore.getActiveSnapshot()?.id ?? null,
+    activateSnapshot: (snapshotId) => catalogStore.activateSnapshot(snapshotId),
     async refresh(baseVersion) {
       const result = await refreshCatalog({
         source: createImmortalWrtSource({
@@ -40,6 +42,9 @@ function createService(): BaseVersionService {
       catalogStore.activateSnapshot(result.snapshot.id);
       return { snapshotId: result.snapshot.id };
     },
+    // A supplement package build is only triggered once the supplement source is
+    // configured; its workflow belongs to the supplement-packages spec and does not
+    // exist in this repository yet.
     async submitSmoke() {
       const validation = validateBuildForm({
         profile: "generic",
@@ -75,7 +80,11 @@ export function getBaseVersionService(): BaseVersionService {
   return cached;
 }
 
-export async function readBaseVersionState(): Promise<BaseVersionState> {
+export function readBaseVersionState(): BaseVersionState {
+  return getBaseVersionService().readState();
+}
+
+export async function syncBaseVersionState(): Promise<BaseVersionState> {
   const service = getBaseVersionService();
   const state = service.readState();
   if (state.smoke?.buildId && state.smoke.phase === "building") {
@@ -92,14 +101,30 @@ export async function readBaseVersionState(): Promise<BaseVersionState> {
 
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const CHECK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const SMOKE_INTERVAL_MS = 10_000;
+let smokeTimer: NodeJS.Timeout | undefined;
+
+export function startBaseVersionMonitor(): void {
+  if (smokeTimer) return;
+  const run = () => {
+    void syncBaseVersionState().catch((error: unknown) => {
+      console.error("[combinewrt] smoke status refresh failed", error);
+    });
+  };
+  smokeTimer = setInterval(run, SMOKE_INTERVAL_MS);
+  smokeTimer.unref();
+}
 
 export function startBaseVersionCheck(): void {
   if (checkTimer) return;
   const run = () => {
     try {
       const service = getBaseVersionService();
-      const checkedAt = service.readState().check?.checkedAt;
-      if (checkedAt && Date.now() - Date.parse(checkedAt) < CHECK_MAX_AGE_MS) return;
+      const check = service.readState().check;
+      if (check?.checkedAt) {
+        const maxAge = check.error ? 24 * 60 * 60 * 1000 : CHECK_MAX_AGE_MS;
+        if (Date.now() - Date.parse(check.checkedAt) < maxAge) return;
+      }
       void service.checkForNewRelease().catch((error: unknown) => {
         console.error("[combinewrt] base version check failed", error);
       });

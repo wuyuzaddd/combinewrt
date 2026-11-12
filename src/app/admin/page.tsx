@@ -17,7 +17,7 @@ export default async function AdminPage() {
   const session = await getSession();
   if (!session) redirect("/login?next=/admin");
   const retention = readRetentionSummary(getDatabase());
-  const baseVersion = await readBaseVersionState();
+  const baseVersion = readBaseVersionState();
 
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 px-6 py-12">

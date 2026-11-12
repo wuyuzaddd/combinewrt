@@ -4,6 +4,7 @@ import { getConfig } from "@/lib/config";
 import { getDatabase } from "@/lib/db";
 import { createBaseVersionStore } from "@/lib/base/store";
 import { refreshCatalog } from "@/lib/catalog/service";
+import { createCatalogStore } from "@/lib/catalog/store";
 import { createImmortalWrtSource } from "@/lib/catalog/source";
 
 export async function POST() {
@@ -31,6 +32,7 @@ export async function POST() {
       }),
       db,
     });
+    createCatalogStore(db).activateSnapshot(result.snapshot.id);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("catalog refresh failed", error);

@@ -10,5 +10,5 @@ export async function POST() {
   if (check.error) {
     return NextResponse.json({ ok: false, error: check.error, check }, { status: 502 });
   }
-  return NextResponse.json({ ok: true, check, state: await readBaseVersionState() });
+  return NextResponse.json({ ok: true, check, state: readBaseVersionState() });
 }

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { createCatalogStore } from "@/lib/catalog/store";
 import type { BaseCheckState, BaseVersion, SmokeState } from "./types";
 
 const ACTIVE_KEY = "base.active";
@@ -57,9 +58,7 @@ export interface BaseVersionStore {
   setCheck(state: BaseCheckState): void;
   smoke(): SmokeState | null;
   setSmoke(state: SmokeState | null): void;
-  latestSnapshotId(baseVersion: string): number | null;
   activateLatestSnapshot(baseVersion: string): number | null;
-  activateSnapshot(snapshotId: number): boolean;
 }
 
 export function createBaseVersionStore(db: DatabaseSync): BaseVersionStore {
@@ -108,21 +107,7 @@ export function createBaseVersionStore(db: DatabaseSync): BaseVersionStore {
     return saved;
   }
 
-  function latestSnapshotId(baseVersion: string): number | null {
-    const row = db
-      .prepare("SELECT id FROM catalog_snapshots WHERE base_version = ? ORDER BY created_at DESC, id DESC LIMIT 1")
-      .get(baseVersion) as { id: number } | undefined;
-    return row ? Number(row.id) : null;
-  }
-
-  function activateSnapshot(snapshotId: number): boolean {
-    const row = db.prepare("SELECT id FROM catalog_snapshots WHERE id = ?").get(snapshotId) as
-      | { id: number }
-      | undefined;
-    if (!row) return false;
-    writeMeta(db, "catalog.active_snapshot", String(snapshotId));
-    return true;
-  }
+  const catalog = createCatalogStore(db);
 
   return {
     get,
@@ -151,12 +136,10 @@ export function createBaseVersionStore(db: DatabaseSync): BaseVersionStore {
         writeMeta(db, SMOKE_KEY, JSON.stringify(state));
       }
     },
-    latestSnapshotId,
     activateLatestSnapshot(baseVersion) {
-      const id = latestSnapshotId(baseVersion);
+      const id = catalog.latestForBaseVersion(baseVersion);
       if (id === null) return null;
-      return activateSnapshot(id) ? id : null;
+      return catalog.activateSnapshot(id) ? id : null;
     },
-    activateSnapshot,
   };
 }
