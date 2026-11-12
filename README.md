@@ -39,7 +39,7 @@ npm run dev
 | `DATABASE_PATH` | 否 | 默认 `./data/combinewrt.db`，目录会自动创建 |
 | `APP_ORIGIN` | 否 | 站点对外绝对地址（含协议），默认 `http://localhost:3000`；生产必须是 `https://` |
 | `APK_BIN` | 否 | apk-tools 3 可执行文件，用于读取 feed 的 `packages.adb`；默认 `apk`。目录刷新需要它 |
-| `IMMORTALWRT_BASE_VERSION` | 否 | 锁定的 ImmortalWrt 版本，默认 `25.12.2` |
+| `IMMORTALWRT_BASE_VERSION` | 否 | 首次启动时写入基线记录的 ImmortalWrt 版本，默认 `25.12.2`；之后以管理页的当前基线为准 |
 | `BUILD_ADAPTER` | 否 | `fake`（默认，本地 stub）或 `github`（派发到真实 Actions） |
 | `BUILD_REPO` | 条件 | `owner/repo`；`BUILD_ADAPTER=github` 时必填 |
 | `BUILD_REPO_TOKEN` | 条件 | 仅授权该仓库 `Actions: write` 的 PAT；`github` 适配器必填 |
@@ -144,6 +144,7 @@ src/app/                页面与 route handlers（/api/login、/api/logout、/a
 src/app/catalog/        目录浏览与包详情
 src/app/build/          构建表单与计划预览
 src/app/builds/         构建历史、详情与状态轮询
+src/lib/base/           基线版本记录、发布发现、切换/回退与冒烟构建编排
 src/lib/builds/         构建记录、派发适配器（fake/github）与状态服务
 build-workflow/         构建仓库用的 stub 工作流模板
 src/lib/auth/           会话、密码、限速、登录服务

@@ -100,6 +100,8 @@ function toPackage(row: PackageRow): CatalogPackage {
 export interface CatalogStore {
   findSnapshot(baseVersion: string, feedCommit: string): SnapshotMeta | null;
   getActiveSnapshot(): SnapshotMeta | null;
+  latestForBaseVersion(baseVersion: string): number | null;
+  activateSnapshot(snapshotId: number): boolean;
   saveSnapshot(input: SnapshotInput): SnapshotMeta;
   listProfiles(snapshotId: number): CatalogProfile[];
   searchPackages(snapshotId: number, options: PackageSearchOptions): PackageSearch;
@@ -126,6 +128,25 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
       | SnapshotRow
       | undefined;
     return row ? toMeta(row) : null;
+  }
+
+  function latestForBaseVersion(baseVersion: string): number | null {
+    const row = db
+      .prepare("SELECT id FROM catalog_snapshots WHERE base_version = ? ORDER BY created_at DESC, id DESC LIMIT 1")
+      .get(baseVersion) as { id: number } | undefined;
+    return row ? Number(row.id) : null;
+  }
+
+  function activateSnapshot(snapshotId: number): boolean {
+    const row = db.prepare("SELECT id FROM catalog_snapshots WHERE id = ?").get(snapshotId) as
+      | { id: number }
+      | undefined;
+    if (!row) return false;
+    db.prepare(
+      `INSERT INTO app_meta (key, value) VALUES ('catalog.active_snapshot', ?)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+    ).run(String(snapshotId));
+    return true;
   }
 
   function saveSnapshot(input: SnapshotInput): SnapshotMeta {
@@ -281,6 +302,8 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
   return {
     findSnapshot,
     getActiveSnapshot,
+    latestForBaseVersion,
+    activateSnapshot,
     saveSnapshot,
     listProfiles,
     searchPackages,
