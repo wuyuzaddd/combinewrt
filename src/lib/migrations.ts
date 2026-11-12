@@ -90,4 +90,49 @@ export const MIGRATIONS: Migration[] = [
     version: "005_build_config",
     sql: `ALTER TABLE builds ADD COLUMN config_json TEXT;`,
   },
+  {
+    version: "006_package_sources",
+    sql: `
+      CREATE TABLE catalog_packages_next (
+        snapshot_id INTEGER NOT NULL REFERENCES catalog_snapshots(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        version TEXT NOT NULL,
+        arch TEXT NOT NULL,
+        description TEXT NOT NULL,
+        license TEXT,
+        origin TEXT,
+        category TEXT NOT NULL,
+        installed_size INTEGER NOT NULL,
+        depends TEXT NOT NULL,
+        feed TEXT NOT NULL,
+        proprietary INTEGER NOT NULL,
+        source TEXT NOT NULL DEFAULT 'official',
+        source_pin TEXT NOT NULL DEFAULT '',
+        sha256 TEXT,
+        file_size INTEGER NOT NULL DEFAULT 0,
+        filename TEXT,
+        download_url TEXT,
+        kmod INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (snapshot_id, name, source)
+      );
+
+      INSERT INTO catalog_packages_next
+        (snapshot_id, name, version, arch, description, license, origin, category,
+         installed_size, depends, feed, proprietary, source, source_pin, sha256,
+         file_size, filename, download_url, kmod)
+      SELECT snapshot_id, name, version, arch, description, license, origin, category,
+             installed_size, depends, feed, proprietary, 'official', '', NULL,
+             0, NULL, NULL, CASE WHEN name LIKE 'kmod-%' THEN 1 ELSE 0 END
+      FROM catalog_packages;
+
+      DROP TABLE catalog_packages;
+      ALTER TABLE catalog_packages_next RENAME TO catalog_packages;
+
+      CREATE INDEX catalog_packages_category
+        ON catalog_packages (snapshot_id, category);
+
+      ALTER TABLE catalog_snapshots
+        ADD COLUMN source_pins TEXT NOT NULL DEFAULT '{"official":{},"dllkids":null,"supplement":null,"kernel":null}';
+    `,
+  },
 ];

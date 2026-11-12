@@ -22,7 +22,7 @@ function isContiguousNetmask(value: string): boolean {
 
 const TIMEZONES = new Set<string>(["UTC", ...Intl.supportedValuesOf("timeZone")]);
 const IMAGE_TYPE_IDS = IMAGE_FORMATS.map((format) => format.id) as [ImageFormatId, ...ImageFormatId[]];
-const PACKAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9+._-]*$/;
+const PACKAGE_NAME = /^(?:(?:official|dllkids|supplement)\/)?[A-Za-z0-9][A-Za-z0-9+._-]*(?:@[A-Za-z0-9+._~-]+)?$/;
 
 function ipv4ToInt(value: string): number {
   return value.split(".").reduce((result, octet) => (result << 8) + Number(octet), 0) >>> 0;
@@ -58,6 +58,17 @@ const schema = z.object({
   packages: z
     .array(z.string().trim().regex(PACKAGE_NAME, "package name is invalid"))
     .max(300, "too many packages"),
+  packagePins: z
+    .array(
+      z.object({
+        name: z.string().trim().regex(PACKAGE_NAME, "package pin name is invalid"),
+        source: z.enum(["official", "dllkids", "supplement"]).optional(),
+        version: z.string().trim().min(1).max(128).optional(),
+        sha256: z.string().trim().regex(/^[0-9a-f]{64}$/, "package pin sha256 is invalid").optional(),
+      }),
+    )
+    .max(300)
+    .optional(),
 });
 
 export type ValidationResult =

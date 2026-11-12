@@ -18,8 +18,17 @@ function pkg(name: string, version: string): CatalogPackage {
     depends: [],
     feed: "base",
     proprietary: false,
+    source: "official",
+    sourcePin: "",
+    sha256: null,
+    fileSize: 0,
+    filename: `${name}-${version}.apk`,
+    downloadUrl: null,
+    kmod: name.startsWith("kmod-"),
   };
 }
+
+const dllkidsDump = readFileSync(new URL("./fixtures/dllkids-excerpt.dump", import.meta.url), "utf8");
 
 describe("parseAdbDump", () => {
   it("parses the real ImmortalWrt adbdump excerpt", () => {
@@ -39,6 +48,28 @@ describe("parseAdbDump", () => {
       proprietary: false,
     });
     expect(xlat?.description).toContain("464xlat provides support");
+  });
+
+  it("parses dllkids hashes, sizes, filenames and source pins", () => {
+    const packages = parseAdbDump(dllkidsDump, "dllkids", {
+      source: "dllkids",
+      sourcePin: "index-sha",
+      downloadBase: "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64/",
+    });
+    const lucky = packages.find((item) => item.name === "lucky");
+    expect(lucky).toMatchObject({
+      version: "3.5.0-r1",
+      arch: "x86_64",
+      sha256: "b925d2f2e604f834f25f9170eba75700479fc4a48bd1f42efe4749bc5b2c7636",
+      fileSize: 16789519,
+      installedSize: 16788968,
+      filename: "lucky-3.5.0-r1.apk",
+      downloadUrl: "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64/lucky-3.5.0-r1.apk",
+      source: "dllkids",
+      sourcePin: "index-sha",
+      kmod: false,
+    });
+    expect(packages.find((item) => item.name === "luci-app-lucky")?.depends).toContain("rpcd-mod-file");
   });
 
   it("flags packages without a license declaration", () => {
@@ -82,6 +113,16 @@ describe("dedupePackages", () => {
     const merged = dedupePackages([...parseAdbDump(dump, "base"), ...parseAdbDump(higher, "packages")]);
     expect(merged).toHaveLength(5);
     expect(merged.find((item) => item.name === "6in4")?.version).toBe("99");
+  });
+
+  it("keeps shadowed packages from different sources", () => {
+    const official = pkg("same", "13");
+    const dllkids = { ...pkg("same", "12"), source: "dllkids" as const };
+    const result = dedupePackages([official, dllkids]);
+    expect(result.map((item) => `${item.source}:${item.name}@${item.version}`)).toEqual([
+      "official:same@13",
+      "dllkids:same@12",
+    ]);
   });
 
   it("keeps the highest version of a duplicated name", () => {

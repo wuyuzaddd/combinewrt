@@ -19,7 +19,7 @@ afterEach(() => {
 describe("database bootstrap", () => {
   it("creates the database file and applies migrations", () => {
     const db = openDatabase(tempDbPath());
-    expect(migrate(db)).toEqual(["001_init", "002_catalog", "003_builds", "004_build_artifact_metadata", "005_build_config"]);
+    expect(migrate(db)).toEqual(["001_init", "002_catalog", "003_builds", "004_build_artifact_metadata", "005_build_config", "006_package_sources"]);
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()

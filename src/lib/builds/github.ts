@@ -106,6 +106,11 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
         profileId: plan.profileId,
         imageType: plan.imageType,
         packages: plan.packages,
+        composition: {
+          topLevelPackages: plan.topLevelPackages,
+          sourcePins: plan.sourcePins,
+          downloads: plan.downloads,
+        },
         files: plan.files,
         artifactName: meta.artifactName,
         imageBuilderCommand: plan.imageBuilderCommand,

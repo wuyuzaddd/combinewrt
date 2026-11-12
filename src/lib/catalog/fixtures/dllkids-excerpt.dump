@@ -1,0 +1,39 @@
+packages: # 2 items
+  - name: luci-app-lucky
+    version: 27.307.42643~21d6884
+    hashes: 24f55a5869c2a5784d94e61f435eccb691ac6882b756c2590108546c77e5cace
+    description: Manage the Lucky service and its basic web settings.
+    arch: noarch
+    origin: feeds/jell/feeds/jell/luci-app-lucky
+    maintainer: OpenWrt LuCI community
+    url: https://github.com/openwrt/luci
+    installed-size: 165986
+    file-size: 50801
+    depends: # 9 items
+      - libc
+      - libubus-lua
+      - libuci-lua
+      - lua
+      - luci-lib-ip
+      - luci-lib-jsonc
+      - luci-lib-nixio
+      - lucky
+      - rpcd-mod-file
+    provides: # 1 items
+      - luci-app-lucky-any
+  - name: lucky
+    version: 3.5.0-r1
+    hashes: b925d2f2e604f834f25f9170eba75700479fc4a48bd1f42efe4749bc5b2c7636
+    description: |
+      Main functions of Lucky: dynamic domain name ddns-go service, socat,reverse proxy ,wake on lan
+    arch: x86_64
+    license: GPL-3.0-only
+    origin: feeds/jell/feeds/jell/lucky
+    maintainer: GDY666 <gdy666@foxmail.com>
+    url: https://github.com/gdy666/lucky
+    installed-size: 16788968
+    file-size: 16789519
+    depends: # 1 items
+      - libc
+    provides: # 1 items
+      - lucky-any

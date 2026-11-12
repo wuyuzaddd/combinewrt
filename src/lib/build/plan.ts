@@ -1,16 +1,20 @@
 import { IMAGE_FORMATS } from "../catalog/profiles";
-import type { CatalogProfile } from "../catalog/types";
+import type { CatalogProfile, SourcePins } from "../catalog/types";
+import { EMPTY_SOURCE_PINS } from "../catalog/types";
+import { buildDownloadManifest, collectRequests, findSourceConflicts } from "./composition";
 import { findConflicts } from "./conflicts";
 import { resolveDependencies } from "./resolve";
-import type { BuildFormInput, BuildPlan, PackageLookup } from "./types";
+import type { BuildConflict, BuildFormInput, BuildPlan, PackageLookup, PackageLookupAll } from "./types";
 import { generateUciDefaults } from "./uci";
 
 export interface PlanContext {
   baseVersion: string;
   feedCommit: string;
   sourceNote: string;
+  sourcePins?: SourcePins;
   profile: CatalogProfile;
   lookup: PackageLookup;
+  lookupAll?: PackageLookupAll;
   hashPassword: (password: string) => Promise<string>;
   now?: Date;
 }
@@ -26,8 +30,13 @@ export function imageBuilderCommand(profileId: string, packages: string[]): stri
 }
 
 export async function createBuildPlan(form: BuildFormInput, context: PlanContext): Promise<BuildPlan> {
-  const { entries, missingDependencies } = resolveDependencies(form.packages, context.lookup);
+  const formatConflicts: BuildConflict[] = [];
+  const requests = collectRequests(form, formatConflicts);
+  const { entries, missingDependencies } = resolveDependencies(requests, context.lookup, context.lookupAll);
   const names = entries.map((entry) => entry.name);
+  const sourceConflicts = findSourceConflicts(requests, entries, context, form.packagePins ?? []);
+  const downloads = buildDownloadManifest(entries, context, sourceConflicts);
+  const topLevelPackages = [...new Set(requests.map((request) => request.name))];
   const rootHash = await context.hashPassword(form.rootPassword);
   const uci = generateUciDefaults(form, rootHash, { now: context.now });
 
@@ -44,13 +53,16 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
     baseVersion: context.baseVersion,
     feedCommit: context.feedCommit,
     sourceNote: context.sourceNote,
+    sourcePins: context.sourcePins ?? EMPTY_SOURCE_PINS,
     profileId: context.profile.id,
     profileTitle: context.profile.title,
     imageType: form.imageType,
     packages: names,
+    topLevelPackages,
     resolved: entries,
+    downloads,
     missingDependencies,
-    conflicts: findConflicts(names),
+    conflicts: [...formatConflicts, ...sourceConflicts, ...findConflicts(names)],
     files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: uci, mode: 0o755 }],
     artifactName: artifactName(context.baseVersion, context.profile.id, form.imageType),
     imageBuilderCommand: imageBuilderCommand(context.profile.id, names),

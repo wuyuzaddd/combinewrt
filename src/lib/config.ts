@@ -9,6 +9,10 @@ export interface AppConfig {
   secureCookies: boolean;
   apkBin: string;
   baseVersion: string;
+  dllkidsFeedUrl: string;
+  dllkidsIndexSha256: string;
+  supplementFeedCommit: string | null;
+  supplementKeyFingerprint: string | null;
   buildAdapter: "github" | "fake";
   buildWorkflow: string;
   buildRepo: string;
@@ -90,6 +94,25 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
   const apkBin = env.APK_BIN?.trim() || "apk";
   const baseVersion = env.IMMORTALWRT_BASE_VERSION?.trim() || "25.12.2";
+  const dllkidsFeedUrl =
+    env.DLLKIDS_FEED_URL?.trim() || "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64";
+  const dllkidsIndexSha256 =
+    env.DLLKIDS_INDEX_SHA256?.trim() || "0fa9928862b2e61fe204b705345ce8eb086598d533f5608d70072246e71f2465";
+  if (!/^https?:\/\//.test(dllkidsFeedUrl)) {
+    issues.push("DLLKIDS_FEED_URL must be an http:// or https:// URL");
+  }
+  if (!/^[0-9a-f]{64}$/.test(dllkidsIndexSha256)) {
+    issues.push("DLLKIDS_INDEX_SHA256 must be a 64 character lowercase sha256");
+  }
+  const supplementFeedCommit = env.SUPPLEMENT_FEED_COMMIT?.trim() || null;
+  if (supplementFeedCommit && !/^[0-9a-f]{40}$/.test(supplementFeedCommit)) {
+    issues.push("SUPPLEMENT_FEED_COMMIT must be a 40 character lowercase git commit or empty");
+  }
+  const supplementKeyFingerprint = env.SUPPLEMENT_KEY_FINGERPRINT?.trim() || null;
+
+  if (issues.length > 0) {
+    throw new ConfigError(issues);
+  }
 
   return {
     sessionSecret,
@@ -99,6 +122,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     secureCookies,
     apkBin,
     baseVersion,
+    dllkidsFeedUrl,
+    dllkidsIndexSha256,
+    supplementFeedCommit,
+    supplementKeyFingerprint,
     buildAdapter: buildAdapter as "github" | "fake",
     buildWorkflow,
     buildRepo,

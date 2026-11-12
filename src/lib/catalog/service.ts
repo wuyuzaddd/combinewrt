@@ -2,12 +2,21 @@ import type { DatabaseSync } from "node:sqlite";
 import { dedupePackages, parseAdbDump } from "./packages";
 import { parseProfiles } from "./profiles";
 import { createCatalogStore } from "./store";
-import type { SnapshotMeta } from "./types";
+import type { PackageSource, SnapshotMeta, SourcePins } from "./types";
+import { EMPTY_SOURCE_PINS } from "./types";
+
+export interface CatalogDump {
+  feed: string;
+  dump: string;
+  source?: PackageSource;
+  sourcePin?: string;
+  downloadBase?: string | null;
+}
 
 export interface CatalogSource {
   baseVersion: string;
-  loadMeta(): Promise<{ profilesJson: unknown; feedCommit: string; sourceNote: string }>;
-  loadDumps(): Promise<Array<{ feed: string; dump: string }>>;
+  loadMeta(): Promise<{ profilesJson: unknown; feedCommit: string; sourceNote: string; sourcePins?: SourcePins }>;
+  loadDumps(): Promise<CatalogDump[]>;
 }
 
 export interface RefreshResult {
@@ -26,7 +35,15 @@ export async function refreshCatalog({ source, db }: { source: CatalogSource; db
   }
 
   const dumps = await source.loadDumps();
-  const packages = dedupePackages(dumps.flatMap(({ feed, dump }) => parseAdbDump(dump, feed)));
+  const packages = dedupePackages(
+    dumps.flatMap(({ feed, dump, source: packageSource, sourcePin, downloadBase }) =>
+      parseAdbDump(dump, feed, {
+        source: packageSource ?? "official",
+        sourcePin: sourcePin ?? "",
+        downloadBase: downloadBase ?? null,
+      }),
+    ),
+  );
   if (packages.length === 0) {
     throw new Error("feed dumps contained no packages");
   }
@@ -35,6 +52,7 @@ export async function refreshCatalog({ source, db }: { source: CatalogSource; db
     baseVersion: source.baseVersion,
     feedCommit: meta.feedCommit,
     sourceNote: meta.sourceNote,
+    sourcePins: meta.sourcePins ?? EMPTY_SOURCE_PINS,
     profiles,
     packages,
   });

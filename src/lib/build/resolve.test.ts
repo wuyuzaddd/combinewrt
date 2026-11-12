@@ -4,10 +4,10 @@ import type { PackageLookup } from "./types";
 
 const lookup: PackageLookup = (name) =>
   ({
-    app: { version: "1", depends: ["lib", "libc|musl", "!bad"] },
-    lib: { version: "2", depends: ["libc"] },
-    libc: { version: "3", depends: [] },
-    musl: { version: "1", depends: [] },
+    app: { version: "1", depends: ["lib", "libc|musl", "!bad"], source: "official" as const, sourcePin: "", sha256: null, filename: "app-1.apk", downloadUrl: null, feed: "packages" },
+    lib: { version: "2", depends: ["libc"], source: "official" as const, sourcePin: "", sha256: null, filename: "lib-2.apk", downloadUrl: null, feed: "packages" },
+    libc: { version: "3", depends: [], source: "official" as const, sourcePin: "", sha256: null, filename: "libc-3.apk", downloadUrl: null, feed: "packages" },
+    musl: { version: "1", depends: [], source: "official" as const, sourcePin: "", sha256: null, filename: "musl-1.apk", downloadUrl: null, feed: "packages" },
   })[name] ?? null;
 
 describe("resolveDependencies", () => {
@@ -27,13 +27,18 @@ describe("resolveDependencies", () => {
   });
 
   it("reports dependencies missing from the snapshot", () => {
-    const sparse: PackageLookup = (name) => (name === "app" ? { version: "1", depends: ["ghost"] } : null);
+    const sparse: PackageLookup = (name) =>
+      name === "app"
+        ? { version: "1", depends: ["ghost"], source: "official" as const, sourcePin: "", sha256: null, filename: "app-1.apk", downloadUrl: null, feed: "packages" }
+        : null;
     const { missingDependencies } = resolveDependencies(["app"], sparse);
     expect(missingDependencies).toEqual(["ghost"]);
   });
 
   it("keeps unknown requested packages as free text", () => {
     const { entries } = resolveDependencies(["not-in-catalog"], lookup);
-    expect(entries).toEqual([{ name: "not-in-catalog", version: null, source: "selected" }]);
+    expect(entries).toEqual([
+      { name: "not-in-catalog", version: null, source: "selected", packageSource: null, sourcePin: null, sha256: null, feed: null },
+    ]);
   });
 });
