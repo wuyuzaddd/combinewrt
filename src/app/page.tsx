@@ -19,7 +19,14 @@ export default async function HomePage() {
         </p>
       </section>
 
-      <nav className="flex gap-3 text-sm">
+      <nav className="flex flex-wrap gap-3 text-sm">
+        <a
+          className="rounded-lg border border-emerald-500/60 px-4 py-2 font-medium text-emerald-300"
+          href="https://wuyuzaddd.github.io/combinewrt-packages/"
+          rel="noreferrer"
+        >
+          软件包
+        </a>
         {session ? (
           <Link className="rounded-lg bg-emerald-500 px-4 py-2 font-medium text-slate-950" href="/admin">
             进入管理台
