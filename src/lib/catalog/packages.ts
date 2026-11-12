@@ -157,14 +157,6 @@ export function parseAdbDump(dump: string, feed: string, options: ParseAdbOption
   return packages;
 }
 
-export function comparePackageSource(a: CatalogPackage, b: CatalogPackage): number {
-  return sourcePriority(a.source) - sourcePriority(b.source) || a.name.localeCompare(b.name);
-}
-
-export function preferredPackage(packages: CatalogPackage[]): CatalogPackage | null {
-  return [...packages].sort(comparePackageSource)[0] ?? null;
-}
-
 export function dedupePackages(packages: CatalogPackage[]): CatalogPackage[] {
   const byName = new Map<string, CatalogPackage>();
   for (const pkg of packages) {

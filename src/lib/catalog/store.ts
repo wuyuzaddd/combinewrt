@@ -10,7 +10,7 @@ import type {
   SnapshotMeta,
   SourcePins,
 } from "./types";
-import { EMPTY_SOURCE_PINS, sourcePriority } from "./types";
+import { EMPTY_SOURCE_PINS, PACKAGE_SOURCES } from "./types";
 
 interface SnapshotRow {
   id: number;
@@ -44,7 +44,7 @@ interface PackageRow {
   kmod: number;
 }
 
-const SOURCE_ORDER = `CASE source WHEN 'official' THEN 0 WHEN 'dllkids' THEN 1 ELSE 2 END`;
+const SOURCE_ORDER = `CASE source ${PACKAGE_SOURCES.map((source, index) => `WHEN '${source}' THEN ${index}`).join(" ")} ELSE ${PACKAGE_SOURCES.length} END`;
 
 function parsePins(value: string | null): SourcePins {
   if (!value) return EMPTY_SOURCE_PINS;
@@ -291,4 +291,3 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
   };
 }
 
-export { sourcePriority };

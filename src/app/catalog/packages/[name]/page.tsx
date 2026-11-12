@@ -54,7 +54,7 @@ export default async function PackageDetailPage({ params }: { params: Promise<{ 
           <dd className="mt-1 break-all font-mono text-xs text-slate-400">{pkg.sourcePin || "—"}</dd>
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:col-span-2">
-          <dt className="text-xs uppercase tracking-wider text-slate-500">sha256</dt>
+          <dt className="text-xs uppercase tracking-wider text-slate-500">包哈希（apk package hash）</dt>
           <dd className="mt-1 break-all font-mono text-xs text-slate-400">{pkg.sha256 || "—"}</dd>
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">

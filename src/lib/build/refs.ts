@@ -14,8 +14,3 @@ export function parsePackageRef(raw: string): RequestedPackage | null {
   };
 }
 
-export function formatPackageRef(requested: RequestedPackage): string {
-  const prefix = requested.source ? `${requested.source}/` : "";
-  const suffix = requested.version ? `@${requested.version}` : "";
-  return `${prefix}${requested.name}${suffix}`;
-}

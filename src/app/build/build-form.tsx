@@ -8,6 +8,16 @@ import { presetPackages } from "@/lib/build/presets";
 
 const STORAGE_KEY = "combinewrt.build-form";
 
+const SOURCE_LABELS: Record<string, string> = {
+  official: "官方",
+  dllkids: "dllkids",
+  supplement: "自有",
+};
+
+function withSource(entry: { name: string; packageSource?: string | null }): string {
+  return entry.packageSource ? `${entry.name} [${SOURCE_LABELS[entry.packageSource] ?? entry.packageSource}]` : entry.name;
+}
+
 interface FormState {
   profile: string;
   imageType: string;
@@ -439,7 +449,7 @@ export function BuildForm({ baseVersion, profiles, initialConfig }: Props) {
                 {plan.profileTitle} · {plan.imageType}
               </p>
               <p className="mt-3 text-xs text-slate-500">直接选择（{selectedEntries.length}）</p>
-              <p className="text-slate-300">{selectedEntries.map((entry) => entry.name).join(", ") || "（无）"}</p>
+              <p className="text-slate-300">{selectedEntries.map(withSource).join(", ") || "（无）"}</p>
               {unknownSelected.length > 0 && (
                 <p className="mt-1 text-xs text-amber-300">
                   目录中未找到：{unknownSelected.map((entry) => entry.name).join(", ")}（构建时可能失败）
@@ -447,7 +457,7 @@ export function BuildForm({ baseVersion, profiles, initialConfig }: Props) {
               )}
               <p className="mt-3 text-xs text-slate-500">自动依赖（{dependencyEntries.length}）</p>
               <p className="text-slate-400">
-                {dependencyEntries.slice(0, 30).map((entry) => entry.name).join(", ")}
+                {dependencyEntries.slice(0, 30).map(withSource).join(", ")}
                 {dependencyEntries.length > 30 ? ` … +${dependencyEntries.length - 30}` : ""}
               </p>
             </div>

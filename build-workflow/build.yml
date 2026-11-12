@@ -82,10 +82,24 @@ jobs:
             echo "verified pinned package sha256: $filename $actual"
             echo "COMBINEWRT_DOWNLOAD_SHA256=$filename $(sha256sum "packages/$filename" | cut -d' ' -f1)"
           done
+          # Sign the local index with a build key that ImageBuilder will also
+          # trust, so official feed signatures stay verified while the local
+          # package set is consumable.
+          if [ ! -s keys/local-private-key.pem ]; then
+            mkdir -p keys
+            openssl ecparam -name prime256v1 -genkey -noout -out keys/local-private-key.pem
+            sed -i '1s/^/untrusted comment: Local build key\n/' keys/local-private-key.pem
+            openssl ec -in keys/local-private-key.pem -pubout > keys/local-public-key.pem
+            sed -i '1s/^/untrusted comment: Local build key\n/' keys/local-public-key.pem
+          fi
           rm -f packages/packages.adb
-          (cd packages && ../staging_dir/host/bin/apk mkndx --allow-untrusted --output packages.adb ./*.apk)
+          IB_ROOT="$PWD"
+          (cd packages && "$IB_ROOT/staging_dir/host/bin/apk" mkndx --allow-untrusted \
+            --keys-dir "$IB_ROOT/keys" --sign-key "$IB_ROOT/keys/local-private-key.pem" \
+            --output packages.adb ./*.apk)
+          staging_dir/host/bin/apk verify --keys-dir "$IB_ROOT/keys" packages/packages.adb
           ls -l packages/*.apk | head -20
-          echo "local package index rebuilt with pinned apks"
+          echo "local package index rebuilt and signed with pinned apks"
 
       - name: Write files
         run: |
@@ -110,22 +124,6 @@ jobs:
           echo "COMBINEWRT_PROFILE=$PROFILE"
           echo "COMBINEWRT_PACKAGES=$PACKAGES"
           echo "COMBINEWRT_MAKE=make -j$(nproc) image PROFILE=\"$PROFILE\" PACKAGES=\"$PACKAGES\" FILES=files"
-          # The local ib/packages/packages.adb is intentionally unsigned. The
-          # ImageBuilder ships with CONFIG_SIGNATURE_CHECK=y, and its recursive
-          # make re-reads .config, so the unsigned local index would be ignored.
-          # Disable the check in .config and assert that apk will actually be
-          # invoked with --allow-untrusted before building.
-          # The recursive make re-reads .config and defines APK before that,
-          # so patching the Makefile expression is the reliable way to make
-          # the unsigned local index consumable.
-          if grep -q '^CONFIG_SIGNATURE_CHECK=y' .config; then
-            sed -i 's/^CONFIG_SIGNATURE_CHECK=y/# CONFIG_SIGNATURE_CHECK is not set/' .config
-          fi
-          sed -i 's/$(if $(CONFIG_SIGNATURE_CHECK),,--allow-untrusted)/--allow-untrusted/' Makefile
-          if ! make -n package_reload 2>/dev/null | grep -q -- '--allow-untrusted'; then
-            echo 'local package index would not be trusted by apk' >&2
-            exit 1
-          fi
           make -j"$(nproc)" image PROFILE="$PROFILE" PACKAGES="$PACKAGES" FILES=files \
             CONFIG_ISO_IMAGES= CONFIG_QCOW2_IMAGES= CONFIG_VDI_IMAGES= CONFIG_VMDK_IMAGES= CONFIG_VHDX_IMAGES= 2>&1 | tee build.log
 

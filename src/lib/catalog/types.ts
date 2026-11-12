@@ -8,6 +8,8 @@ export function sourcePriority(source: PackageSource): number {
   return source === "official" ? 0 : source === "dllkids" ? 1 : 2;
 }
 
+export const KERNEL_VERMAGIC_PIN = "6.12.103-1-0413601b1c3f0490e17f340fe09229ea";
+
 export interface SupplementPin {
   commit: string | null;
   fingerprint: string | null;
@@ -54,6 +56,11 @@ export interface CatalogPackage {
   proprietary: boolean;
   source: PackageSource;
   sourcePin: string;
+  /**
+   * APK package hash from the feed index, as recomputed by `apk mkndx`.
+   * This is NOT the SHA-256 of the .apk file bytes; the workflow logs that
+   * separately as COMBINEWRT_DOWNLOAD_SHA256.
+   */
   sha256: string | null;
   fileSize: number;
   filename: string | null;
