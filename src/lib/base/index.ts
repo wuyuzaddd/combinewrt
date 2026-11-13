@@ -7,6 +7,7 @@ import { dispatchRepositoryEvent } from "../builds/github";
 import { preparePlanForForm } from "../builds/prepare";
 import { createCatalogStore } from "../catalog/store";
 import { refreshCatalog } from "../catalog/service";
+import { createConfiguredImmortalWrtSource } from "../catalog/configured";
 import { createImmortalWrtSource } from "../catalog/source";
 import { createBaseVersionService, type BaseVersionService } from "./service";
 import { createBaseVersionStore } from "./store";
@@ -26,25 +27,7 @@ function createService(): BaseVersionService {
     activateSnapshot: (snapshotId) => catalogStore.activateSnapshot(snapshotId),
     async refresh(baseVersion) {
       const result = await refreshCatalog({
-        source: createImmortalWrtSource({
-          baseVersion,
-          apkBin: config.apkBin,
-          dllkids: { baseUrl: config.dllkidsFeedUrl, indexSha256: config.dllkidsIndexSha256 },
-          supplement:
-            config.supplementFeedCommit || config.supplementKeyFingerprint
-              ? {
-                  commit: config.supplementFeedCommit,
-                  fingerprint: config.supplementKeyFingerprint,
-                }
-              : null,
-          supplementFeed: config.supplementFeedUrl
-            ? {
-                baseUrl: config.supplementFeedUrl,
-                keyUrl: config.supplementKeyUrl,
-                keyFingerprint: config.supplementKeyFingerprint,
-              }
-            : null,
-        }),
+        source: createImmortalWrtSource(createConfiguredImmortalWrtSource(config, baseVersion)),
         db,
       });
       catalogStore.activateSnapshot(result.snapshot.id);

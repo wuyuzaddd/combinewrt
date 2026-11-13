@@ -130,7 +130,11 @@ export function findSourceConflicts(
       const supplement = pins.supplement;
       if (!supplement || (!supplement.commit && !supplement.fingerprint)) {
         conflicts.push({ names: [entry.name], message: `快照未记录自有源 pin，无法验证 ${entry.name}` });
-      } else if (entry.sourcePin !== supplement.commit && entry.sourcePin !== supplement.fingerprint) {
+      } else if (
+        entry.sourcePin !== supplement.indexSha256 &&
+        entry.sourcePin !== supplement.commit &&
+        entry.sourcePin !== supplement.fingerprint
+      ) {
         conflicts.push({
           names: [entry.name],
           message: `包 ${entry.name} 的自有源 pin 与快照不一致：${entry.sourcePin}`,

@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
 import { createComplianceReport } from "@/lib/compliance";
+import { ComplianceIssueList } from "@/components/compliance";
 import { BuildPoller } from "./build-poller";
 import { CancelButton } from "../cancel-button";
 
@@ -64,15 +65,7 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
           {compliance.publicEligible ? "许可证检查通过（可公开分发）" : "含专有/无许可证包，仅限自用，不进入公开镜像"}
         </p>
         {compliance.issues.length > 0 && (
-          <ul className="mt-2 space-y-1 text-xs">
-            {compliance.issues.map((issue) => (
-              <li key={`${issue.name}-${issue.reason}`}>
-                <span className="font-mono">{issue.name}</span>{" "}
-                {issue.reason === "proprietary" ? "标记为 proprietary" : "缺少许可证声明"}
-                {issue.license ? `（${issue.license}）` : ""}
-              </li>
-            ))}
-          </ul>
+          <ComplianceIssueList issues={compliance.issues} className="mt-2 space-y-1 text-xs" />
         )}
         <Link className="mt-2 inline-block text-xs underline decoration-amber-700" href={`/builds/${build.id}/source-offer`}>
           查看完整 source offer

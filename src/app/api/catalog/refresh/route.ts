@@ -5,6 +5,7 @@ import { getDatabase } from "@/lib/db";
 import { createBaseVersionStore } from "@/lib/base/store";
 import { refreshCatalog } from "@/lib/catalog/service";
 import { createCatalogStore } from "@/lib/catalog/store";
+import { createConfiguredImmortalWrtSource } from "@/lib/catalog/configured";
 import { createImmortalWrtSource } from "@/lib/catalog/source";
 
 export async function POST() {
@@ -18,23 +19,7 @@ export async function POST() {
     const db = getDatabase();
     const baseVersion = createBaseVersionStore(db).active()?.version ?? config.baseVersion;
     const result = await refreshCatalog({
-      source: createImmortalWrtSource({
-        baseVersion,
-        apkBin: config.apkBin,
-        dllkids: { baseUrl: config.dllkidsFeedUrl, indexSha256: config.dllkidsIndexSha256 },
-        supplement:
-          config.supplementFeedCommit || config.supplementKeyFingerprint
-            ? {
-                commit: config.supplementFeedCommit,
-                fingerprint: config.supplementKeyFingerprint,
-              }
-            : null,
-        supplementFeed: {
-          baseUrl: config.supplementFeedUrl,
-          keyUrl: config.supplementKeyUrl,
-          keyFingerprint: config.supplementKeyFingerprint,
-        },
-      }),
+      source: createImmortalWrtSource(createConfiguredImmortalWrtSource(config, baseVersion)),
       db,
     });
     createCatalogStore(db).activateSnapshot(result.snapshot.id);

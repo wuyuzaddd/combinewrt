@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { CatalogPackage, CatalogProfile } from "@/lib/catalog/types";
 import type { BuildConflict, BuildConfig, BuildPlan } from "@/lib/build/types";
 import { presetPackages } from "@/lib/build/presets";
+import { ComplianceIssueList } from "@/components/compliance";
 
 const STORAGE_KEY = "combinewrt.build-form";
 
@@ -471,15 +472,7 @@ export function BuildForm({ baseVersion, profiles, initialConfig }: Props) {
             {plan.compliance && !plan.compliance.publicEligible && (
               <div className="rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-200">
                 <p className="font-medium">含专有/无许可证包，仅限自用，不进入公开镜像</p>
-                <ul className="mt-1 space-y-1">
-                  {plan.compliance.issues.map((issue) => (
-                    <li key={`${issue.name}-${issue.reason}`}>
-                      <span className="font-mono">{issue.name}</span>{" "}
-                      {issue.reason === "proprietary" ? "proprietary" : "缺少许可证"}
-                      {issue.license ? `（${issue.license}）` : ""}
-                    </li>
-                  ))}
-                </ul>
+                <ComplianceIssueList issues={plan.compliance.issues} className="mt-1 space-y-1" />
               </div>
             )}
 

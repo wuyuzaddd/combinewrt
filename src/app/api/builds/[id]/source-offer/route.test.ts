@@ -1,13 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  session: { sub: "admin", iat: 0, exp: 0 } as { sub: string; iat: number; exp: number } | null,
   build: null as unknown,
   base: null as unknown,
-}));
-
-vi.mock("@/lib/auth/current-session", () => ({
-  getSession: vi.fn(async () => state.session),
 }));
 
 vi.mock("@/lib/builds", () => ({
@@ -66,7 +61,6 @@ const plan = {
 const params = { params: Promise.resolve({ id: "build-1" }) };
 
 beforeEach(() => {
-  state.session = { sub: "admin", iat: 0, exp: 0 };
   state.build = {
     id: "build-1",
     plan,
@@ -89,12 +83,6 @@ beforeEach(() => {
 });
 
 describe("GET /api/builds/[id]/source-offer", () => {
-  it("requires a session", async () => {
-    state.session = null;
-    const response = await GET(new Request("http://localhost/api/builds/build-1/source-offer"), params);
-    expect(response.status).toBe(401);
-  });
-
   it("returns 404 for an unknown build", async () => {
     state.build = null;
     const response = await GET(new Request("http://localhost/api/builds/build-1/source-offer"), params);

@@ -1,22 +1,18 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { getSession } from "@/lib/auth/current-session";
-import { createBaseVersionStore } from "@/lib/base/store";
+import { notFound } from "next/navigation";
 import { getBuildService } from "@/lib/builds";
-import { getDatabase } from "@/lib/db";
-import { createSourceOffer } from "@/lib/source-offer/manifest";
+import { ComplianceIssueList } from "@/components/compliance";
+import { loadSourceOffer } from "@/lib/source-offer/load";
 import { CopyLinkButton } from "./copy-link";
 
 export default async function SourceOfferPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await getSession();
-  if (!session) redirect(`/login?next=/builds/${id}/source-offer`);
-
-  const build = await getBuildService().refresh(id);
+  // Public GPL offer: read the stored build only, so an unauthenticated view
+  // never triggers a GitHub API call.
+  const build = getBuildService().get(id);
   if (!build) notFound();
 
-  const base = createBaseVersionStore(getDatabase()).get(build.plan.baseVersion);
-  const offer = createSourceOffer(build, { imageBuilder: base });
+  const offer = loadSourceOffer(build);
   const pins = offer.sourcePins;
 
   return (
@@ -167,15 +163,7 @@ export default async function SourceOfferPage({ params }: { params: Promise<{ id
         {offer.compliance.issues.length === 0 ? (
           <p className="mt-2 text-xs">全部软件包都声明了非专有许可证。</p>
         ) : (
-          <ul className="mt-2 space-y-1 text-xs">
-            {offer.compliance.issues.map((issue) => (
-              <li key={`${issue.name}-${issue.reason}`}>
-                <span className="font-mono">{issue.name}</span>{" "}
-                {issue.reason === "proprietary" ? "标记为 proprietary" : "缺少许可证声明"}
-                {issue.license ? `（${issue.license}）` : ""}
-              </li>
-            ))}
-          </ul>
+          <ComplianceIssueList issues={offer.compliance.issues} className="mt-2 space-y-1 text-xs" />
         )}
       </section>
 

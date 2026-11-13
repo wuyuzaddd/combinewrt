@@ -4,7 +4,7 @@ import {
   createImmortalWrtSource,
   parseBuildinfo,
   parseBuildinfoEntries,
-  parseSupplementPublish,
+  sharedSupplementSourceCommit,
 } from "./source";
 
 const sample = [
@@ -43,27 +43,27 @@ describe("parseBuildinfoEntries", () => {
   });
 });
 
-describe("parseSupplementPublish", () => {
+describe("sharedSupplementSourceCommit", () => {
   it("uses the single source commit shared by the published packages", () => {
     const commit = "18b7d51c1a06427fa6e8c64b161869de7daded7e";
     expect(
-      parseSupplementPublish(
+      sharedSupplementSourceCommit(
         JSON.stringify({ packages: [{ sourceCommit: commit }, { sourceCommit: commit }, { sourceCommit: "" }] }),
       ),
     ).toBe(commit);
   });
 
   it("returns null for missing, mixed, malformed or non-sha commits", () => {
-    expect(parseSupplementPublish("{}")).toBeNull();
+    expect(sharedSupplementSourceCommit("{}")).toBeNull();
     expect(
-      parseSupplementPublish(
+      sharedSupplementSourceCommit(
         JSON.stringify({
           packages: [{ sourceCommit: "a".repeat(40) }, { sourceCommit: "b".repeat(40) }],
         }),
       ),
     ).toBeNull();
-    expect(parseSupplementPublish("not json")).toBeNull();
-    expect(parseSupplementPublish(JSON.stringify({ packages: [{ sourceCommit: "main" }] }))).toBeNull();
+    expect(sharedSupplementSourceCommit("not json")).toBeNull();
+    expect(sharedSupplementSourceCommit(JSON.stringify({ packages: [{ sourceCommit: "main" }] }))).toBeNull();
   });
 });
 

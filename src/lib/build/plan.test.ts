@@ -211,4 +211,34 @@ describe("createBuildPlan", () => {
     );
     expect(plan.conflicts.some((item) => item.message.includes("dllkids pin 与快照不一致"))).toBe(true);
   });
+
+  it("accepts supplement packages pinned by the signed index checksum", async () => {
+    const store = entry("luci-app-store", {
+      version: "0.2.1-r1",
+      source: "supplement",
+      sourcePin: "supplement-index-sha",
+      sha256: "c".repeat(64),
+      filename: "luci-app-store-0.2.1-r1.apk",
+      downloadUrl: "https://example.test/supplement/x86_64/luci-app-store-0.2.1-r1.apk",
+      feed: "supplement",
+    });
+    const plan = await createBuildPlan(
+      form({ packages: ["supplement/luci-app-store"] }),
+      context({
+        lookup: (name) => (name === "luci-app-store" ? store : null),
+        lookupAll: (name) => (name === "luci-app-store" ? [store] : []),
+        sourcePins: {
+          ...pins,
+          supplement: {
+            commit: "a".repeat(40),
+            fingerprint: "f".repeat(64),
+            indexSha256: "supplement-index-sha",
+          },
+        },
+      }),
+    );
+
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.resolved[0]).toMatchObject({ packageSource: "supplement", sourcePin: "supplement-index-sha" });
+  });
 });

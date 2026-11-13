@@ -54,7 +54,7 @@ export function parseBuildinfo(text: string): string {
   return createHash("sha256").update(entries.join("\n")).digest("hex").slice(0, 16);
 }
 
-export function parseSupplementPublish(text: string): string | null {
+export function sharedSupplementSourceCommit(text: string): string | null {
   try {
     const json = JSON.parse(text) as { packages?: Array<{ sourceCommit?: unknown }> };
     const commits = new Set(
@@ -150,7 +150,7 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
     try {
       const response = await fetchImpl(url);
       if (!response.ok) return null;
-      return parseSupplementPublish(await response.text());
+      return sharedSupplementSourceCommit(await response.text());
     } catch {
       return null;
     }
@@ -301,7 +301,10 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
           feed: "supplement",
           dump: supplementDump,
           source: "supplement",
-          sourcePin: supplementPin.fingerprint ?? supplementFeed.keyFingerprint,
+          // Package provenance follows the source revision (index checksum,
+          // falling back to the published commit), not the signing key.
+          sourcePin:
+            supplementPin.indexSha256 ?? supplementPin.commit ?? supplementPin.fingerprint ?? supplementFeed.keyFingerprint,
           downloadBase: supplementFeed.baseUrl.replace(/\/$/, ""),
         });
       }
