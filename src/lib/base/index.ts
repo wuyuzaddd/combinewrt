@@ -3,6 +3,7 @@ import { getConfig } from "../config";
 import { getDatabase } from "../db";
 import { validateBuildForm } from "../build/validate";
 import { getBuildService } from "../builds";
+import { dispatchRepositoryEvent } from "../builds/github";
 import { preparePlanForForm } from "../builds/prepare";
 import { createCatalogStore } from "../catalog/store";
 import { refreshCatalog } from "../catalog/service";
@@ -36,15 +37,31 @@ function createService(): BaseVersionService {
                   fingerprint: config.supplementKeyFingerprint,
                 }
               : null,
+          supplementFeed: config.supplementFeedUrl
+            ? {
+                baseUrl: config.supplementFeedUrl,
+                keyUrl: config.supplementKeyUrl,
+                keyFingerprint: config.supplementKeyFingerprint,
+              }
+            : null,
         }),
         db,
       });
       catalogStore.activateSnapshot(result.snapshot.id);
       return { snapshotId: result.snapshot.id };
     },
-    // A supplement package build is only triggered once the supplement source is
-    // configured; its workflow belongs to the supplement-packages spec and does not
-    // exist in this repository yet.
+    triggerSupplementBuild:
+      config.buildAdapter === "github"
+        ? async (baseVersion) => {
+            await dispatchRepositoryEvent({
+              repo: config.buildRepo,
+              token: config.buildRepoToken,
+              eventType: "supplement-build",
+              clientPayload: { base_version: baseVersion },
+            });
+            return { runId: null };
+          }
+        : undefined,
     async submitSmoke() {
       const validation = validateBuildForm({
         profile: "generic",

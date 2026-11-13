@@ -197,6 +197,33 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
   };
 }
 
+export interface RepositoryEventOptions {
+  repo: string;
+  token: string;
+  eventType: string;
+  clientPayload: Record<string, unknown>;
+  fetchImpl?: typeof fetch;
+}
+
+export async function dispatchRepositoryEvent(options: RepositoryEventOptions): Promise<void> {
+  const { repo, token, eventType, clientPayload, fetchImpl = fetch } = options;
+  const response = await fetchImpl(`${API}/repos/${repo}/dispatches`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({ event_type: eventType, client_payload: clientPayload }),
+  });
+  if (!response.ok) {
+    const body = (await response.text()).slice(0, 500);
+    throw new Error(`GitHub POST /repos/${repo}/dispatches failed: ${response.status} ${body}`);
+  }
+}
+
 export interface BuildManifest {
   artifactName?: string;
   sha256: string;

@@ -40,6 +40,12 @@ npm run dev
 | `APP_ORIGIN` | 否 | 站点对外绝对地址（含协议），默认 `http://localhost:3000`；生产必须是 `https://` |
 | `APK_BIN` | 否 | apk-tools 3 可执行文件，用于读取 feed 的 `packages.adb`；默认 `apk`。目录刷新需要它 |
 | `IMMORTALWRT_BASE_VERSION` | 否 | 首次启动时写入基线记录的 ImmortalWrt 版本，默认 `25.12.2`；之后以管理页的当前基线为准 |
+| `DLLKIDS_FEED_URL` | 否 | dllkids 包索引目录，默认 `https://down.dllkids.xyz/openwrt-feed/25.12/x86_64` |
+| `DLLKIDS_INDEX_SHA256` | 否 | dllkids `packages.adb` 的 sha256；默认值对应 25.12 索引 |
+| `SUPPLEMENT_FEED_URL` | 否 | 自建补充包的签名索引目录，默认指向 `combinewrt-packages` Pages |
+| `SUPPLEMENT_KEY_URL` | 否 | 补充包签名公钥地址 |
+| `SUPPLEMENT_KEY_FINGERPRINT` | 否 | 补充包公钥的 sha256；索引签名与 pin 对不上时刷新失败 |
+| `SUPPLEMENT_FEED_COMMIT` | 否 | 补充包源提交；留空时只固定公钥和索引 sha256 |
 | `BUILD_ADAPTER` | 否 | `fake`（默认，本地 stub）或 `github`（派发到真实 Actions） |
 | `BUILD_REPO` | 条件 | `owner/repo`；`BUILD_ADAPTER=github` 时必填 |
 | `BUILD_REPO_TOKEN` | 条件 | 仅授权该仓库 `Actions: write` 的 PAT；`github` 适配器必填 |
