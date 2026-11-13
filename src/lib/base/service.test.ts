@@ -82,11 +82,13 @@ describe("base version service", () => {
     ).run();
     const refresh = vi.fn(async () => ({ snapshotId: 9 }));
     const submitSmoke = vi.fn(async () => ({ buildId: "build-1" }));
+    const triggerSupplementBuild = vi.fn(async () => ({ runId: null }));
     const service = createBaseVersionService({
       store,
       fetchImpl: fakeFetch(),
       refresh,
       submitSmoke,
+      triggerSupplementBuild,
       now: () => new Date("2026-10-02T00:00:00.000Z"),
     });
 
@@ -96,8 +98,14 @@ describe("base version service", () => {
 
     expect(refresh).toHaveBeenCalledWith("25.12.3");
     expect(submitSmoke).toHaveBeenCalledWith("25.12.3", 9);
+    expect(triggerSupplementBuild).toHaveBeenCalledWith("25.12.3");
     expect(service.readState().active?.version).toBe("25.12.3");
     expect(service.readState().previous?.version).toBe("25.12.2");
+    expect(service.readState().supplementBuild).toMatchObject({
+      baseVersion: "25.12.3",
+      runId: null,
+      error: null,
+    });
     expect(service.readState().smoke).toMatchObject({ phase: "building", buildId: "build-1", snapshotId: 9 });
 
     service.noteSmokeBuild("failed", "image build failed");
@@ -107,6 +115,7 @@ describe("base version service", () => {
     expect(service.readState().active?.version).toBe("25.12.2");
     expect(service.readState().previous?.version).toBe("25.12.3");
     expect(service.readState().smoke).toBeNull();
+    expect(service.readState().supplementBuild).toBeNull();
     const pointer = db.prepare("SELECT value FROM app_meta WHERE key = 'catalog.active_snapshot'").get() as {
       value: string;
     };

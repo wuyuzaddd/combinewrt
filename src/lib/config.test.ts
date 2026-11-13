@@ -14,6 +14,18 @@ describe("loadConfig", () => {
     expect(config.secureCookies).toBe(false);
     expect(config.artifactRetentionDays).toBe(7);
     expect(config.artifactCacheDir).toContain("artifacts");
+    expect(config.supplementFeedUrl).toContain("combinewrt-packages");
+    expect(config.supplementKeyFingerprint).toHaveLength(64);
+  });
+
+  it("rejects a malformed supplement feed URL", () => {
+    expect(() =>
+      loadConfig({
+        SESSION_SECRET: SECRET,
+        ADMIN_PASSWORD_HASH: HASH,
+        SUPPLEMENT_FEED_URL: "ftp://example.com/feed",
+      }),
+    ).toThrow(/SUPPLEMENT_FEED_URL/);
   });
 
   it("rejects an out-of-range artifact retention", () => {

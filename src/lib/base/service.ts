@@ -13,6 +13,7 @@ export interface BaseVersionServiceOptions {
   store: BaseVersionStore;
   refresh: (baseVersion: string) => Promise<{ snapshotId: number }>;
   submitSmoke: (baseVersion: string, snapshotId: number) => Promise<{ buildId: string }>;
+  triggerSupplementBuild?: (baseVersion: string) => Promise<{ runId?: string | null }>;
   activeSnapshotId?: () => number | null;
   activateSnapshot?: (snapshotId: number) => boolean;
   fetchImpl?: typeof fetch;
@@ -36,6 +37,7 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
     store,
     refresh,
     submitSmoke,
+    triggerSupplementBuild,
     activeSnapshotId,
     activateSnapshot,
     fetchImpl = fetch,
@@ -54,6 +56,7 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
       candidate,
       check,
       smoke: store.smoke(),
+      supplementBuild: store.supplementBuild(),
     };
   }
 
@@ -93,6 +96,27 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
       const refreshed = await refresh(version);
       store.setActive(version);
       if (previousVersion) store.setPrevious(previousVersion);
+
+      if (triggerSupplementBuild) {
+        const triggeredAt = now().toISOString();
+        try {
+          const result = await triggerSupplementBuild(version);
+          store.setSupplementBuild({
+            baseVersion: version,
+            triggeredAt,
+            runId: result.runId ?? null,
+            error: null,
+          });
+        } catch (error) {
+          store.setSupplementBuild({
+            baseVersion: version,
+            triggeredAt,
+            runId: null,
+            error: message(error),
+          });
+        }
+      }
+
       rollbackSnapshotId = store.smoke()?.rollbackSnapshotId ?? rollbackSnapshotId;
       const building: SmokeState = {
         phase: "building",
@@ -148,6 +172,7 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
       }
 
       const rollbackSnapshotId = activeSnapshotId?.() ?? null;
+      store.setSupplementBuild(null);
       store.setSmoke({
         phase: "refreshing",
         buildId: null,
@@ -179,6 +204,7 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
       if (active) store.setPrevious(active.version);
       store.setActive(previous.version);
       store.setSmoke(null);
+      store.setSupplementBuild(null);
       return readState();
     },
     readState,

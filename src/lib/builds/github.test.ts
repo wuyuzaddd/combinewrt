@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it, vi } from "vitest";
-import { createGitHubAdapter, mapRunState, parseManifest } from "./github";
+import { createGitHubAdapter, dispatchRepositoryEvent, mapRunState, parseManifest } from "./github";
 import type { BuildPlan } from "../build/types";
 
 const plan = {
@@ -38,6 +38,24 @@ describe("github adapter", () => {
     const [url, init] = fetchImpl.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe("https://api.github.com/repos/me/build/actions/runs/42/cancel");
     expect(init.method).toBe("POST");
+  });
+
+  it("dispatches a repository event with a small payload", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await dispatchRepositoryEvent({
+      repo: "me/build",
+      token: "t",
+      eventType: "supplement-build",
+      clientPayload: { base_version: "25.12.3" },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const [url, init] = fetchImpl.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe("https://api.github.com/repos/me/build/dispatches");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({
+      event_type: "supplement-build",
+      client_payload: { base_version: "25.12.3" },
+    });
   });
 
   it("dispatches the workflow and finds the newest run", async () => {

@@ -141,6 +141,23 @@ export function BaseVersionPanel({ state }: { state: BaseVersionState }) {
         </div>
       )}
 
+      {state.supplementBuild && (
+        <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+          <p className={state.supplementBuild.error ? "text-rose-300" : "text-slate-300"}>
+            补充包构建：
+            {state.supplementBuild.error
+              ? "触发失败"
+              : `已触发（${new Date(state.supplementBuild.triggeredAt).toLocaleString("zh-CN")}）`}
+            <span className="ml-2 font-mono text-xs text-slate-500">
+              基线 {state.supplementBuild.baseVersion}
+            </span>
+          </p>
+          {state.supplementBuild.error && (
+            <p className="mt-1 break-words text-xs text-rose-300">{state.supplementBuild.error}</p>
+          )}
+        </div>
+      )}
+
       {state.previous && (
         <button
           className="mt-4 rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-300 disabled:opacity-50"

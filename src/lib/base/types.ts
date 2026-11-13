@@ -42,4 +42,12 @@ export interface BaseVersionState {
   candidate: ReleaseCandidate | null;
   check: BaseCheckState | null;
   smoke: SmokeState | null;
+  supplementBuild: SupplementBuildState | null;
+}
+
+export interface SupplementBuildState {
+  baseVersion: string;
+  triggeredAt: string;
+  runId: string | null;
+  error: string | null;
 }

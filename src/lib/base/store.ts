@@ -1,11 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import { createCatalogStore } from "@/lib/catalog/store";
-import type { BaseCheckState, BaseVersion, SmokeState } from "./types";
+import type { BaseCheckState, BaseVersion, SmokeState, SupplementBuildState } from "./types";
 
 const ACTIVE_KEY = "base.active";
 const PREVIOUS_KEY = "base.previous";
 const CHECK_KEY = "base.check.last";
 const SMOKE_KEY = "base.smoke";
+const SUPPLEMENT_KEY = "base.supplement";
 
 interface BaseVersionRow {
   version: string;
@@ -58,6 +59,8 @@ export interface BaseVersionStore {
   setCheck(state: BaseCheckState): void;
   smoke(): SmokeState | null;
   setSmoke(state: SmokeState | null): void;
+  supplementBuild(): SupplementBuildState | null;
+  setSupplementBuild(state: SupplementBuildState | null): void;
   activateLatestSnapshot(baseVersion: string): number | null;
 }
 
@@ -134,6 +137,16 @@ export function createBaseVersionStore(db: DatabaseSync): BaseVersionStore {
         db.prepare("DELETE FROM app_meta WHERE key = ?").run(SMOKE_KEY);
       } else {
         writeMeta(db, SMOKE_KEY, JSON.stringify(state));
+      }
+    },
+    supplementBuild() {
+      return parseJson<SupplementBuildState>(readMeta(db, SUPPLEMENT_KEY));
+    },
+    setSupplementBuild(state) {
+      if (state === null) {
+        db.prepare("DELETE FROM app_meta WHERE key = ?").run(SUPPLEMENT_KEY);
+      } else {
+        writeMeta(db, SUPPLEMENT_KEY, JSON.stringify(state));
       }
     },
     activateLatestSnapshot(baseVersion) {
