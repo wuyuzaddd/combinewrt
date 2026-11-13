@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { composeFeedCommit, createImmortalWrtSource, parseBuildinfo, parseBuildinfoEntries } from "./source";
+import {
+  composeFeedCommit,
+  createImmortalWrtSource,
+  parseBuildinfo,
+  parseBuildinfoEntries,
+  sharedSupplementSourceCommit,
+} from "./source";
 
 const sample = [
   "src-git packages https://github.com/immortalwrt/packages.git^84bd86384928955b568988ca0e09e2c78c75173d",
@@ -34,6 +40,30 @@ describe("parseBuildinfoEntries", () => {
       { feed: "routing", commit: "e49d76035aafb85ddc993b59271d8c7ba56b5362" },
       { feed: "telephony", commit: "2618106d5846a4a542fdf5809f0d3ed228ce439b" },
     ]);
+  });
+});
+
+describe("sharedSupplementSourceCommit", () => {
+  it("uses the single source commit shared by the published packages", () => {
+    const commit = "18b7d51c1a06427fa6e8c64b161869de7daded7e";
+    expect(
+      sharedSupplementSourceCommit(
+        JSON.stringify({ packages: [{ sourceCommit: commit }, { sourceCommit: commit }, { sourceCommit: "" }] }),
+      ),
+    ).toBe(commit);
+  });
+
+  it("returns null for missing, mixed, malformed or non-sha commits", () => {
+    expect(sharedSupplementSourceCommit("{}")).toBeNull();
+    expect(
+      sharedSupplementSourceCommit(
+        JSON.stringify({
+          packages: [{ sourceCommit: "a".repeat(40) }, { sourceCommit: "b".repeat(40) }],
+        }),
+      ),
+    ).toBeNull();
+    expect(sharedSupplementSourceCommit("not json")).toBeNull();
+    expect(sharedSupplementSourceCommit(JSON.stringify({ packages: [{ sourceCommit: "main" }] }))).toBeNull();
   });
 });
 

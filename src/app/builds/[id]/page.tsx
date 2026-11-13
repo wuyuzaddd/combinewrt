@@ -3,6 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
+import { createComplianceReport } from "@/lib/compliance";
+import { ComplianceIssueList } from "@/components/compliance";
 import { BuildPoller } from "./build-poller";
 import { CancelButton } from "../cancel-button";
 
@@ -14,6 +16,7 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
   if (!build) notFound();
 
   const active = build.status === "queued" || build.status === "running";
+  const compliance = build.plan.compliance ?? createComplianceReport(build.plan.resolved);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-6 py-12">
@@ -31,6 +34,12 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
           {active && <CancelButton buildId={build.id} />}
           <Link
             className="text-emerald-300 underline decoration-emerald-800"
+            href={`/builds/${build.id}/source-offer`}
+          >
+            源码清单
+          </Link>
+          <Link
+            className="text-emerald-300 underline decoration-emerald-800"
             href={`/build?from=${build.id}`}
           >
             按此配置重建
@@ -44,6 +53,24 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
       {build.error && (
         <p className="rounded-xl border border-rose-900 bg-rose-950/40 p-4 text-sm text-rose-200">{build.error}</p>
       )}
+
+      <section
+        className={`rounded-xl border p-4 text-sm ${
+          compliance.publicEligible
+            ? "border-emerald-900 bg-emerald-950/20 text-emerald-200"
+            : "border-amber-900 bg-amber-950/30 text-amber-200"
+        }`}
+      >
+        <p className="font-medium">
+          {compliance.publicEligible ? "许可证检查通过（可公开分发）" : "含专有/无许可证包，仅限自用，不进入公开镜像"}
+        </p>
+        {compliance.issues.length > 0 && (
+          <ComplianceIssueList issues={compliance.issues} className="mt-2 space-y-1 text-xs" />
+        )}
+        <Link className="mt-2 inline-block text-xs underline decoration-amber-700" href={`/builds/${build.id}/source-offer`}>
+          查看完整 source offer
+        </Link>
+      </section>
 
       {build.status === "succeeded" && build.artifactName && (
         <div className="flex flex-col gap-2">

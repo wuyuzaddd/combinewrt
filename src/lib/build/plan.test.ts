@@ -13,6 +13,8 @@ function entry(name: string, overrides: Partial<PackageLookupEntry> = {}): Packa
     filename: `${name}-1.apk`,
     downloadUrl: null,
     feed: "packages",
+    license: "MIT",
+    proprietary: false,
     ...overrides,
   };
 }
@@ -126,6 +128,8 @@ describe("createBuildPlan", () => {
         sourcePin: null,
         sha256: null,
         feed: null,
+        license: null,
+        proprietary: false,
       },
     ]);
     expect(plan.missingDependencies).toEqual([]);
@@ -135,6 +139,7 @@ describe("createBuildPlan", () => {
     const plan = await createBuildPlan(form({ packages: ["lucky"] }), context());
     expect(plan.resolved[0]).toMatchObject({ name: "lucky", packageSource: "dllkids", sourcePin: "idx-sha" });
     expect(plan.topLevelPackages).toEqual(["lucky"]);
+    expect(plan.compliance).toEqual({ publicEligible: true, issues: [] });
     expect(plan.downloads).toEqual([
       {
         name: "lucky",
@@ -205,5 +210,35 @@ describe("createBuildPlan", () => {
       context({ sourcePins: { ...pins, dllkids: "different" } }),
     );
     expect(plan.conflicts.some((item) => item.message.includes("dllkids pin 与快照不一致"))).toBe(true);
+  });
+
+  it("accepts supplement packages pinned by the signed index checksum", async () => {
+    const store = entry("luci-app-store", {
+      version: "0.2.1-r1",
+      source: "supplement",
+      sourcePin: "supplement-index-sha",
+      sha256: "c".repeat(64),
+      filename: "luci-app-store-0.2.1-r1.apk",
+      downloadUrl: "https://example.test/supplement/x86_64/luci-app-store-0.2.1-r1.apk",
+      feed: "supplement",
+    });
+    const plan = await createBuildPlan(
+      form({ packages: ["supplement/luci-app-store"] }),
+      context({
+        lookup: (name) => (name === "luci-app-store" ? store : null),
+        lookupAll: (name) => (name === "luci-app-store" ? [store] : []),
+        sourcePins: {
+          ...pins,
+          supplement: {
+            commit: "a".repeat(40),
+            fingerprint: "f".repeat(64),
+            indexSha256: "supplement-index-sha",
+          },
+        },
+      }),
+    );
+
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.resolved[0]).toMatchObject({ packageSource: "supplement", sourcePin: "supplement-index-sha" });
   });
 });

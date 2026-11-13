@@ -1,8 +1,10 @@
 import { IMAGE_FORMATS } from "../catalog/profiles";
 import type { CatalogProfile, SourcePins } from "../catalog/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
+import { createComplianceReport } from "../compliance";
 import { buildDownloadManifest, collectRequests, findSourceConflicts } from "./composition";
 import { findConflicts } from "./conflicts";
+import { APPLIED_PATCHES } from "./patches";
 import { resolveDependencies } from "./resolve";
 import type { BuildConflict, BuildFormInput, BuildPlan, PackageLookup, PackageLookupAll } from "./types";
 import { generateUciDefaults } from "./uci";
@@ -63,6 +65,8 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
     downloads,
     missingDependencies,
     conflicts: [...formatConflicts, ...sourceConflicts, ...findConflicts(names)],
+    compliance: createComplianceReport(entries),
+    patches: APPLIED_PATCHES,
     files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: uci, mode: 0o755 }],
     artifactName: artifactName(context.baseVersion, context.profile.id, form.imageType),
     imageBuilderCommand: imageBuilderCommand(context.profile.id, names),

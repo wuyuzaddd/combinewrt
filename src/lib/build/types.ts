@@ -1,4 +1,5 @@
 import type { ImageFormatId, PackageSource, SourcePins } from "../catalog/types";
+import type { ComplianceReport } from "../compliance";
 
 export interface RequestedPackage {
   name: string;
@@ -34,6 +35,8 @@ export interface PackageLookupEntry {
   filename: string | null;
   downloadUrl: string | null;
   feed: string;
+  license?: string | null;
+  proprietary?: boolean;
 }
 
 export type PackageLookup = (name: string) => PackageLookupEntry | null;
@@ -57,6 +60,14 @@ export interface ResolvedEntry {
   sourcePin: string | null;
   sha256: string | null;
   feed: string | null;
+  license?: string | null;
+  proprietary?: boolean;
+}
+
+export interface AppliedPatch {
+  name: string;
+  license: "GPL-2.0-only";
+  source: string;
 }
 
 export interface DownloadEntry {
@@ -95,6 +106,8 @@ export interface BuildPlan {
   downloads: DownloadEntry[];
   missingDependencies: string[];
   conflicts: BuildConflict[];
+  compliance?: ComplianceReport;
+  patches?: AppliedPatch[];
   files: GeneratedFile[];
   artifactName: string;
   imageBuilderCommand: string;

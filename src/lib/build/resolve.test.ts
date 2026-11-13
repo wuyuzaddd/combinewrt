@@ -38,7 +38,17 @@ describe("resolveDependencies", () => {
   it("keeps unknown requested packages as free text", () => {
     const { entries } = resolveDependencies(["not-in-catalog"], lookup);
     expect(entries).toEqual([
-      { name: "not-in-catalog", version: null, source: "selected", packageSource: null, sourcePin: null, sha256: null, feed: null },
+      {
+        name: "not-in-catalog",
+        version: null,
+        source: "selected",
+        packageSource: null,
+        sourcePin: null,
+        sha256: null,
+        feed: null,
+        license: null,
+        proprietary: false,
+      },
     ]);
   });
 });

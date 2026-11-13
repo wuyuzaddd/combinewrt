@@ -54,7 +54,9 @@ export default async function CatalogPage({
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-400">catalog</p>
           <h1 className="mt-2 text-2xl font-semibold">设备与软件包目录</h1>
-          <p className="mt-1 text-sm text-slate-400">ImmortalWrt 官方 x86_64 feed 与 dllkids 组合来源的只读快照。</p>
+          <p className="mt-1 text-sm text-slate-400">
+            ImmortalWrt 官方 x86_64 feed、dllkids 与自建 supplement 组合来源的只读快照。
+          </p>
         </div>
         <div className="flex items-center gap-4">
           <Link className="text-sm text-slate-300 underline decoration-slate-600" href="/">
@@ -172,6 +174,11 @@ export default async function CatalogPage({
               </form>
             </div>
 
+            <p className="rounded-lg border border-amber-900/70 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+              标记为 <span className="font-medium">proprietary</span> 或缺失许可证的包默认不允许进入公开镜像；
+              自用构建会保留醒目标记。
+            </p>
+
             <div className="overflow-x-auto rounded-xl border border-slate-800">
               <table className="min-w-full divide-y divide-slate-800 text-sm">
                 <thead className="bg-slate-900/80 text-left text-xs uppercase tracking-wider text-slate-500">
@@ -199,7 +206,13 @@ export default async function CatalogPage({
                       <td className="px-4 py-2 text-slate-400">{formatSize(pkg.installedSize)}</td>
                       <td className="px-4 py-2 text-slate-400">{pkg.category}</td>
                       <td className="px-4 py-2 text-slate-400">
-                        {pkg.proprietary ? <span className="text-amber-300">需注意</span> : pkg.license}
+                        {pkg.proprietary ? (
+                          <span className="rounded-full border border-amber-800 bg-amber-950/40 px-2 py-0.5 text-xs text-amber-300">
+                            {pkg.license ? "proprietary" : "无许可证"}
+                          </span>
+                        ) : (
+                          pkg.license
+                        )}
                       </td>
                       <td className="px-4 py-2 text-slate-500">
                         <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs">{pkg.source}</span>
