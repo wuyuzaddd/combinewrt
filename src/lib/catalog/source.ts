@@ -54,6 +54,20 @@ export function parseBuildinfo(text: string): string {
   return createHash("sha256").update(entries.join("\n")).digest("hex").slice(0, 16);
 }
 
+export function parseSupplementPublish(text: string): string | null {
+  try {
+    const json = JSON.parse(text) as { packages?: Array<{ sourceCommit?: unknown }> };
+    const commits = new Set(
+      (json.packages ?? [])
+        .map((pkg) => pkg.sourceCommit)
+        .filter((commit): commit is string => typeof commit === "string" && /^[0-9a-f]{40}$/.test(commit)),
+    );
+    return commits.size === 1 ? [...commits][0] : null;
+  } catch {
+    return null;
+  }
+}
+
 export function composeFeedCommit(pins: SourcePins): string {
   const canonical = JSON.stringify({
     official: Object.fromEntries(Object.entries(pins.official).sort(([a], [b]) => a.localeCompare(b))),
@@ -131,6 +145,17 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
     }
   }
 
+  async function readSupplementCommit(baseUrl: string): Promise<string | null> {
+    const url = new URL("../publish.json", `${baseUrl}/`).toString();
+    try {
+      const response = await fetchImpl(url);
+      if (!response.ok) return null;
+      return parseSupplementPublish(await response.text());
+    } catch {
+      return null;
+    }
+  }
+
   async function loadSupplementIndex(): Promise<string | undefined> {
     if (!supplementFeed) return undefined;
     const baseUrl = supplementFeed.baseUrl.replace(/\/$/, "");
@@ -162,8 +187,9 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
       await writeFile(keyFile, key);
       await writeFile(indexFile, index);
       await verifyAdb(apkBin, keyDir, indexFile);
+      const sourceCommit = await readSupplementCommit(baseUrl);
       supplementPin = {
-        commit: supplement?.commit ?? null,
+        commit: supplement?.commit ?? sourceCommit,
         fingerprint: keySha256,
         indexSha256,
       };

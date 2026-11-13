@@ -156,6 +156,9 @@ build-workflow/         构建仓库用的 stub 工作流模板
 src/lib/auth/           会话、密码、限速、登录服务
 src/lib/catalog/        profiles/adb 解析、快照存储、刷新服务与 ImmortalWrt 数据源
 src/lib/build/          表单校验、依赖解析、冲突、密码哈希、uci-defaults 与计划
+src/lib/source-offer/   构建 source manifest（GPL source offer）
+patches/                仅放 OpenWrt 派生 patch（GPL-2.0-only，当前为空）
+LICENSES/               MIT 与 GPL-2.0-only 许可证全文
 src/lib/config.ts       环境变量校验
 src/lib/db.ts           SQLite 打开与迁移
 src/lib/migrations.ts   内置迁移
@@ -164,6 +167,13 @@ scripts/hash-password.mjs
 
 ## 许可与商标
 
-代码以 MIT 许可发布，见 `LICENSE`。
+站点与编排代码以 MIT 许可发布，见 `LICENSE`、`LICENSES/MIT.txt` 和 `NOTICE`。
 
-OpenWrt® 是 Software Freedom Conservancy 的注册商标。本项目是独立项目，与 OpenWrt 项目及 SFC 无隶属、背书或赞助关系；站点与文档中对 OpenWrt 的使用仅为描述性说明。
+`patches/` 中任何 OpenWrt/ImmortalWrt 派生 patch 均为 GPL-2.0-only，见
+`LICENSES/GPL-2.0-only.txt`；目前没有 patch。每次构建都会生成
+`/builds/<id>/source-offer`，记录 OpenWrt 基线、官方 feed commits、dllkids
+`packages.adb` sha256、自有 supplement 源与构建配置。
+
+仓库不 vendor 或镜像任何第三方源码/二进制：官方 feed 与 dllkids 只记录 URL 和
+pin，dllkids 不镜像；补充包由独立签名源托管。含 proprietary/无许可证包的构建仅限
+自用，不进入公开镜像。OpenWrt® 是 Software Freedom Conservancy 的注册商标。本项目是独立项目，与 OpenWrt 项目及 SFC 无隶属、背书或赞助关系；站点与文档中对 OpenWrt 的使用仅为描述性说明。

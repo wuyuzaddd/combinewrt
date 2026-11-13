@@ -13,6 +13,8 @@ function entry(name: string, overrides: Partial<PackageLookupEntry> = {}): Packa
     filename: `${name}-1.apk`,
     downloadUrl: null,
     feed: "packages",
+    license: "MIT",
+    proprietary: false,
     ...overrides,
   };
 }
@@ -126,6 +128,8 @@ describe("createBuildPlan", () => {
         sourcePin: null,
         sha256: null,
         feed: null,
+        license: null,
+        proprietary: false,
       },
     ]);
     expect(plan.missingDependencies).toEqual([]);
@@ -135,6 +139,7 @@ describe("createBuildPlan", () => {
     const plan = await createBuildPlan(form({ packages: ["lucky"] }), context());
     expect(plan.resolved[0]).toMatchObject({ name: "lucky", packageSource: "dllkids", sourcePin: "idx-sha" });
     expect(plan.topLevelPackages).toEqual(["lucky"]);
+    expect(plan.compliance).toEqual({ publicEligible: true, issues: [] });
     expect(plan.downloads).toEqual([
       {
         name: "lucky",

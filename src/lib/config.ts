@@ -95,7 +95,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const dllkidsFeedUrl =
     env.DLLKIDS_FEED_URL?.trim() || "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64";
   const dllkidsIndexSha256 =
-    env.DLLKIDS_INDEX_SHA256?.trim() || "d53ed75cc1501f29ef600a30d96297d0671eec78530a1b5f9c8317843235fdb6";
+    env.DLLKIDS_INDEX_SHA256?.trim() || "04a549ed7028b126218002b126cbc60eb3a4bdc3463f15425bce3ba6b91a04ba";
   if (!/^https?:\/\//.test(dllkidsFeedUrl)) {
     issues.push("DLLKIDS_FEED_URL must be an http:// or https:// URL");
   }

@@ -25,6 +25,8 @@ function toResolved(
     sourcePin: hit?.sourcePin ?? null,
     sha256: hit?.sha256 ?? null,
     feed: hit?.feed ?? null,
+    license: hit?.license ?? null,
+    proprietary: hit?.proprietary ?? false,
   };
 }
 

@@ -34,6 +34,15 @@ export default async function PackageDetailPage({ params }: { params: Promise<{ 
         </p>
       </header>
 
+      {pkg.proprietary && (
+        <section className="rounded-xl border border-amber-900 bg-amber-950/30 p-4 text-sm text-amber-200">
+          <p className="font-medium">{pkg.license ? "专有（proprietary）软件包" : "未声明许可证"}</p>
+          <p className="mt-1 text-xs">
+            该包默认不允许进入公开镜像；自用构建可以安装，但 source offer 会把它列为受限包。
+          </p>
+        </section>
+      )}
+
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
         <p className="whitespace-pre-line text-slate-300">{pkg.description || "无描述。"}</p>
       </section>

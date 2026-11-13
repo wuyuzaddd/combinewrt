@@ -1,0 +1,40 @@
+combinewrt
+==========
+
+Copyright (c) 2026 combinewrt contributors
+
+This repository contains the original combinewrt site and build-orchestration
+code. That original code is licensed under the MIT License; see LICENSE and
+LICENSES/MIT.txt.
+
+OpenWrt-derived patches
+-----------------------
+
+Any patch in `patches/` that is derived from OpenWrt or ImmortalWrt source is
+licensed under GPL-2.0-only and is kept in that directory with an explicit SPDX
+identifier. See LICENSES/GPL-2.0-only.txt. The MIT-licensed site code and the
+GPL-2.0-only patches are separate works; the presence of a patch does not
+relicense the rest of the repository.
+
+Third-party packages and firmware
+---------------------------------
+
+Firmware images produced by the build workflow combine ImmortalWrt/OpenWrt and
+third-party apk packages. Their licenses and source pins are recorded per build
+in the source-offer manifest (`/builds/<id>/source-offer`). This repository does
+not vendor or mirror third-party source trees or binary package feeds:
+
+- Official ImmortalWrt feeds are referenced by their published URLs and pinned
+  feed commits.
+- The dllkids feed is referenced only by URL and the sha256 of its
+  `packages.adb`; no dllkids source or binary is mirrored here.
+- The self-built supplement feed is signed and hosted separately from this
+  repository; this repository contains none of its build artifacts.
+
+No proprietary binary is offered for public download by this repository. Builds
+containing packages marked proprietary or missing a license are flagged as
+private-use only and must not be published as public images.
+
+OpenWrt is a registered trademark of Software Freedom Conservancy. This project
+is independent and is not affiliated with, endorsed by, or sponsored by the
+OpenWrt project or SFC.

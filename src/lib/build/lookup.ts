@@ -11,5 +11,7 @@ export function toLookupEntry(pkg: CatalogPackage): PackageLookupEntry {
     filename: pkg.filename,
     downloadUrl: pkg.downloadUrl,
     feed: pkg.feed,
+    license: pkg.license,
+    proprietary: pkg.proprietary,
   };
 }

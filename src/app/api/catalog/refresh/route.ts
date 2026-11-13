@@ -29,6 +29,11 @@ export async function POST() {
                 fingerprint: config.supplementKeyFingerprint,
               }
             : null,
+        supplementFeed: {
+          baseUrl: config.supplementFeedUrl,
+          keyUrl: config.supplementKeyUrl,
+          keyFingerprint: config.supplementKeyFingerprint,
+        },
       }),
       db,
     });

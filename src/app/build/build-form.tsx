@@ -468,6 +468,21 @@ export function BuildForm({ baseVersion, profiles, initialConfig }: Props) {
               </p>
             )}
 
+            {plan.compliance && !plan.compliance.publicEligible && (
+              <div className="rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-200">
+                <p className="font-medium">含专有/无许可证包，仅限自用，不进入公开镜像</p>
+                <ul className="mt-1 space-y-1">
+                  {plan.compliance.issues.map((issue) => (
+                    <li key={`${issue.name}-${issue.reason}`}>
+                      <span className="font-mono">{issue.name}</span>{" "}
+                      {issue.reason === "proprietary" ? "proprietary" : "缺少许可证"}
+                      {issue.license ? `（${issue.license}）` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
               <p className="text-xs uppercase tracking-wider text-slate-500">生成文件</p>
               {plan.files.map((file) => (
