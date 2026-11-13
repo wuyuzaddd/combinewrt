@@ -13,6 +13,8 @@ export const KERNEL_VERMAGIC_PIN = "6.12.103-1-0413601b1c3f0490e17f340fe09229ea"
 export interface SupplementPin {
   commit: string | null;
   fingerprint: string | null;
+  /** sha256 of the signed packages.adb this snapshot was built from. */
+  indexSha256?: string | null;
 }
 
 export interface KernelPin {

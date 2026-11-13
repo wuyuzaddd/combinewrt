@@ -56,6 +56,36 @@ describe("composeFeedCommit", () => {
   });
 });
 
+describe("createImmortalWrtSource supplement feed", () => {
+  it("rejects a supplement key whose sha256 does not match the configured fingerprint", async () => {
+    const responses: Record<string, string> = {
+      "profiles.json": JSON.stringify({
+        linux_kernel: { version: "6.12.103", release: "1", vermagic: "0413601b1c3f0490e17f340fe09229ea" },
+      }),
+      "feeds.buildinfo": sample,
+      "packages.adb": "supplement index",
+      "combinewrt-feed.pub.pem": "unexpected key",
+    };
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      const key = Object.keys(responses).find((suffix) => url.endsWith(suffix));
+      if (!key) return new Response("missing", { status: 404 });
+      return new Response(responses[key], { status: 200 });
+    }) as typeof fetch;
+
+    const source = createImmortalWrtSource({
+      baseVersion: "25.12.2",
+      fetchImpl,
+      supplementFeed: {
+        baseUrl: "https://example.invalid/supplement/x86_64",
+        keyUrl: "https://example.invalid/supplement/keys/combinewrt-feed.pub.pem",
+        keyFingerprint: "0".repeat(64),
+      },
+    });
+    await expect(source.loadMeta()).rejects.toThrow(/supplement feed key sha256 mismatch/);
+  });
+});
+
 describe("createImmortalWrtSource dllkids index", () => {
   it("rejects an index whose sha256 does not match the configured pin", async () => {
     const responses: Record<string, string> = {

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CatalogSource } from "./service";
@@ -13,12 +13,19 @@ export interface DllkidsSourceOptions {
   indexSha256: string;
 }
 
+export interface SupplementFeedOptions {
+  baseUrl: string;
+  keyUrl: string;
+  keyFingerprint: string;
+}
+
 export interface ImmortalWrtSourceOptions {
   baseVersion: string;
   apkBin?: string;
   fetchImpl?: typeof fetch;
   dllkids?: DllkidsSourceOptions | null;
   supplement?: SupplementPin | null;
+  supplementFeed?: SupplementFeedOptions | null;
 }
 
 export interface BuildinfoEntry {
@@ -65,17 +72,36 @@ function dumpAdb(apkBin: string, file: string): Promise<string> {
   });
 }
 
+function verifyAdb(apkBin: string, keyDir: string, file: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(apkBin, ["verify", "--keys-dir", keyDir, file], { encoding: "utf8" }, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
 function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
 export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): CatalogSource {
-  const { baseVersion, apkBin = "apk", fetchImpl = fetch, dllkids = null, supplement = null } = options;
+  const {
+    baseVersion,
+    apkBin = "apk",
+    fetchImpl = fetch,
+    dllkids = null,
+    supplement = null,
+    supplementFeed = null,
+  } = options;
   const root = `${RELEASE_ROOT}/${baseVersion}`;
   let kernel: KernelPin | undefined;
   let pins: SourcePins | undefined;
   let dllkidsDump: string | undefined;
   let dllkidsUrl: string | undefined;
+  let supplementDump: string | undefined;
+  let supplementPin: SupplementPin | null = supplement;
+  let supplementUrl: string | undefined;
 
   async function get(url: string): Promise<Response> {
     const response = await fetchImpl(url);
@@ -105,14 +131,57 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
     }
   }
 
+  async function loadSupplementIndex(): Promise<string | undefined> {
+    if (!supplementFeed) return undefined;
+    const baseUrl = supplementFeed.baseUrl.replace(/\/$/, "");
+    const indexUrl = `${baseUrl}/packages.adb`;
+    supplementUrl = indexUrl;
+
+    const [indexResponse, keyResponse] = await Promise.all([get(indexUrl), get(supplementFeed.keyUrl)]);
+    const index = Buffer.from(await indexResponse.arrayBuffer());
+    const key = Buffer.from(await keyResponse.arrayBuffer());
+    const indexSha256 = sha256(index);
+    const keySha256 = sha256(key);
+    if (keySha256 !== supplementFeed.keyFingerprint) {
+      throw new Error(
+        `supplement feed key sha256 mismatch: expected ${supplementFeed.keyFingerprint}, got ${keySha256} (${supplementFeed.keyUrl})`,
+      );
+    }
+    if (supplement?.fingerprint && supplement.fingerprint !== keySha256) {
+      throw new Error(
+        `supplement source pin key mismatch: expected ${supplement.fingerprint}, got ${keySha256} (${supplementFeed.keyUrl})`,
+      );
+    }
+
+    const dir = await mkdtemp(join(tmpdir(), "combinewrt-supplement-"));
+    try {
+      const keyDir = join(dir, "keys");
+      await mkdir(keyDir, { recursive: true });
+      const keyFile = join(keyDir, "combinewrt-feed.pub.pem");
+      const indexFile = join(dir, "packages.adb");
+      await writeFile(keyFile, key);
+      await writeFile(indexFile, index);
+      await verifyAdb(apkBin, keyDir, indexFile);
+      supplementPin = {
+        commit: supplement?.commit ?? null,
+        fingerprint: keySha256,
+        indexSha256,
+      };
+      return await dumpAdb(apkBin, indexFile);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
   async function loadMeta() {
     const profilesUrl = `${root}/targets/x86/64/profiles.json`;
     const buildinfoUrl = `${root}/targets/x86/64/feeds.buildinfo`;
 
-    const [profilesResponse, buildinfoResponse, dllkidsIndex] = await Promise.all([
+    const [profilesResponse, buildinfoResponse, dllkidsIndex, supplementIndex] = await Promise.all([
       get(profilesUrl),
       get(buildinfoUrl),
       loadDllkidsIndex(),
+      loadSupplementIndex(),
     ]);
 
     const json = (await profilesResponse.json()) as {
@@ -121,6 +190,7 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
     kernel = json.linux_kernel;
     if (!kernel) throw new Error("profiles.json is missing linux_kernel");
     dllkidsDump = dllkidsIndex;
+    supplementDump = supplementIndex;
 
     const buildinfoEntries = parseBuildinfoEntries(await buildinfoResponse.text());
     const official: Record<string, string> = Object.fromEntries(
@@ -135,14 +205,16 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
     pins = {
       official,
       dllkids: dllkids ? dllkids.indexSha256 : null,
-      supplement,
+      supplement: supplementPin,
       kernel,
     };
 
     const notes = [profilesUrl, buildinfoUrl];
     if (dllkidsUrl) notes.push(dllkidsUrl);
-    if (supplement?.commit) notes.push(`supplement commit ${supplement.commit}`);
-    if (supplement?.fingerprint) notes.push(`supplement key ${supplement.fingerprint}`);
+    if (supplementUrl) notes.push(supplementUrl);
+    if (supplementPin?.commit) notes.push(`supplement commit ${supplementPin.commit}`);
+    if (supplementPin?.fingerprint) notes.push(`supplement key ${supplementPin.fingerprint}`);
+    if (supplementPin?.indexSha256) notes.push(`supplement index sha256 ${supplementPin.indexSha256}`);
 
     return {
       profilesJson: json,
@@ -172,7 +244,7 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
       const dumps: Array<{
         feed: string;
         dump: string;
-        source: "official" | "dllkids";
+        source: "official" | "dllkids" | "supplement";
         sourcePin: string;
         downloadBase: string;
       }> = [];
@@ -196,6 +268,15 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
           source: "dllkids",
           sourcePin: dllkids.indexSha256,
           downloadBase: dllkids.baseUrl.replace(/\/$/, ""),
+        });
+      }
+      if (supplementDump && supplementFeed && supplementPin) {
+        dumps.push({
+          feed: "supplement",
+          dump: supplementDump,
+          source: "supplement",
+          sourcePin: supplementPin.fingerprint ?? supplementFeed.keyFingerprint,
+          downloadBase: supplementFeed.baseUrl.replace(/\/$/, ""),
         });
       }
       return dumps;
