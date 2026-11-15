@@ -5,6 +5,7 @@ import { readSourcePin } from "../source-watch/store";
 import type { FeedPublishRecord } from "./types";
 import {
   createSupplementWatchService,
+  parseFeedRecord,
   type BuildRunState,
   type DispatchBuildInput,
   type SupplementWatchService,
@@ -37,7 +38,8 @@ interface Harness {
   dispatched: DispatchBuildInput[];
   promotions: Array<{ buildRunId: string; baseVersion: string; sourceCommit: string }>;
   runs: Map<string, BuildRunState>;
-  audits: Map<string, FeedPublishRecord>;
+  /** Raw audit JSON as fetched from the feed site, before validation. */
+  audits: Map<string, unknown>;
   setCommit(commit: string): void;
   setRecipe(next: SupplementRecipe | null): void;
   failDispatch(message: string | null): void;
@@ -65,6 +67,50 @@ function feedRecord(
   };
 }
 
+/**
+ * The shape scripts/write-audit.mjs actually publishes: extra bookkeeping
+ * fields, a nested `index` object instead of a flat `indexSha256`, and the
+ * package list. The watch must read this, not just hand-built fixtures.
+ */
+function publishedAuditRecord(
+  channel: "live" | "staging",
+  buildRunId: string,
+  sourceCommit: string,
+): Record<string, unknown> {
+  return {
+    schemaVersion: 2,
+    channel,
+    buildRunId,
+    buildRunNumber: Number(buildRunId),
+    baseVersion: "25.12.2",
+    target: "x86_64",
+    sourceCommit,
+    arch: "x86_64",
+    generatedAt: "2026-11-15T06:00:00.000Z",
+    publishedAt: "2026-11-15T06:05:00.000Z",
+    frozenPath: `supplement/25.12.2/x86_64/${sourceCommit}`,
+    keyFingerprint: KEY_FP,
+    promotedFromStaging: channel === "live",
+    index: {
+      file: channel === "live" ? "x86_64/packages.adb" : `supplement/25.12.2/x86_64/${sourceCommit}/packages.adb`,
+      sha256: INDEX_SHA,
+      fileSize: 1644,
+    },
+    packages: [
+      {
+        name: "luci-app-store",
+        version: "0.2.1-r1",
+        arch: "noarch",
+        sha256: "a".repeat(64),
+        fileSize: 116299,
+        sourceRepo: "kiddin9/op-packages",
+        sourceCommit,
+        sourcePath: "luci-app-store",
+      },
+    ],
+  };
+}
+
 const PUBLISH_URL = "https://feed.test/publish.json";
 const STAGING_URL = "https://feed.test/staging.json";
 
@@ -79,7 +125,7 @@ function harness(): Harness {
   const dispatched: DispatchBuildInput[] = [];
   const promotions: Harness["promotions"] = [];
   const runs = new Map<string, BuildRunState>();
-  const audits = new Map<string, FeedPublishRecord>();
+  const audits = new Map<string, unknown>();
 
   const service = createSupplementWatchService({
     db,
@@ -256,6 +302,55 @@ describe("supplement watch: candidate to dispatch", () => {
     expect(result.status).toBe("error");
     expect(result.error).toContain("40 character");
     expect(h.dispatched).toHaveLength(0);
+  });
+});
+
+describe("supplement watch: published audit record", () => {
+  it("reads the audit JSON the feed repo publishes (nested index digest)", () => {
+    const record = parseFeedRecord(publishedAuditRecord("live", "5000", COMMIT_NEW));
+    expect(record).not.toBeNull();
+    expect(record).toMatchObject({
+      channel: "live",
+      buildRunId: "5000",
+      indexSha256: INDEX_SHA,
+      keyFingerprint: KEY_FP,
+      frozenPath: `supplement/25.12.2/x86_64/${COMMIT_NEW}`,
+      publishedAt: "2026-11-15T06:05:00.000Z",
+    });
+  });
+
+  it("still reads a flat indexSha256 record", () => {
+    expect(parseFeedRecord(feedRecord("staging", "5001", COMMIT_NEW))).toMatchObject({
+      indexSha256: INDEX_SHA,
+    });
+  });
+
+  it("rejects a record whose signed index digest is missing", () => {
+    const record = publishedAuditRecord("live", "5000", COMMIT_NEW);
+    delete record.index;
+    expect(parseFeedRecord(record)).toBeNull();
+  });
+
+  it("adopts a live publish described by the published audit shape", async () => {
+    const h = harness();
+    h.seedActive(COMMIT_OLD);
+    const check = await h.service.check({ trigger: "schedule" });
+    const runId = check.buildRunId as string;
+
+    h.runs.set(runId, { status: "completed", conclusion: "success", url: `https://gh.test/runs/${runId}` });
+    h.audits.set(PUBLISH_URL, publishedAuditRecord("live", runId, COMMIT_NEW));
+
+    const reconciled = await h.service.reconcile();
+    expect(reconciled.updated).toEqual(["published"]);
+    expect(readSourcePin(h.db, "supplement", "active")?.metadata).toMatchObject({
+      indexSha256: INDEX_SHA,
+      keyFingerprint: KEY_FP,
+      buildRunId: runId,
+    });
+    expect(h.service.readOverview().publishes[0]).toMatchObject({
+      status: "published",
+      indexSha256: INDEX_SHA,
+    });
   });
 });
 

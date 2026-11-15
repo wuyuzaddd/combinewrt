@@ -157,11 +157,24 @@ export function fingerprintFromPinMetadata(metadata: Record<string, unknown>): R
   return isFingerprint(candidate) ? candidate : null;
 }
 
-/** Validate one audit record written by the feed repo's publish pipeline. */
+/**
+ * Validate one audit record written by the feed repo's publish pipeline.
+ *
+ * The published record (scripts/write-audit.mjs in combinewrt-packages)
+ * carries the signed index digest as `index: { file, sha256, fileSize }`,
+ * while older records and fixtures used a flat `indexSha256`. Both describe
+ * the same digest, so normalise the nested form before the required-field
+ * check; a record without either digest is never adopted.
+ */
 export function parseFeedRecord(value: unknown): FeedPublishRecord | null {
   if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
+  const record = { ...(value as Record<string, unknown>) };
   if (record.channel !== "live" && record.channel !== "staging") return null;
+  if (typeof record.indexSha256 !== "string") {
+    const index = record.index;
+    const nested = index && typeof index === "object" ? (index as Record<string, unknown>).sha256 : undefined;
+    if (typeof nested === "string") record.indexSha256 = nested;
+  }
   const required = ["buildRunId", "baseVersion", "target", "sourceCommit", "indexSha256", "keyFingerprint", "frozenPath", "publishedAt"] as const;
   for (const field of required) {
     if (typeof record[field] !== "string" || (record[field] as string).length === 0) return null;
