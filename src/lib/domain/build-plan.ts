@@ -7,6 +7,7 @@ import type {
   BuildVisibility,
   DownloadEntry,
   GeneratedFile,
+  ModeState,
   ResolvedEntry,
 } from "../build/types";
 import type {
@@ -64,6 +65,12 @@ export interface BuildPlanV2 extends BuildPlanBase {
   imageVariant: ImageVariant;
   basePreset: ModeRef;
   overlays: ModeRef[];
+  /**
+   * Typed result of applying the base preset and overlays (ticket 07). Plans
+   * written between tickets 03 and 07 have no such section; readers must treat
+   * it as absent rather than an empty mode stack.
+   */
+  modes?: ModeState;
   engine: BuildEngine;
 }
 

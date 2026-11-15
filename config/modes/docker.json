@@ -1,0 +1,15 @@
+{
+  "id": "docker",
+  "layer": "kernel/config",
+  "title": "Docker",
+  "experimental": false,
+  "description": "Docker needs a source build and an ext4 combined image with a writable overlay; squashfs is rejected.",
+  "requires": [
+    "engine:source",
+    "filesystem:ext4",
+    "artifact:combined"
+  ],
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": []
+}

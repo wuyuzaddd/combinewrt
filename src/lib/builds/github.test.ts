@@ -100,6 +100,48 @@ describe("github adapter", () => {
     expect(payload.composition.downloads).toEqual(plan.downloads);
   });
 
+  it("ships the resolved modes inside the composition for V2 plans", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(undefined, 204))
+      .mockResolvedValueOnce(
+        response({
+          workflow_runs: [
+            {
+              id: 43,
+              name: "CI",
+              display_title: "combinewrt-b2",
+              status: "queued",
+              conclusion: null,
+              created_at: new Date().toISOString(),
+            },
+          ],
+        }),
+      );
+    const adapter = createGitHubAdapter({
+      repo: "me/build",
+      token: "t",
+      workflow: "build.yml",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+    });
+    const modes = {
+      basePreset: { id: "minimal", layer: "file/board", title: "Minimal", experimental: false },
+      overlays: [],
+      experimental: [],
+      secrets: [],
+      generatedFiles: [],
+      network: { wan: { protocol: "dhcp", device: "default" } },
+    };
+    const v2plan = { ...plan, schemaVersion: 2, modes } as unknown as BuildPlan;
+
+    await adapter.dispatch(v2plan, { buildId: "b2", artifactName: "image.gz" });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(body.client_payload.composition.modes.basePreset.id).toBe("minimal");
+    expect(body.client_payload).not.toHaveProperty("modes");
+  });
+
   it("parses the manifest marker emitted by the workflow", () => {
     const log = `make image\nCOMBINEWRT_MANIFEST=${JSON.stringify({ artifactName: "a.img.gz", sha256: "a".repeat(64), size: 123 })}\n`;
     const manifest = parseManifest(log);

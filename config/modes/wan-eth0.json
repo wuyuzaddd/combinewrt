@@ -1,0 +1,23 @@
+{
+  "id": "wan-eth0",
+  "layer": "file/board",
+  "title": "WAN on eth0",
+  "experimental": false,
+  "description": "Maps WAN to eth0 and keeps the remaining ports on the LAN bridge; conflicts with the default WAN mapping and with switch-port.",
+  "exclusiveGroup": "wan-mapping",
+  "requires": [],
+  "conflicts": [
+    "feature:default-wan"
+  ],
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": [
+    "/etc/uci-defaults/90-combinewrt-modes"
+  ],
+  "network": {
+    "wan": {
+      "protocol": "dhcp",
+      "device": "eth0"
+    }
+  }
+}

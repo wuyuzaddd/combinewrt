@@ -1,0 +1,17 @@
+{
+  "id": "pppoe",
+  "layer": "file/board",
+  "title": "PPPoE WAN",
+  "experimental": false,
+  "description": "Typed WAN PPPoE credentials and options; the password is a per-build secret and never appears in logs or the source offer.",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": [
+    "/etc/uci-defaults/90-combinewrt-modes"
+  ],
+  "network": {
+    "wan": {
+      "protocol": "pppoe"
+    }
+  }
+}

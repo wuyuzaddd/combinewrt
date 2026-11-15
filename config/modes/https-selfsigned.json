@@ -1,0 +1,15 @@
+{
+  "id": "https-selfsigned",
+  "layer": "file/board",
+  "title": "Self-signed HTTPS",
+  "experimental": false,
+  "description": "Generates a per-build self-signed certificate whose private key is never logged and never enters the source offer.",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": [],
+  "secret": {
+    "kind": "https-selfsigned",
+    "certPath": "/etc/uhttpd.crt",
+    "keyPath": "/etc/uhttpd.key"
+  }
+}

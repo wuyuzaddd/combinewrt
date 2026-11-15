@@ -1,0 +1,16 @@
+{
+  "id": "istoreos-brand",
+  "layer": "file/board",
+  "title": "iStoreOS branding",
+  "experimental": false,
+  "description": "Sets only the DISTRIB_ID/DISTRIB_DESCRIPTION identity fields; no iStore proprietary packages are installed.",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": [
+    "/etc/openwrt_release"
+  ],
+  "branding": {
+    "distribId": "iStoreOS",
+    "description": "iStoreOS"
+  }
+}

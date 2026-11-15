@@ -1,0 +1,13 @@
+{
+  "id": "switch-port",
+  "layer": "file/board",
+  "title": "Switch port mapping",
+  "experimental": false,
+  "description": "Uses the explicit WAN port and LAN port list from the target's declared port map; conflicts with wan-eth0.",
+  "exclusiveGroup": "wan-mapping",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": [
+    "/etc/uci-defaults/90-combinewrt-modes"
+  ]
+}

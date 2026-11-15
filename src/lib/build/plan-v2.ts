@@ -7,6 +7,7 @@ import { EMPTY_SOURCE_REGISTRY } from "../sources/registry";
 import { decideStrategy } from "../sources/strategy";
 import type { SourceRegistry } from "../sources/types";
 import { artifactNameV2, imageTypeForVariant } from "./artifact-name";
+import { resolveModes } from "./modes";
 import { createBuildPlan } from "./plan";
 import type { BuildConflict, BuildFormInputV2, PackageLookup, PackageLookupAll } from "./types";
 
@@ -99,6 +100,28 @@ export async function createBuildPlanV2(
   const imageVariant = resolveImageVariant(form.imageVariant, profile.overlay.defaultMb);
   const imageType = imageTypeForVariant(imageVariant);
 
+  // Modes are declarative input; resolving them may reject the form (400) or
+  // report an unsatisfied requirement / exclusivity violation (409 via the
+  // route's conflict handling).
+  const modeResolution = resolveModes({
+    basePreset: form.basePreset,
+    overlays: form.modes ?? [],
+    network: form.network,
+    hostname: form.hostname,
+    baseVersion: context.baseVersion,
+    feedCommit: context.feedCommit,
+    targetId: target.id,
+    architecture: target.architecture,
+    imageVariant,
+    engine: kernel.engine,
+    capabilities: profile.capabilities,
+    lanIp: form.lanIp,
+    netmask: form.netmask,
+  });
+  if (modeResolution.issues.length > 0) {
+    return { ok: false, status: 400, issues: modeResolution.issues };
+  }
+
   const catalogProfile = context.catalogProfiles.find((item) => item.id === profile.id);
   const profileForPlan: CatalogProfile = catalogProfile
     ? {
@@ -155,7 +178,7 @@ export async function createBuildPlanV2(
     return { ...entry, ...decision };
   });
 
-  const conflicts = [...basePlan.conflicts, ...strategyConflicts];
+  const conflicts = [...basePlan.conflicts, ...strategyConflicts, ...modeResolution.conflicts];
   const engine: BuildEngine = kernel.engine;
 
   const plan: BuildPlanV2 = {
@@ -183,6 +206,8 @@ export async function createBuildPlanV2(
     imageVariant,
     basePreset: { id: form.basePreset ?? "minimal", layer: "file/board" },
     overlays,
+    modes: modeResolution.state,
+    files: [...basePlan.files, ...modeResolution.files],
     engine,
     artifactName: artifactNameV2({
       baseVersion: context.baseVersion,
