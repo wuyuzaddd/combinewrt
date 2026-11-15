@@ -18,11 +18,16 @@ sudo loginctl enable-linger combinewrt
 sudo mkdir -p /opt/combinewrt /var/lib/combinewrt /var/lib/combinewrt/artifacts
 sudo chown -R combinewrt:combinewrt /opt/combinewrt /var/lib/combinewrt
 
+# 如果部署主机在构建时出现过热（开发机曾遇到），可选用下面的限流包装；
+# CPU/内存上限是建议，不是运行要求。
+# sudo -u combinewrt systemd-run --user --scope -p CPUQuota=600% -p MemoryMax=6G -p RuntimeMaxSec=1800 -- \
+#   bash -c "cd /opt/combinewrt && NODE_OPTIONS='--max-old-space-size=6144' npm run build"
+
 # 以部署用户检出代码
 sudo -u combinewrt git clone https://github.com/wuyuzaddd/combinewrt.git /opt/combinewrt
 cd /opt/combinewrt
 sudo -u combinewrt npm ci
-sudo -u combinewrt systemd-run --user --scope -p CPUQuota=600% -p MemoryMax=6G -p RuntimeMaxSec=1800 -- bash -c "cd /opt/combinewrt && NODE_OPTIONS='--max-old-space-size=6144' npm run build"
+sudo -u combinewrt npm run build
 
 # 环境文件，权限 0600
 sudo install -m 0600 deploy/combinewrt.env.example /etc/combinewrt.env
@@ -71,7 +76,7 @@ sudo -u combinewrt /usr/local/sbin/combinewrt-backup /var/backups/combinewrt
 cd /opt/combinewrt
 sudo -u combinewrt git pull --ff-only
 sudo -u combinewrt npm ci
-sudo -u combinewrt systemd-run --user --scope -p CPUQuota=600% -p MemoryMax=6G -p RuntimeMaxSec=1800 -- bash -c "cd /opt/combinewrt && NODE_OPTIONS='--max-old-space-size=6144' npm run build"
+sudo -u combinewrt npm run build
 sudo systemctl start combinewrt
 curl -fsS http://127.0.0.1:3000/api/health
 ```
