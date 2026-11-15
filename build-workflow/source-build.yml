@@ -201,6 +201,8 @@ jobs:
           if ! make defconfig; then
             fail config "" "$SOURCE_REF" "" "make defconfig failed."
           fi
+          echo "Target/profile symbols selected by make defconfig:"
+          grep -E '^CONFIG_TARGET_(x86|MULTI_PROFILE|DEVICE_)' .config || true
           missing=$(jq -r '.configChecks[]' "$GITHUB_WORKSPACE/plan.json" | while IFS= read -r check; do
             grep -qxF "$check" .config || printf '%s\n' "$check"
           done)
@@ -215,8 +217,9 @@ jobs:
             fi
           done <<< "$(jq -r '.profileChecks[]' "$GITHUB_WORKSPACE/plan.json")"
           if [ -z "$profile" ]; then
-            fail config "" "$SOURCE_REF" "" "None of the expected target-profile symbols are enabled."
+            fail config "" "$SOURCE_REF" "" "None of the expected target-profile symbols are enabled; selected: $(grep -E '^CONFIG_TARGET_(MULTI_PROFILE|x86_64|DEVICE_)' .config | tr '\n' ' ')"
           fi
+          echo "Selected target profile: $profile"
           echo "COMBINEWRT_PROFILE=$profile" >> "$GITHUB_ENV"
 
       - name: Download package sources

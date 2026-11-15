@@ -188,8 +188,10 @@ describe("generateSourceRecipe", () => {
       ]),
     );
     expect(recipe.profileChecks).toEqual([
-      "CONFIG_TARGET_x86_64_Generic=y",
+      "CONFIG_TARGET_x86_64_DEVICE_generic=y",
       "CONFIG_TARGET_DEVICE_x86_64_DEVICE_generic=y",
+      "CONFIG_TARGET_x86_64_generic=y",
+      "CONFIG_TARGET_x86_64_Generic=y",
     ]);
     expect(recipe.imageGlob).toBe("*-ext4-combined-efi.img.gz");
     expect(recipe.artifactName).toBe("immortalwrt-24.10-SNAPSHOT-x86-64-generic-ext4-combined-efi.img.gz");

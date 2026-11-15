@@ -372,11 +372,22 @@ function imageGlob(variant: ImageVariant): string {
 }
 
 function profileChecksFor(targetId: string, profileId: string): string[] {
-  if (targetId === "x86/64" && profileId === "generic") {
-    return ["CONFIG_TARGET_x86_64_Generic=y", "CONFIG_TARGET_DEVICE_x86_64_DEVICE_generic=y"];
-  }
+  // `scripts/target-metadata.pl` builds the "Target Profile" choice from the
+  // image `Device/` definitions, so the profile symbol is
+  // `TARGET_<conf>_DEVICE_<device>`. The 24.10 tree also still answers to the
+  // older human profile symbol, and buildbot-style configs select the
+  // `TARGET_DEVICE_*` menu entries through TARGET_MULTI_PROFILE; accept any of
+  // them and let `make defconfig` decide.
   const conf = targetId.replaceAll("/", "_");
-  return [`CONFIG_TARGET_${conf}_${profileId}=y`, `CONFIG_TARGET_DEVICE_${conf}_DEVICE_${profileId}=y`];
+  const checks = [
+    `CONFIG_TARGET_${conf}_DEVICE_${profileId}=y`,
+    `CONFIG_TARGET_DEVICE_${conf}_DEVICE_${profileId}=y`,
+    `CONFIG_TARGET_${conf}_${profileId}=y`,
+  ];
+  if (targetId === "x86/64" && profileId === "generic") {
+    checks.push("CONFIG_TARGET_x86_64_Generic=y");
+  }
+  return checks;
 }
 
 /**
