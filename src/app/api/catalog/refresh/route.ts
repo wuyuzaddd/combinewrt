@@ -1,12 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/current-session";
-import { getConfig } from "@/lib/config";
-import { getDatabase } from "@/lib/db";
-import { createBaseVersionStore } from "@/lib/base/store";
-import { refreshCatalog } from "@/lib/catalog/service";
-import { createCatalogStore } from "@/lib/catalog/store";
-import { createConfiguredImmortalWrtSource } from "@/lib/catalog/configured";
-import { createImmortalWrtSource } from "@/lib/catalog/source";
+import { getCatalogRefreshRunner } from "@/lib/catalog/refresh-scheduler";
 
 export async function POST() {
   const session = await getSession();
@@ -15,15 +9,27 @@ export async function POST() {
   }
 
   try {
-    const config = getConfig();
-    const db = getDatabase();
-    const baseVersion = createBaseVersionStore(db).active()?.version ?? config.baseVersion;
-    const result = await refreshCatalog({
-      source: createImmortalWrtSource(createConfiguredImmortalWrtSource(config, baseVersion)),
-      db,
-    });
-    createCatalogStore(db).activateSnapshot(result.snapshot.id);
-    return NextResponse.json({ ok: true, ...result });
+    // Manual refresh bypasses the daily freshness check but shares single-flight
+    // with the scheduler.
+    const outcome = await getCatalogRefreshRunner().run();
+    if (outcome.reason) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: outcome.reason,
+        message:
+          outcome.reason === "in-flight"
+            ? "已有目录刷新正在进行，本次请求已合并等待"
+            : "目录刚刚刷新过，无需重复刷新",
+      });
+    }
+    if (outcome.error || !outcome.result) {
+      return NextResponse.json(
+        { ok: false, error: outcome.error ?? "catalog refresh failed" },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json({ ok: true, ...outcome.result });
   } catch (error) {
     console.error("catalog refresh failed", error);
     return NextResponse.json(

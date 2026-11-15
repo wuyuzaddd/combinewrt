@@ -91,7 +91,7 @@ export function createBuildService(options: {
           version: null,
           message: `build did not finish within ${minutes} minutes`,
         },
-      }, record.updatedAt);
+      }, record.updatedAt, "timeout");
     }
     if (!record.runId) {
       const age = now().getTime() - Date.parse(record.createdAt);
@@ -172,7 +172,7 @@ export function createBuildService(options: {
           status: "failed",
           error: message,
           failure: { step: "dispatch", package: null, source: null, version: null, message },
-        });
+        }, undefined, "dispatch");
       }
     },
 
@@ -224,11 +224,21 @@ export function createBuildService(options: {
           // cancellation already accepted; keep the last known log tail
         }
       }
-      let updated = store.update(id, { status: "cancelled", logTail, error: null }, record.updatedAt);
+      let updated = store.update(
+        id,
+        { status: "cancelled", logTail, error: null },
+        record.updatedAt,
+        "cancel",
+      );
       if (updated.status !== "cancelled") {
         const latest = store.get(id);
         if (latest && !isTerminal(latest.status)) {
-          updated = store.update(id, { status: "cancelled", logTail, error: null }, latest.updatedAt);
+          updated = store.update(
+            id,
+            { status: "cancelled", logTail, error: null },
+            latest.updatedAt,
+            "cancel",
+          );
         }
       }
       return updated;

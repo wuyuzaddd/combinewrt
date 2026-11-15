@@ -17,10 +17,18 @@ export function RefreshButton() {
         ok?: boolean;
         error?: string;
         created?: boolean;
+        skipped?: boolean;
+        message?: string;
         snapshot?: { id: number };
       };
       if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setMessage(data.created ? `已生成快照 #${data.snapshot?.id}` : `快照已是最新（#${data.snapshot?.id}）`);
+      setMessage(
+        data.skipped
+          ? data.message ?? "目录刷新已跳过"
+          : data.created
+            ? `已生成快照 #${data.snapshot?.id}`
+            : `快照已是最新（#${data.snapshot?.id}）`,
+      );
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "刷新失败");

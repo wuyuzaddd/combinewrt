@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { BuildConfig, BuildPlan } from "../build/types";
-import type { BuildFailure, BuildRecord, BuildStatus } from "./types";
+import type { BuildEvent, BuildEventSource, BuildFailure, BuildRecord, BuildStatus } from "./types";
 
 interface BuildRow {
   id: string;
@@ -44,6 +44,7 @@ export interface BuildStore {
   list(limit?: number, offset?: number): BuildRecord[];
   count(): number;
   listActive(limit?: number): BuildRecord[];
+  listEvents(id: string): BuildEvent[];
   update(
     id: string,
     patch: Partial<
@@ -53,6 +54,7 @@ export interface BuildStore {
       >
     >,
     expectedUpdatedAt?: string,
+    source?: BuildEventSource,
   ): BuildRecord;
 }
 
@@ -62,27 +64,47 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
     return row ? toRecord(row) : null;
   }
 
+  function insertEvent(
+    buildId: string,
+    fromStatus: BuildStatus | null,
+    toStatus: BuildStatus,
+    source: BuildEventSource,
+    createdAt: string,
+  ): void {
+    db.prepare(
+      "INSERT INTO build_events (build_id, from_status, to_status, source, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(buildId, fromStatus, toStatus, source, createdAt);
+  }
+
   return {
     create(build) {
-      db.prepare(
-        `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, failure_json, artifact_name, artifact_sha256, artifact_size, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        build.id,
-        JSON.stringify(build.plan),
-        build.config ? JSON.stringify(build.config) : null,
-        build.status,
-        build.runId,
-        build.adapter,
-        build.logTail,
-        build.error,
-        build.failure ? JSON.stringify(build.failure) : null,
-        build.artifactName,
-        build.artifactSha256 ?? null,
-        build.artifactSize ?? null,
-        build.createdAt,
-        build.updatedAt,
-      );
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        db.prepare(
+          `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, failure_json, artifact_name, artifact_sha256, artifact_size, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          build.id,
+          JSON.stringify(build.plan),
+          build.config ? JSON.stringify(build.config) : null,
+          build.status,
+          build.runId,
+          build.adapter,
+          build.logTail,
+          build.error,
+          build.failure ? JSON.stringify(build.failure) : null,
+          build.artifactName,
+          build.artifactSha256 ?? null,
+          build.artifactSize ?? null,
+          build.createdAt,
+          build.updatedAt,
+        );
+        insertEvent(build.id, null, build.status, "create", build.createdAt);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
     },
     get,
     list(limit = 20, offset = 0) {
@@ -104,7 +126,29 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
         .all(safeLimit) as unknown as BuildRow[];
       return rows.map(toRecord);
     },
-    update(id, patch, expectedUpdatedAt) {
+    listEvents(id) {
+      const rows = db
+        .prepare(
+          "SELECT id, build_id, from_status, to_status, source, created_at FROM build_events WHERE build_id = ? ORDER BY id ASC",
+        )
+        .all(id) as unknown as Array<{
+        id: number;
+        build_id: string;
+        from_status: string | null;
+        to_status: string;
+        source: string;
+        created_at: string;
+      }>;
+      return rows.map((row) => ({
+        id: row.id,
+        buildId: row.build_id,
+        fromStatus: row.from_status as BuildStatus | null,
+        toStatus: row.to_status as BuildStatus,
+        source: row.source as BuildEventSource,
+        createdAt: row.created_at,
+      }));
+    },
+    update(id, patch, expectedUpdatedAt, source = "poll") {
       const current = get(id);
       if (!current) throw new Error(`build ${id} does not exist`);
       let updatedAt = new Date().toISOString();
@@ -128,12 +172,24 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
         id,
       ];
       if (expectedUpdatedAt) params.push(expectedUpdatedAt);
-      const result = db.prepare(sql).run(...params);
-      if (Number(result.changes) === 0) {
-        // Another poll won the race; return the persisted row instead of overwriting it.
-        return get(id) ?? current;
+
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const result = db.prepare(sql).run(...params);
+        if (Number(result.changes) === 0) {
+          db.exec("ROLLBACK");
+          // Another poll won the race; return the persisted row instead of overwriting it.
+          return get(id) ?? current;
+        }
+        if (next.status !== current.status) {
+          insertEvent(id, current.status, next.status, source, next.updatedAt);
+        }
+        db.exec("COMMIT");
+        return next;
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
       }
-      return next;
     },
   };
 }

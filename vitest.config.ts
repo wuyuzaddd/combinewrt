@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
     exclude: ["node_modules/**", "op-packages/**", "Kwrt/**", "packages-compile/**", ".next/**", ".scratch/**"],
   },
 });

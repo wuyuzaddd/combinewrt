@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { CatalogPackage, CatalogProfile } from "@/lib/catalog/types";
-import type { BuildConflict, BuildConfig, BuildPlan } from "@/lib/build/types";
+import type { BuildConflict, BuildConfig, BuildPlan, BuildVisibility } from "@/lib/build/types";
 import { presetPackages } from "@/lib/build/presets";
 import { ComplianceIssueList } from "@/components/compliance";
 
@@ -27,6 +27,7 @@ interface FormState {
   lanIp: string;
   netmask: string;
   packages: string[];
+  visibility: BuildVisibility;
 }
 
 interface Props {
@@ -47,6 +48,7 @@ function defaultForm(profiles: CatalogProfile[], initial?: BuildConfig | null): 
     lanIp: initial?.lanIp ?? "192.168.1.1",
     netmask: initial?.netmask ?? "255.255.255.0",
     packages: initial ? [...initial.packages] : [...presetPackages("common")],
+    visibility: initial?.visibility ?? "private",
   };
 }
 
@@ -325,6 +327,37 @@ export function BuildForm({ baseVersion, profiles, initialConfig }: Props) {
               value={password}
             />
           </label>
+
+          <fieldset className="mt-4">
+            <legend className="text-sm text-slate-300">镜像用途</legend>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {(
+                [
+                  { value: "private", title: "自用", hint: "允许专有/无许可证包，仅用于自己的设备" },
+                  { value: "public", title: "公开分发", hint: "拒绝专有/无许可证包，并在源码清单中注明" },
+                ] as const
+              ).map((option) => (
+                <label
+                  className={`cursor-pointer rounded-lg border p-3 text-sm ${
+                    form.visibility === option.value
+                      ? "border-emerald-500 bg-emerald-950/40 text-emerald-200"
+                      : "border-slate-700 bg-slate-950 text-slate-300"
+                  }`}
+                  key={option.value}
+                >
+                  <input
+                    checked={form.visibility === option.value}
+                    className="sr-only"
+                    name="visibility"
+                    onChange={() => update("visibility", option.value)}
+                    type="radio"
+                  />
+                  <span className="block font-medium">{option.title}</span>
+                  <span className="mt-1 block text-xs text-slate-400">{option.hint}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </section>
 
         <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">

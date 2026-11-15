@@ -4,6 +4,7 @@ const state = vi.hoisted(() => ({
   session: null as { sub: string; iat: number; exp: number } | null,
   bump: vi.fn(),
   revert: vi.fn(),
+  register: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/current-session", () => ({
@@ -11,7 +12,7 @@ vi.mock("@/lib/auth/current-session", () => ({
 }));
 
 vi.mock("@/lib/base", () => ({
-  getBaseVersionService: () => ({ bump: state.bump, revert: state.revert }),
+  getBaseVersionService: () => ({ bump: state.bump, revert: state.revert, register: state.register }),
   readBaseVersionState: async () => ({ active: { version: "25.12.2" } }),
 }));
 
@@ -29,6 +30,7 @@ beforeEach(() => {
   state.session = { sub: "admin", iat: 0, exp: 1 };
   state.bump.mockReset();
   state.revert.mockReset();
+  state.register.mockReset();
 });
 
 describe("POST /api/admin/base-version", () => {
@@ -58,6 +60,37 @@ describe("POST /api/admin/base-version", () => {
     const response = await POST(request({ action: "revert" }));
     expect(response.status).toBe(200);
     expect(state.revert).toHaveBeenCalled();
+  });
+
+  it("registers a manually entered record without switching the baseline", async () => {
+    state.register.mockReturnValue({ version: "25.12.3", createdAt: "2026-10-01T00:00:00.000Z" });
+    const body = {
+      action: "register",
+      version: "25.12.3",
+      releaseDate: "2026-10-01",
+      imageBuilderUrl:
+        "https://downloads.immortalwrt.org/releases/25.12.3/targets/x86/64/immortalwrt-imagebuilder-25.12.3-x86-64.Linux-x86_64.tar.zst",
+      imageBuilderSha256: "a".repeat(64),
+    };
+    const response = await POST(request(body));
+    expect(response.status).toBe(200);
+    expect(state.register).toHaveBeenCalledWith({
+      version: "25.12.3",
+      releaseDate: "2026-10-01",
+      imageBuilderUrl: body.imageBuilderUrl,
+      imageBuilderSha256: "a".repeat(64),
+    });
+    expect(state.bump).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid manual record with readable field errors", async () => {
+    const response = await POST(
+      request({ action: "register", version: "25.12.3", releaseDate: "nope", imageBuilderUrl: "", imageBuilderSha256: "x" }),
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { errors: string[] };
+    expect(body.errors.join("\n")).toContain("发布日期");
+    expect(state.register).not.toHaveBeenCalled();
   });
 
   it("returns a readable error when the service rejects", async () => {

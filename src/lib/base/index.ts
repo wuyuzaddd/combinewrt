@@ -3,7 +3,7 @@ import { getConfig } from "../config";
 import { getDatabase } from "../db";
 import { validateBuildForm } from "../build/validate";
 import { getBuildService } from "../builds";
-import { dispatchRepositoryEvent } from "../builds/github";
+import { dispatchRepositoryEvent, findWorkflowRunByTitle } from "../builds/github";
 import { preparePlanForForm } from "../builds/prepare";
 import { createCatalogStore } from "../catalog/store";
 import { refreshCatalog } from "../catalog/service";
@@ -36,13 +36,22 @@ function createService(): BaseVersionService {
     triggerSupplementBuild:
       config.buildAdapter === "github"
         ? async (baseVersion) => {
+            const after = new Date().toISOString();
             await dispatchRepositoryEvent({
               repo: config.buildRepo,
               token: config.buildRepoToken,
               eventType: "supplement-build",
               clientPayload: { base_version: baseVersion },
             });
-            return { runId: null };
+            return {
+              runId: await findWorkflowRunByTitle({
+                repo: config.buildRepo,
+                token: config.buildRepoToken,
+                workflow: config.supplementWorkflow,
+                titleIncludes: `packages ${baseVersion}`,
+                after,
+              }),
+            };
           }
         : undefined,
     async submitSmoke() {
@@ -54,7 +63,8 @@ function createService(): BaseVersionService {
         lanIp: "192.168.1.1",
         netmask: "255.255.255.0",
         rootPassword: randomBytes(18).toString("base64url"),
-        packages: [],
+        // The workflow asserts at least one top-level package with apk info -e.
+        packages: ["luci"],
       });
       if (!validation.ok) throw new Error(`smoke form is invalid: ${validation.issues.join("; ")}`);
 

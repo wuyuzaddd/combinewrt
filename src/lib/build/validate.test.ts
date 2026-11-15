@@ -20,7 +20,16 @@ describe("validateBuildForm", () => {
   it("accepts a valid form and normalizes packages", () => {
     const result = validateBuildForm(valid);
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.packages).toEqual(["luci"]);
+    if (result.ok) {
+      expect(result.value.packages).toEqual(["luci"]);
+      expect(result.value.visibility).toBe("private");
+    }
+  });
+
+  it("accepts an explicit public visibility", () => {
+    const result = validateBuildForm({ ...valid, visibility: "public" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.visibility).toBe("public");
   });
 
   it.each([

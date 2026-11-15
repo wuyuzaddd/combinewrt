@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getBuildService } from "@/lib/builds";
 import { ComplianceIssueList } from "@/components/compliance";
 import { loadSourceOffer } from "@/lib/source-offer/load";
+import { distributionLabel } from "@/lib/source-offer/manifest";
 import { CopyLinkButton } from "./copy-link";
 
 export default async function SourceOfferPage({ params }: { params: Promise<{ id: string }> }) {
@@ -48,6 +49,15 @@ export default async function SourceOfferPage({ params }: { params: Promise<{ id
         <p className="mt-2 text-slate-400">
           本页记录该镜像使用的 ImmortalWrt 基线、官方 feed 提交、dllkids 索引校验值、自有 supplement
           源与构建配置，供分发镜像时履行源码提供义务。页面链接可复制，JSON 版本可归档。
+        </p>
+        <p
+          className={`mt-3 inline-block rounded-full px-3 py-1 text-xs ${
+            offer.publicDistribution
+              ? "bg-emerald-950/60 text-emerald-200"
+              : "bg-amber-950/60 text-amber-200"
+          }`}
+        >
+          {distributionLabel(offer.visibility, offer.compliance.publicEligible)}
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">

@@ -1,5 +1,5 @@
 import type { BaseVersion } from "../base/types";
-import type { BuildConfig, BuildPlan, AppliedPatch } from "../build/types";
+import type { BuildConfig, BuildPlan, AppliedPatch, BuildVisibility } from "../build/types";
 import type { BuildRecord, BuildStatus } from "../builds/types";
 import {
   EMPTY_SOURCE_PINS,
@@ -41,7 +41,17 @@ export interface SourceOfferManifest {
   config: BuildConfig | null;
   generatedFiles: string[];
   compliance: ComplianceReport;
+  visibility: BuildVisibility;
+  publicDistribution: boolean;
   notes: string[];
+}
+
+export function distributionLabel(
+  visibility: BuildVisibility,
+  publicEligible: boolean,
+): string {
+  if (visibility === "private") return "自用（未公开分发）";
+  return publicEligible ? "允许公开分发" : "不得作为公开镜像发布";
 }
 
 export function createSourceOffer(
@@ -53,11 +63,20 @@ export function createSourceOffer(
     ? { url: options.imageBuilder.imageBuilderUrl, sha256: options.imageBuilder.imageBuilderSha256 }
     : null;
   const compliance = plan.compliance ?? createComplianceReport(plan.resolved);
+  const visibility = plan.visibility ?? "private";
+  const publicDistribution = visibility === "public" && compliance.publicEligible;
   const notes = [
     "This manifest is the GPL source offer for the pinned package sources used by this image.",
     "No firmware or third-party source code is published by this repository; dllkids is referenced by URL and sha256 only.",
     "Root password hashes and generated file contents are deliberately omitted.",
   ];
+  notes.push(
+    visibility === "private"
+      ? "Distribution conclusion: this image is marked private and is not offered for public distribution."
+      : publicDistribution
+        ? "Distribution conclusion: this image is marked public and every package passed the license gate."
+        : "Distribution conclusion: this image is marked public but contains packages that may not be publicly distributed.",
+  );
   if (!plan.sourcePins) {
     notes.push("Legacy build: source pins were not captured in this plan; treat the pin list as incomplete.");
   }
@@ -100,6 +119,8 @@ export function createSourceOffer(
     config: build.config ?? plan.config ?? null,
     generatedFiles: plan.files.map((file) => file.path),
     compliance,
+    visibility,
+    publicDistribution,
     notes,
   };
 }

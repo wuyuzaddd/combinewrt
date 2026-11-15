@@ -39,6 +39,22 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
   const sourceConflicts = findSourceConflicts(requests, entries, context, form.packagePins ?? []);
   const downloads = buildDownloadManifest(entries, context, sourceConflicts);
   const topLevelPackages = [...new Set(requests.map((request) => request.name))];
+  const visibility = form.visibility ?? "private";
+  const compliance = createComplianceReport(entries);
+  const complianceConflicts: BuildConflict[] =
+    visibility === "public" && !compliance.publicEligible
+      ? [
+          {
+            names: compliance.issues.map((issue) => issue.name),
+            message: `公开镜像不能包含不可公开分发的软件包：${compliance.issues
+              .map(
+                (issue) =>
+                  `${issue.name} (${issue.packageSource ?? "unknown"}, ${issue.reason === "proprietary" ? "proprietary" : "unknown-license"})`,
+              )
+              .join("、")}`,
+          },
+        ]
+      : [];
   const rootHash = await context.hashPassword(form.rootPassword);
   const uci = generateUciDefaults(form, rootHash, { now: context.now });
 
@@ -51,6 +67,7 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
       lanIp: form.lanIp,
       netmask: form.netmask,
       packages: names,
+      visibility,
     },
     baseVersion: context.baseVersion,
     feedCommit: context.feedCommit,
@@ -59,13 +76,14 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
     profileId: context.profile.id,
     profileTitle: context.profile.title,
     imageType: form.imageType,
+    visibility,
     packages: names,
     topLevelPackages,
     resolved: entries,
     downloads,
     missingDependencies,
-    conflicts: [...formatConflicts, ...sourceConflicts, ...findConflicts(names)],
-    compliance: createComplianceReport(entries),
+    conflicts: [...formatConflicts, ...sourceConflicts, ...complianceConflicts, ...findConflicts(names)],
+    compliance,
     patches: APPLIED_PATCHES,
     files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: uci, mode: 0o755 }],
     artifactName: artifactName(context.baseVersion, context.profile.id, form.imageType),

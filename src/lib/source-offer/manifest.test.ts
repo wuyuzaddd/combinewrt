@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSourceOffer, sourceOfferJson } from "./manifest";
+import { createSourceOffer, distributionLabel, sourceOfferJson } from "./manifest";
 import type { BuildRecord } from "../builds/types";
 import type { BuildPlan } from "../build/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
@@ -11,6 +11,7 @@ const plan: BuildPlan = {
   profileId: "generic",
   profileTitle: "Generic x86/64",
   imageType: "ext4-efi",
+  visibility: "public",
   packages: ["lucky", "luci-app-lucky", "mosdns"],
   resolved: [
     {
@@ -110,6 +111,9 @@ describe("createSourceOffer", () => {
     expect(offer.config?.hostname).toBe("combinewrt");
     expect(offer.generatedFiles).toEqual(["files/etc/uci-defaults/99-combinewrt"]);
     expect(offer.patches).toEqual([]);
+    expect(offer.visibility).toBe("public");
+    expect(offer.publicDistribution).toBe(true);
+    expect(offer.notes.join("\n")).toContain("Distribution conclusion: this image is marked public");
   });
 
   it("does not publish root password hashes or generated file contents", () => {
@@ -123,5 +127,15 @@ describe("createSourceOffer", () => {
     const legacy = { ...build, plan: { ...plan, sourcePins: undefined } } as unknown as BuildRecord;
     const offer = createSourceOffer(legacy);
     expect(offer.sourcePins).toEqual(EMPTY_SOURCE_PINS);
+  });
+});
+
+
+describe("distributionLabel", () => {
+  it("keeps private intent separate from license eligibility", () => {
+    expect(distributionLabel("private", true)).toBe("自用（未公开分发）");
+    expect(distributionLabel("private", false)).toBe("自用（未公开分发）");
+    expect(distributionLabel("public", true)).toBe("允许公开分发");
+    expect(distributionLabel("public", false)).toBe("不得作为公开镜像发布");
   });
 });
