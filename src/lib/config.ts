@@ -22,6 +22,8 @@ export interface AppConfig {
   buildRepoToken: string;
   artifactCacheDir: string;
   artifactRetentionDays: number;
+  sourceWatchIntervalHours: number;
+  sourceCacheDir: string;
 }
 
 export class ConfigError extends Error {
@@ -84,6 +86,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     issues.push("ARTIFACT_RETENTION_DAYS must be an integer between 0 and 365");
   }
   const artifactCacheDir = env.ARTIFACT_CACHE_DIR?.trim() || join(dirname(databasePath), "artifacts");
+  const sourceWatchIntervalHours = Number(env.SOURCE_WATCH_INTERVAL_HOURS?.trim() || "6");
+  if (
+    !Number.isInteger(sourceWatchIntervalHours) ||
+    sourceWatchIntervalHours < 1 ||
+    sourceWatchIntervalHours > 168
+  ) {
+    issues.push("SOURCE_WATCH_INTERVAL_HOURS must be an integer between 1 and 168");
+  }
+  const sourceCacheDir =
+    env.SOURCE_CACHE_DIR?.trim() || join(dirname(databasePath), "source-cache");
   const buildRepo = env.BUILD_REPO?.trim() || "";
   const buildRepoToken = env.BUILD_REPO_TOKEN?.trim() || "";
   if (buildAdapter === "github") {
@@ -154,6 +166,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     buildRepoToken,
     artifactCacheDir,
     artifactRetentionDays,
+    sourceWatchIntervalHours,
+    sourceCacheDir,
   };
 }
 

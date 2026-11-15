@@ -8,9 +8,11 @@ import { createBaseVersionStore } from "@/lib/base/store";
 import { listWorkflowRuns, type WorkflowRunSummary } from "@/lib/builds/github";
 import { readCatalogRefreshState } from "@/lib/catalog/refresh-control";
 import { readRetentionSummary } from "@/lib/builds/retention";
+import { getSourceWatchService } from "@/lib/source-watch";
 import { BaseVersionPanel } from "./base-version-panel";
 import { LogoutButton } from "./logout-button";
 import { RecentRunsPanel } from "./recent-runs-panel";
+import { SourceWatchPanel } from "./source-watch-panel";
 
 const sections = [
   { title: "固件构建", body: "选择设备、镜像格式、软件包并预览构建计划。", href: "/build" },
@@ -57,6 +59,7 @@ export default async function AdminPage() {
   const baseVersion = readBaseVersionState();
   const baseVersions = createBaseVersionStore(getDatabase()).list();
   const catalogRefresh = readCatalogRefreshState(getDatabase());
+  const sourceWatch = getSourceWatchService().readOverview();
   const recentRuns = await loadRecentRuns();
 
   return (
@@ -88,6 +91,8 @@ export default async function AdminPage() {
       </div>
 
       <BaseVersionPanel repo={getConfig().buildRepo} state={baseVersion} versions={baseVersions} />
+
+      <SourceWatchPanel overview={sourceWatch} />
 
       <RecentRunsPanel error={recentRuns.error} runs={recentRuns.runs} />
 
