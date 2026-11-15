@@ -72,6 +72,8 @@ export interface CatalogPackage {
 
 export interface SnapshotInput {
   baseVersion: string;
+  /** OpenWrt target id; V1 callers omit it and get the x86/64 default. */
+  target?: string;
   feedCommit: string;
   sourceNote: string;
   sourcePins: SourcePins;
@@ -82,6 +84,7 @@ export interface SnapshotInput {
 export interface SnapshotMeta {
   id: number;
   baseVersion: string;
+  target: string;
   feedCommit: string;
   sourceNote: string;
   sourcePins: SourcePins;

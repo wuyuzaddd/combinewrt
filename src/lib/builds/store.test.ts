@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openDatabase, migrate } from "../db";
+import { isBuildPlanV2, readBuildPlan } from "../domain/build-plan";
+import type { BuildPlanV1, BuildPlanV2 } from "../domain/build-plan";
 import { createBuildStore } from "./store";
 import type { BuildRecord } from "./types";
 
@@ -58,6 +60,53 @@ describe("build store", () => {
     expect(store.list(2, 0).map((item) => item.id)).toEqual(["c", "b"]);
     expect(store.list(2, 2).map((item) => item.id)).toEqual(["a"]);
     expect(store.get("b")?.config?.hostname).toBe("host-b");
+    db.close();
+  });
+
+  it("reads a plan without schemaVersion as a read-only V1 plan", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"));
+
+    const saved = store.get("a");
+    const readable = readBuildPlan(saved?.plan);
+    expect(readable.schemaVersion).toBe(1);
+    expect(readable.readOnly).toBe(true);
+
+    const raw = db.prepare("SELECT plan_json FROM builds WHERE id = 'a'").get() as { plan_json: string };
+    expect((JSON.parse(raw.plan_json) as { schemaVersion?: number }).schemaVersion).toBeUndefined();
+    db.close();
+  });
+
+  it("round-trips a V2 plan with its target, kernel line and image variant", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    const legacy = record("v2", "2026-11-11T00:03:00Z");
+    const plan: BuildPlanV2 = {
+      ...(legacy.plan as BuildPlanV1),
+      schemaVersion: 2,
+      channel: "snapshot",
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "generic", title: "x86/64" },
+      deviceProfile: { targetId: "x86/64", id: "generic", title: "Generic", capabilities: [] },
+      kernelLine: { id: "6.18", version: "6.18", engine: "source", sourceRecipeRef: "kernel/6.18" },
+      imageVariant: { boot: "legacy", filesystem: "ext4", artifact: "vmdk", overlaySizeMb: 512 },
+      basePreset: { id: "base", layer: "file/board" },
+      overlays: [{ id: "overlay", layer: "package/kernel" }],
+      engine: "source",
+    };
+    store.create({ ...legacy, plan });
+
+    const saved = store.get("v2");
+    expect(saved && isBuildPlanV2(saved.plan)).toBe(true);
+    if (saved && isBuildPlanV2(saved.plan)) {
+      expect(saved.plan.channel).toBe("snapshot");
+      expect(saved.plan.kernelLine.version).toBe("6.18");
+      expect(saved.plan.imageVariant.artifact).toBe("vmdk");
+      expect(saved.plan.overlays[0].id).toBe("overlay");
+      expect(saved.plan.artifactName).toBe("img-v2");
+    }
     db.close();
   });
 

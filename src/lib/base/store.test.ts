@@ -86,8 +86,32 @@ describe("base version store", () => {
     db.close();
   });
 
-  it("activates the newest snapshot for a baseline", () => {
+  it("defaults base versions to release and stores snapshot-channel rows", () => {
     const db = database();
+    const store = createBaseVersionStore(db);
+    expect(store.get("25.12.2")?.channel).toBe("release");
+
+    const release = store.upsert({
+      version: "25.12.3",
+      releaseDate: "2026-10-01",
+      imageBuilderUrl: "https://example.invalid/ib.tar.zst",
+      imageBuilderSha256: "a".repeat(64),
+    });
+    expect(release.channel).toBe("release");
+
+    const snapshot = store.upsert({
+      version: "25.12.3-snapshot",
+      releaseDate: null,
+      imageBuilderUrl: "https://example.invalid/ib.tar.zst",
+      imageBuilderSha256: "b".repeat(64),
+      channel: "snapshot",
+    });
+    expect(snapshot.channel).toBe("snapshot");
+    expect(store.get("25.12.3-snapshot")?.channel).toBe("snapshot");
+    db.close();
+  });
+
+  it("activates the newest snapshot for a baseline", () => {    const db = database();
     const store = createBaseVersionStore(db);
     db.prepare(
       `INSERT INTO catalog_snapshots (base_version, feed_commit, source_note, source_pins, profile_count, package_count)

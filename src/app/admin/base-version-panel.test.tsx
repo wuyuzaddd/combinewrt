@@ -18,6 +18,7 @@ const STATE: BaseVersionState = {
     releaseDate: "2026-09-08",
     imageBuilderUrl: "https://downloads.immortalwrt.org/releases/25.12.2/ib.tar.zst",
     imageBuilderSha256: "b9b290f5ef60a22bccd5bdca9c1e7523b8fc84e60462afbf550e20db94acf2c6",
+    channel: "release",
     createdAt: "2026-09-08T00:00:00.000Z",
   },
   previous: null,
@@ -40,6 +41,7 @@ describe("BaseVersionPanel", () => {
             releaseDate: "2026-10-01",
             imageBuilderUrl: "https://downloads.immortalwrt.org/releases/25.12.3/ib.tar.zst",
             imageBuilderSha256: "a".repeat(64),
+            channel: "release",
             createdAt: "2026-10-01T00:00:00.000Z",
           },
         ]}

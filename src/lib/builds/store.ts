@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { BuildConfig, BuildPlan } from "../build/types";
+import type { BuildConfig } from "../build/types";
+import { parseBuildPlanJson } from "../domain/build-plan";
 import type { BuildEvent, BuildEventSource, BuildFailure, BuildRecord, BuildStatus } from "./types";
 
 interface BuildRow {
@@ -22,7 +23,7 @@ interface BuildRow {
 function toRecord(row: BuildRow): BuildRecord {
   return {
     id: row.id,
-    plan: JSON.parse(row.plan_json) as BuildPlan,
+    plan: parseBuildPlanJson(row.plan_json).plan,
     config: row.config_json ? (JSON.parse(row.config_json) as BuildConfig) : null,
     status: row.status as BuildStatus,
     runId: row.run_id,

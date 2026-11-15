@@ -14,7 +14,19 @@ export function openDatabase(path: string): DatabaseSync {
   return db;
 }
 
-export function migrate(db: DatabaseSync): string[] {
+export interface MigrateOptions {
+  /** Apply migrations only through this version (inclusive). Used to build
+   *  realistic pre-migration databases in tests. */
+  upTo?: string;
+}
+
+export function migrate(db: DatabaseSync, options: MigrateOptions = {}): string[] {
+  const through = options.upTo ? MIGRATIONS.findIndex((migration) => migration.version === options.upTo) : -1;
+  if (options.upTo && through === -1) {
+    throw new Error(`unknown migration ${options.upTo}`);
+  }
+  const migrations = options.upTo ? MIGRATIONS.slice(0, through + 1) : MIGRATIONS;
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY,
@@ -30,20 +42,33 @@ export function migrate(db: DatabaseSync): string[] {
   );
 
   const appliedNow: string[] = [];
-  for (const migration of MIGRATIONS) {
+  for (const migration of migrations) {
     if (applied.has(migration.version)) continue;
 
-    db.exec("BEGIN");
+    if (migration.disableForeignKeys) db.exec("PRAGMA foreign_keys = OFF");
     try {
-      db.exec(migration.sql);
-      db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, datetime('now'))").run(
-        migration.version,
-      );
-      db.exec("COMMIT");
-      appliedNow.push(migration.version);
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
+      db.exec("BEGIN");
+      try {
+        db.exec(migration.sql);
+        if (migration.disableForeignKeys) {
+          const violations = db.prepare("PRAGMA foreign_key_check").all();
+          if (violations.length > 0) {
+            throw new Error(
+              `migration ${migration.version} left ${violations.length} foreign key violation(s)`,
+            );
+          }
+        }
+        db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, datetime('now'))").run(
+          migration.version,
+        );
+        db.exec("COMMIT");
+        appliedNow.push(migration.version);
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    } finally {
+      if (migration.disableForeignKeys) db.exec("PRAGMA foreign_keys = ON");
     }
   }
 

@@ -1,8 +1,12 @@
+import type { BaseChannel } from "../domain/types";
+
 export interface BaseVersion {
   version: string;
   releaseDate: string | null;
   imageBuilderUrl: string;
   imageBuilderSha256: string;
+  /** release = supported baseline; snapshot = private experimental build. */
+  channel: BaseChannel;
   createdAt: string;
 }
 

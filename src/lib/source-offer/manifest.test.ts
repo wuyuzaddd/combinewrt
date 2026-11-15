@@ -88,6 +88,7 @@ describe("createSourceOffer", () => {
         releaseDate: "2026-09-08",
         imageBuilderUrl: "https://example.test/ib.tar.zst",
         imageBuilderSha256: "c".repeat(64),
+        channel: "release",
         createdAt: "2026-09-08T00:00:00.000Z",
       },
     });
@@ -121,6 +122,12 @@ describe("createSourceOffer", () => {
     expect(json).not.toContain("secretcrypt");
     expect(json).not.toContain("root:$1$");
     expect(json).toContain("Root password hashes and generated file contents are deliberately omitted.");
+  });
+
+  it("keeps a plan without schemaVersion readable as a V1 source offer", () => {
+    const offer = createSourceOffer(build);
+    expect(offer.schemaVersion).toBe(1);
+    expect(offer.openwrtTag).toBe("v25.12.2");
   });
 
   it("falls back to an empty pin set for legacy plans", () => {
