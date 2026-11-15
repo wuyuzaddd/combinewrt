@@ -165,6 +165,10 @@ describe("generateSourceRecipe", () => {
     expect(recipe.config).toContain("CONFIG_PACKAGE_curl=y");
     expect(recipe.config).toContain("CONFIG_PACKAGE_luci-app-firewall=y");
     expect(recipe.config).toContain("CONFIG_TARGET_ROOTFS_PARTSIZE=300");
+    // CONFIG_CCACHE is gated on CONFIG_DEVEL; both must survive defconfig for
+    // the workflow's ccache cache to be used.
+    expect(recipe.config).toContain("CONFIG_DEVEL=y");
+    expect(recipe.config).toContain("CONFIG_CCACHE=y");
     expect(recipe.config).not.toContain("CONFIG_TARGET_MULTI_PROFILE");
 
     expect(recipe.feedsConf).toBe(

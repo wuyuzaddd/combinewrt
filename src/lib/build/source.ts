@@ -466,8 +466,10 @@ export function generateSourceRecipe(input: SourceRecipeInput): SourceRecipe {
   const targetBlock = [
     `CONFIG_TARGET_${boardSymbol}=y`,
     `CONFIG_TARGET_${targetSymbol}=y`,
-    // The workflow persists ~/.ccache between runs; without this option the
-    // compiler cache stays unused.
+    // CONFIG_CCACHE is only prompted under CONFIG_DEVEL, so defconfig drops it
+    // without this line. The workflow persists the ccache directory between
+    // runs; without both options the compiler cache stays unused.
+    "CONFIG_DEVEL=y",
     "CONFIG_CCACHE=y",
   ];
   const fragmentBlock = fragment.split("\n");
