@@ -8,6 +8,11 @@ import { decideStrategy } from "../sources/strategy";
 import type { SourceRegistry } from "../sources/types";
 import { commonPackageSelectionConflicts, type CommonPreset } from "../presets/common";
 import { artifactNameV2, imageTypeForVariant } from "./artifact-name";
+import {
+  buildImageFeedSet,
+  createImagePreflight,
+  type ResolvedImageFeedOptions,
+} from "./feeds";
 import { resolveModes } from "./modes";
 import { createBuildPlan } from "./plan";
 import { parsePackageRef } from "./refs";
@@ -41,6 +46,8 @@ export interface PlanV2Context {
   lookupAll?: PackageLookupAll;
   /** Curated common package registry (ticket 08); enables applicability checks. */
   commonPreset?: CommonPreset;
+  /** Project feed configuration (ticket 09); defaults to the checked-in values. */
+  feedOptions?: Partial<ResolvedImageFeedOptions>;
   hashPassword: (password: string) => Promise<string>;
   now?: Date;
 }
@@ -259,6 +266,18 @@ export async function createBuildPlanV2(
     ...curatedConflicts,
   ];
   const engine: BuildEngine = kernel.engine;
+  const feedSet = buildImageFeedSet(
+    {
+      baseVersion: context.baseVersion,
+      target,
+      kernel: context.sourcePins?.kernel ?? null,
+      visibility: basePlan.visibility ?? "private",
+      resolved,
+      downloads: basePlan.downloads,
+    },
+    context.feedOptions ?? {},
+  );
+  const preflight = createImagePreflight(feedSet, basePlan.packages);
 
   const plan: BuildPlanV2 = {
     ...basePlan,
@@ -286,8 +305,10 @@ export async function createBuildPlanV2(
     basePreset: { id: form.basePreset ?? "minimal", layer: "file/board" },
     overlays,
     modes: modeResolution.state,
-    files: [...basePlan.files, ...modeResolution.files],
+    files: [...basePlan.files, ...modeResolution.files, ...feedSet.files],
     engine,
+    feedSet,
+    preflight,
     warnings: [...(basePlan.warnings ?? []), ...removal.warnings],
     kernelConfig: modeResolution.kernelConfig,
     ...(modeResolution.docker ? { docker: modeResolution.docker } : {}),

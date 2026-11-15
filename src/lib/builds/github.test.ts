@@ -98,6 +98,9 @@ describe("github adapter", () => {
     expect(payload.profileId).toBe("generic");
     expect(payload.composition.topLevelPackages).toEqual(plan.topLevelPackages);
     expect(payload.composition.downloads).toEqual(plan.downloads);
+    // Ticket 09 fields exist only on V2 plans.
+    expect(payload.composition).not.toHaveProperty("feedSet");
+    expect(payload.composition).not.toHaveProperty("preflight");
   });
 
   it("ships the resolved modes inside the composition for V2 plans", async () => {
@@ -140,6 +143,67 @@ describe("github adapter", () => {
     const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
     expect(body.client_payload.composition.modes.basePreset.id).toBe("minimal");
     expect(body.client_payload).not.toHaveProperty("modes");
+  });
+
+  it("ships the feed set and installability preflight inside the composition", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(undefined, 204))
+      .mockResolvedValueOnce(
+        response({
+          workflow_runs: [
+            {
+              id: 44,
+              name: "CI",
+              display_title: "combinewrt-b3",
+              status: "queued",
+              conclusion: null,
+              created_at: new Date().toISOString(),
+            },
+          ],
+        }),
+      );
+    const adapter = createGitHubAdapter({
+      repo: "me/build",
+      token: "t",
+      workflow: "build.yml",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+    });
+    const feedSet = {
+      visibility: "public",
+      baseVersion: "25.12.2",
+      targetId: "x86/64",
+      feedTarget: "x86_64",
+      officialBaseUrl: "https://downloads.immortalwrt.org",
+      officialMirror: null,
+      officialRepositories: ["https://example.test/target/packages.adb"],
+      key: {
+        path: "/etc/apk/keys/combinewrt-feed.pub.pem",
+        url: "https://example.test/key.pem",
+        fingerprint: "a".repeat(64),
+      },
+      repositories: [],
+      files: [],
+    };
+    const preflight = {
+      packages: ["luci", "luci-app-demo"],
+      repositories: ["https://example.test/target/packages.adb"],
+      localRepository: "packages",
+      allowUntrusted: false,
+    };
+    const v2plan = { ...plan, schemaVersion: 2, feedSet, preflight } as unknown as BuildPlan;
+
+    await adapter.dispatch(v2plan, { buildId: "b3", artifactName: "image.gz" });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(body.client_payload.composition.feedSet.visibility).toBe("public");
+    expect(body.client_payload.composition.feedSet.repositories).toEqual([]);
+    expect(body.client_payload.composition.preflight.packages).toEqual([
+      "luci",
+      "luci-app-demo",
+    ]);
+    expect(body.client_payload.files).toEqual(plan.files);
   });
 
   it("parses the manifest marker emitted by the workflow", () => {

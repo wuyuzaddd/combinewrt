@@ -117,6 +117,11 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
           // The workflow receives the already-accepted mode/network state; the
           // form-level conflicts never reach this point (the route answers 409).
           ...(isBuildPlanV2(plan) && plan.modes ? { modes: plan.modes } : {}),
+          // Ticket 09: the workflow writes the feed set and preflights the exact
+          // install list before `make image`.
+          ...(isBuildPlanV2(plan) && plan.feedSet
+            ? { feedSet: plan.feedSet, preflight: plan.preflight ?? null }
+            : {}),
         },
         files: plan.files,
         artifactName: meta.artifactName,

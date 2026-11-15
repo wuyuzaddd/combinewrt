@@ -5,6 +5,7 @@ import { hashRootPassword } from "../build/password";
 import type { BuildConflict, BuildFormInput, BuildFormInputV2 } from "../build/types";
 import { loadCapabilities } from "../catalog/capabilities";
 import { createCatalogStore } from "../catalog/store";
+import { loadImageFeedConfig } from "../config";
 import { getDatabase } from "../db";
 import type { BuildPlanV2 } from "../domain/build-plan";
 import { loadSourceRegistry } from "../sources/registry";
@@ -76,6 +77,7 @@ export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<Prep
     feedCommit: snapshot.feedCommit,
     sourceNote: snapshot.sourceNote,
     sourcePins: snapshot.sourcePins,
+    feedOptions: loadImageFeedConfig(),
     catalogProfiles: store.listProfiles(snapshot.id),
     commonPreset,
     capabilities: loadCapabilities(),
