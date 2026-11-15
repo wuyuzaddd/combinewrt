@@ -189,12 +189,12 @@ describe("createBuildPlanV2", () => {
     expect(plan.kernelLine).toMatchObject({ id: "6.6", engine: "source", sourceRecipeRef: "config/kernel/6.6.config" });
   });
 
-  it("rejects an unknown kernel line with a readable 400", async () => {
+  it("rejects an unmodelled kernel line with a readable 409", async () => {
     const outcome = await createBuildPlanV2(formV2({ kernelLine: "5.15" }), contextV2());
 
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
-    expect(outcome.status).toBe(400);
+    expect(outcome.status).toBe(409);
     expect(outcome.issues.join("\n")).toMatch(/kernel line "5\.15"/i);
   });
 

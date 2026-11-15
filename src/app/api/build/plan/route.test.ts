@@ -254,12 +254,17 @@ describe("POST /api/build/plan (V2 form)", () => {
     expect(body.issues.join("\n")).toMatch(/emmc/);
   });
 
-  it("rejects an unknown kernel line", async () => {
+  it("rejects an unmodelled kernel line without building a plan", async () => {
     state.session = { sub: "admin", iat: 0, exp: 1 };
-    const response = await POST(request({ ...validFormV2, kernelLine: "5.15" }));
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as { issues: string[] };
-    expect(body.issues.join("\n")).toMatch(/5\.15/);
+    const five = await POST(request({ ...validFormV2, kernelLine: "5.15" }));
+    expect(five.status).toBe(409);
+    const fiveBody = (await five.json()) as { issues: string[] };
+    expect(fiveBody.issues.join("\n")).toMatch(/5\.15/);
+
+    const sixOne = await POST(request({ ...validFormV2, kernelLine: "6.1" }));
+    expect(sixOne.status).toBe(409);
+    const sixOneBody = (await sixOne.json()) as { issues: string[] };
+    expect(sixOneBody.issues.join("\n")).toMatch(/6\.1/);
   });
 
   it("enforces the public-image gate on V2 plans", async () => {
