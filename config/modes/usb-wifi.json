@@ -1,0 +1,10 @@
+{
+  "id": "usb-wifi",
+  "layer": "package/kernel",
+  "title": "USB WiFi",
+  "experimental": true,
+  "description": "USB WiFi packages and kmods; capability-gated with no hardware guarantee.",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": []
+}

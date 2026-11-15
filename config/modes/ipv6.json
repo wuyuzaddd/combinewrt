@@ -1,0 +1,15 @@
+{
+  "id": "ipv6",
+  "layer": "file/board",
+  "title": "IPv6",
+  "experimental": false,
+  "description": "Typed LAN/WAN IPv6 mode (disabled, DHCPv6 client, RA/SLAAC, relay); it never injects ip6tables rules.",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": [
+    "/etc/uci-defaults/90-combinewrt-modes"
+  ],
+  "network": {
+    "ipv6": "dhcpv6"
+  }
+}

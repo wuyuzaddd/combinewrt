@@ -119,6 +119,10 @@ describe("createBuildPlanV2", () => {
     expect(plan.basePreset).toEqual({ id: "minimal", layer: "file/board" });
     expect(plan.overlays).toEqual([]);
     expect(plan.imageType).toBe("ext4-efi");
+    expect(plan.modes?.basePreset).toMatchObject({ id: "minimal", title: "Minimal" });
+    expect(plan.modes?.overlays).toEqual([]);
+    expect(plan.modes?.network.wan).toMatchObject({ protocol: "dhcp", device: "default" });
+    expect(plan.modes?.network.lan.dhcp.enabled).toBe(true);
   });
 
   it("marks a V2 plan writable and a V1 plan read-only when read back", async () => {
@@ -279,6 +283,49 @@ describe("createBuildPlanV2", () => {
 
     expect(plan.basePreset).toEqual({ id: "common", layer: "file/board" });
     expect(plan.overlays).toEqual([{ id: "docker", layer: "package/kernel" }]);
+  });
+
+  it("writes the controlled mode file only for plans that change the network", async () => {
+    const plain = planOf(await createBuildPlanV2(formV2(), contextV2()));
+    expect(plain.files.map((file) => file.path)).toEqual(["files/etc/uci-defaults/99-combinewrt"]);
+
+    const routed = planOf(
+      await createBuildPlanV2(
+        formV2({ basePreset: "router-default", modes: [{ id: "ipv6", layer: "file/board" }] }),
+        contextV2(),
+      ),
+    );
+    const modeFile = routed.files.find((file) => file.path === "files/etc/uci-defaults/90-combinewrt-modes");
+    expect(modeFile?.mode).toBe(0o755);
+    expect(modeFile?.content).toContain("uci set network.wan6.proto='dhcpv6'");
+    expect(routed.modes?.generatedFiles).toContain("/etc/uci-defaults/90-combinewrt-modes");
+  });
+
+  it("turns an unmet mode requirement into a 409-grade conflict", async () => {
+    const outcome = planned(
+      await createBuildPlanV2(
+        formV2({
+          kernelLine: "6.6",
+          imageVariant: { boot: "efi", filesystem: "squashfs", artifact: "combined" },
+          modes: [{ id: "docker", layer: "kernel/config" }],
+        }),
+        contextV2(),
+      ),
+    );
+    const message = outcome.conflicts.map((conflict) => conflict.message).join("\n");
+    expect(message).toMatch(/docker/);
+    expect(message).toMatch(/ext4/);
+  });
+
+  it("rejects typed network input the planner cannot honour", async () => {
+    const outcome = await createBuildPlanV2(
+      formV2({ network: { lan: { dhcp: { enabled: true, start: 250, limit: 10 } } } }),
+      contextV2(),
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.status).toBe(400);
+    expect(outcome.issues.join("\n")).toMatch(/pool runs past/);
   });
 
   it("rejects a mode the kernel line cannot run", async () => {

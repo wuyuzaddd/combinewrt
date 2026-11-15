@@ -1,6 +1,6 @@
 import type { ImageFormatId, PackageSource } from "../catalog/types";
 import type { AcquisitionStrategy, SourceLayer } from "../sources/types";
-import type { BasePresetId, ImageVariant, ModeRef } from "../domain/types";
+import type { BasePresetId, ImageVariant, ModeLayer, ModeRef } from "../domain/types";
 
 export interface RequestedPackage {
   name: string;
@@ -45,6 +45,118 @@ export interface BuildFormInputV2 extends Omit<BuildFormInput, "imageType"> {
   basePreset?: BasePresetId;
   /** Declared configuration modes that stack on the base preset (ticket 07). */
   modes?: ModeRef[];
+  /**
+   * Typed network overrides. There is deliberately no free-form UCI or shell
+   * field: modes and this section may only set the fields modelled here.
+   */
+  network?: NetworkInput;
+}
+
+export type Ipv6Mode = "disabled" | "dhcpv6" | "ra" | "relay";
+
+export type WanProtocol = "dhcp" | "static" | "pppoe";
+
+export type WifiBand = "2g" | "5g" | "6g";
+
+export interface DhcpServerConfig {
+  enabled: boolean;
+  /** First host address handed out; 1..254. */
+  start?: number;
+  /** Number of addresses in the pool; 1..253. */
+  limit?: number;
+  /** dnsmasq lease time such as `12h` or `1d`. */
+  lease?: string;
+}
+
+export interface LanNetworkConfig {
+  ipv4: string;
+  netmask: string;
+  dhcp: DhcpServerConfig;
+}
+
+export interface WanNetworkConfig {
+  protocol: WanProtocol;
+  /** Interface id such as `eth0`, or `default` for the stock mapping. */
+  device?: string;
+  ipv4?: string;
+  netmask?: string;
+  gateway?: string;
+  /** PPPoE credentials; the password is a per-build secret. */
+  username?: string;
+  password?: string;
+  mtu?: number;
+}
+
+export interface WifiNetworkConfig {
+  ssid: string;
+  /** WPA2 passphrase; omitted for an open network. */
+  key?: string;
+  /** Two-letter regulatory country code. */
+  country: string;
+  channel: number;
+  band: WifiBand;
+}
+
+export interface SwitchPortConfig {
+  wan: string;
+  lan: string[];
+}
+
+export interface BypassConfig {
+  gateway?: string;
+  dns?: string[];
+  /** Source addresses (IPv4 or CIDR) routed through the bypass gateway. */
+  sourceIps?: string[];
+}
+
+export interface NetworkConfig {
+  lan: LanNetworkConfig;
+  wan: WanNetworkConfig;
+  dns: string[];
+  ipv6: Ipv6Mode;
+  wifi: WifiNetworkConfig | null;
+  switchPort: SwitchPortConfig | null;
+  bypass: BypassConfig | null;
+}
+
+/** The typed subset a form may override; every field is validated at plan time. */
+export interface NetworkInput {
+  lan?: { dhcp?: DhcpServerConfig };
+  wan?: WanNetworkConfig;
+  dns?: string[];
+  ipv6?: Ipv6Mode;
+  wifi?: WifiNetworkConfig;
+  switchPort?: SwitchPortConfig;
+  bypass?: BypassConfig;
+}
+
+export interface AppliedMode {
+  id: string;
+  layer: ModeLayer;
+  title: string;
+  experimental: boolean;
+}
+
+/**
+ * A per-build secret the workflow materialises inside the image. The secret
+ * material itself never enters the plan: only where it belongs and what it is.
+ */
+export interface ModeSecretSpec {
+  kind: "https-selfsigned";
+  commonName: string;
+  certPath: string;
+  keyPath: string;
+}
+
+/** The resolved mode stack plus the typed network it produces. */
+export interface ModeState {
+  basePreset: AppliedMode;
+  overlays: AppliedMode[];
+  experimental: string[];
+  network: NetworkConfig;
+  secrets: ModeSecretSpec[];
+  /** Image paths (without the `files/` plan prefix) this mode stack writes. */
+  generatedFiles: string[];
 }
 
 export interface PackageLookupEntry {

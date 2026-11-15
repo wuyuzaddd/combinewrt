@@ -1,0 +1,10 @@
+{
+  "id": "usb-wired",
+  "layer": "package/kernel",
+  "title": "USB wired networking",
+  "experimental": true,
+  "description": "USB wired networking packages and kmods; capability-gated with no hardware guarantee.",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": []
+}

@@ -1,4 +1,5 @@
 import { unzipSync } from "fflate";
+import { isBuildPlanV2 } from "../domain/build-plan";
 import type { BuildPlan } from "../build/types";
 import { PACKAGE_SOURCES } from "../catalog/types";
 import { BUILD_STEPS } from "./types";
@@ -113,6 +114,9 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
           topLevelPackages: plan.topLevelPackages,
           sourcePins: plan.sourcePins,
           downloads: plan.downloads,
+          // The workflow receives the already-accepted mode/network state; the
+          // form-level conflicts never reach this point (the route answers 409).
+          ...(isBuildPlanV2(plan) && plan.modes ? { modes: plan.modes } : {}),
         },
         files: plan.files,
         artifactName: meta.artifactName,
