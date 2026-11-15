@@ -1,4 +1,6 @@
 import type { ImageFormatId, PackageSource } from "../catalog/types";
+import type { AcquisitionStrategy, SourceLayer } from "../sources/types";
+import type { BasePresetId, ImageVariant, ModeRef } from "../domain/types";
 
 export interface RequestedPackage {
   name: string;
@@ -26,6 +28,23 @@ export interface BuildFormInput {
   packages: string[];
   packagePins?: PackagePin[];
   visibility?: BuildVisibility;
+}
+
+/**
+ * Input of the V2 planner. V1 fields remain readable so a V1 form (or a stored
+ * V1 plan's config) can still be loaded; the target/profile/variant triple is
+ * what makes a form V2. `imageType` is optional because the composer derives it
+ * from the image variant.
+ */
+export interface BuildFormInputV2 extends Omit<BuildFormInput, "imageType"> {
+  imageType?: ImageFormatId;
+  target: string;
+  kernelLine: string;
+  imageVariant: ImageVariant;
+  /** Base preset id; the composer defaults to `minimal`. */
+  basePreset?: BasePresetId;
+  /** Declared configuration modes that stack on the base preset (ticket 07). */
+  modes?: ModeRef[];
 }
 
 export interface PackageLookupEntry {
@@ -65,6 +84,12 @@ export interface ResolvedEntry {
   feed: string | null;
   license?: string | null;
   proprietary?: boolean;
+  /** Acquisition strategy the registry asks for (V2 plans only). */
+  requestedStrategy?: AcquisitionStrategy;
+  /** Strategy the planner will actually use (V2 plans only). */
+  effectiveStrategy?: AcquisitionStrategy;
+  /** Why `effectiveStrategy` differs from `requestedStrategy` (V2 plans only). */
+  fallbackReason?: string;
 }
 
 export interface AppliedPatch {
@@ -94,4 +119,5 @@ export interface GeneratedFile {
   mode: number;
 }
 
+export type { AcquisitionStrategy, SourceLayer };
 export type { BuildPlan, BuildPlanV1, BuildPlanV2 } from "../domain/build-plan";

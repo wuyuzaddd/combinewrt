@@ -199,3 +199,88 @@ describe("POST /api/build/plan", () => {
     expect(JSON.stringify(body)).not.toContain("correct horse");
   });
 });
+
+const validFormV2 = {
+  ...validForm,
+  target: "x86/64",
+  kernelLine: "6.12",
+  imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" },
+};
+
+describe("POST /api/build/plan (V2 form)", () => {
+  it("returns a schemaVersion 2 plan for the V2 form", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(request(validFormV2));
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      plan: {
+        schemaVersion: number;
+        target: { id: string };
+        kernelLine: { id: string; engine: string };
+        imageVariant: { artifact: string };
+        engine: string;
+        visibility: string;
+        artifactName: string;
+      };
+    };
+    expect(body.plan.schemaVersion).toBe(2);
+    expect(body.plan.target.id).toBe("x86/64");
+    expect(body.plan.kernelLine).toMatchObject({ id: "6.12", engine: "imagebuilder" });
+    expect(body.plan.imageVariant.artifact).toBe("combined");
+    expect(body.plan.engine).toBe("imagebuilder");
+    expect(body.plan.visibility).toBe("private");
+    expect(body.plan.artifactName).toBe("immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img.gz");
+  });
+
+  it("keeps the V1 plan JSON free of V2 fields", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(request(validForm));
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { plan: Record<string, unknown> };
+    expect(body.plan).not.toHaveProperty("schemaVersion");
+    expect(body.plan).not.toHaveProperty("imageVariant");
+    expect(body.plan).not.toHaveProperty("kernelLine");
+  });
+
+  it("rejects a variant the capability registry does not support", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({ ...validFormV2, imageVariant: { boot: "efi", filesystem: "ext4", artifact: "emmc" } }),
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { issues: string[] };
+    expect(body.issues.join("\n")).toMatch(/emmc/);
+  });
+
+  it("rejects an unknown kernel line", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(request({ ...validFormV2, kernelLine: "5.15" }));
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { issues: string[] };
+    expect(body.issues.join("\n")).toMatch(/5\.15/);
+  });
+
+  it("enforces the public-image gate on V2 plans", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({ ...validFormV2, packages: ["vendor-app"], visibility: "public" }),
+    );
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { message: string }[]; plan: { visibility: string } };
+    expect(body.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/vendor-app/);
+    expect(body.plan.visibility).toBe("public");
+  });
+
+  it("rejects a mode the selected kernel line cannot run", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({ ...validFormV2, modes: [{ id: "docker", layer: "package/kernel" }] }),
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { issues: string[] };
+    expect(body.issues.join("\n")).toMatch(/docker/);
+    expect(body.issues.join("\n")).toMatch(/source/);
+  });
+});
