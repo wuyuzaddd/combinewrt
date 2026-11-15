@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-11-15",
+  "packages": [
+    {
+      "name": "luci-app-samba4",
+      "source": "official",
+      "pin": "releases/25.12.2",
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "strategy": "prebuilt",
+      "targets": [
+        "x86/64"
+      ],
+      "i18n": {
+        "status": "curated",
+        "title": "Samba 文件共享"
+      }
+    },
+    {
+      "name": "luci-app-aria2",
+      "source": "official",
+      "pin": "releases/25.12.2",
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "strategy": "prebuilt",
+      "targets": [
+        "x86/64"
+      ],
+      "i18n": {
+        "status": "curated",
+        "title": "Aria2 下载"
+      }
+    },
+    {
+      "name": "luci-app-qbittorrent",
+      "source": "official",
+      "pin": "releases/25.12.2",
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "strategy": "prebuilt",
+      "targets": [
+        "x86/64"
+      ],
+      "i18n": {
+        "status": "curated",
+        "title": "qBittorrent 下载"
+      }
+    },
+    {
+      "name": "luci-app-netdata",
+      "source": "official",
+      "pin": "releases/25.12.2",
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "strategy": "prebuilt",
+      "targets": [
+        "x86/64"
+      ],
+      "i18n": {
+        "status": "curated",
+        "title": "Netdata 监控"
+      }
+    },
+    {
+      "name": "luci-app-ttyd",
+      "source": "official",
+      "pin": "releases/25.12.2",
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "strategy": "prebuilt",
+      "targets": [
+        "x86/64"
+      ],
+      "i18n": {
+        "status": "curated",
+        "title": "ttyd 网页终端"
+      }
+    },
+    {
+      "name": "kmod-tun",
+      "source": "official",
+      "pin": "releases/25.12.2",
+      "license": "GPL-2.0-only",
+      "publicAllowed": true,
+      "strategy": "prebuilt",
+      "targets": [
+        "x86/64"
+      ],
+      "kernelLines": [
+        "6.12"
+      ],
+      "i18n": {
+        "status": "curated",
+        "title": "TUN/TAP 内核模块"
+      }
+    },
+    {
+      "name": "dnsmasq-full",
+      "source": "official",
+      "pin": "releases/25.12.2",
+      "license": "GPL-2.0-only",
+      "publicAllowed": true,
+      "strategy": "prebuilt",
+      "targets": [
+        "x86/64"
+      ],
+      "i18n": {
+        "status": "curated",
+        "title": "dnsmasq-full（含 DNSSEC/IPset）"
+      }
+    },
+    {
+      "name": "luci-app-adguardhome",
+      "source": "dllkids",
+      "pin": "sha256:04a549ed7028b126218002b126cbc60eb3a4bdc3463f15425bce3ba6b91a04ba",
+      "license": "GPL-2.0-only",
+      "publicAllowed": true,
+      "strategy": "prebuilt",
+      "targets": [
+        "x86/64"
+      ],
+      "i18n": {
+        "status": "unreviewed",
+        "title": "AdGuard Home（dllkids 预编译）"
+      }
+    },
+    {
+      "name": "luci-app-store",
+      "source": "supplement",
+      "pin": "19a44706dde7554f21c9d0503cdcfc399914067f",
+      "license": "GPL-3.0-only",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "recipe": "github:kiddin9/op-packages@19a44706dde7554f21c9d0503cdcfc399914067f/luci-app-store",
+      "i18n": {
+        "status": "curated",
+        "title": "iStore 应用商店"
+      },
+      "recipeHash": "379e3e2eb17f428c46549bb21445cc9c643faa63a663ed4be7341121c6f4b570"
+    },
+    {
+      "name": "luci-theme-argon",
+      "source": "extension",
+      "repo": "jerrykuku/luci-theme-argon",
+      "ref": "a121960d2adbe9d57333db3f4e045467dcb375c9",
+      "subdir": ".",
+      "pin": "a121960d2adbe9d57333db3f4e045467dcb375c9",
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:jerrykuku/luci-theme-argon@a121960d2adbe9d57333db3f4e045467dcb375c9/.",
+      "i18n": {
+        "status": "curated",
+        "title": "Argon 主题",
+        "description": "深色玻璃质感主题，LuCI 24.10 与 25.12 均可用。"
+      },
+      "recipeHash": "46c33bef12f3005fe848478870d6edd992f2e77ef7d43ffd1c83e05b4d39a493"
+    },
+    {
+      "name": "luci-theme-aurora",
+      "source": "extension",
+      "repo": "eamonxg/luci-theme-aurora",
+      "ref": "298dbcc74ddf820923a51285fb0826d429e5d7ca",
+      "subdir": ".",
+      "pin": "298dbcc74ddf820923a51285fb0826d429e5d7ca",
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:eamonxg/luci-theme-aurora@298dbcc74ddf820923a51285fb0826d429e5d7ca/.",
+      "i18n": {
+        "status": "curated",
+        "title": "Aurora 主题",
+        "description": "极光渐变主题，来源 eamonxg/luci-theme-aurora。"
+      },
+      "recipeHash": "0dd309e77897eac906b56c49a92a5ed7ed456d04bc76400c254f0fb885094370"
+    },
+    {
+      "name": "luci-app-openclash",
+      "source": "extension",
+      "repo": "vernesong/OpenClash",
+      "ref": "e553e82e01c697aefbe1555261a503f425e00ccd",
+      "subdir": "luci-app-openclash",
+      "pin": "e553e82e01c697aefbe1555261a503f425e00ccd",
+      "license": "MIT",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:vernesong/OpenClash@e553e82e01c697aefbe1555261a503f425e00ccd/luci-app-openclash",
+      "i18n": {
+        "status": "curated",
+        "title": "OpenClash",
+        "description": "Clash/Mihomo 内核代理，TUN 模式需要 kmod-tun。"
+      },
+      "recipeHash": "e374d425d149c8a9754321bd9c80612f88fafe4e029d3440d1aa2e270fe0468a"
+    },
+    {
+      "name": "luci-app-mosdns",
+      "source": "extension",
+      "repo": "sbwml/luci-app-mosdns",
+      "ref": "a8a6caffe04167dbb17407a63463eb4ce7243873",
+      "subdir": "luci-app-mosdns",
+      "pin": "a8a6caffe04167dbb17407a63463eb4ce7243873",
+      "license": "GPL-3.0-only",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:sbwml/luci-app-mosdns@a8a6caffe04167dbb17407a63463eb4ce7243873/luci-app-mosdns",
+      "i18n": {
+        "status": "auto",
+        "title": "MOSDNS 分流解析",
+        "description": "上游 README 的机器翻译版本，尚未人工校对。"
+      },
+      "recipeHash": "705885a2631312980804186078470220036c3d43daba171044a981762e5b56a6"
+    },
+    {
+      "name": "luci-app-dockerman",
+      "source": "extension",
+      "repo": "lisaac/luci-app-dockerman",
+      "ref": "6fd9937954e0b080bf07967182d714ea21fe7eb1",
+      "subdir": "applications",
+      "pin": "6fd9937954e0b080bf07967182d714ea21fe7eb1",
+      "license": "AGPL-3.0-only",
+      "publicAllowed": false,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:lisaac/luci-app-dockerman@6fd9937954e0b080bf07967182d714ea21fe7eb1/applications",
+      "i18n": {
+        "status": "unreviewed",
+        "title": "Dockerman 容器管理"
+      },
+      "recipeHash": "d5967ddc17df6febb15ebfc7db9491226178275f38d439ed9f0dfa93131af8cd"
+    }
+  ]
+}

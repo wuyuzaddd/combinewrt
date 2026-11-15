@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "bundles": [
+    {
+      "id": "proxy-openclash",
+      "title": "OpenClash 代理",
+      "description": "开箱可用的 Clash/Mihomo 代理面板。",
+      "category": "proxy",
+      "packages": ["luci-app-openclash"],
+      "targets": ["x86/64"],
+      "license": "MIT",
+      "publicAllowed": true,
+      "tests": ["dependency", "installability"]
+    },
+    {
+      "id": "proxy-openclash-tun",
+      "title": "OpenClash TUN 模式",
+      "description": "OpenClash 加 TUN/TAP 内核模块，透明代理所需。",
+      "category": "proxy",
+      "packages": ["luci-app-openclash", "kmod-tun"],
+      "targets": ["x86/64"],
+      "license": "GPL-2.0-only",
+      "publicAllowed": true,
+      "tests": ["dependency", "installability"]
+    },
+    {
+      "id": "proxy-dns-mosdns",
+      "title": "MOSDNS 分流解析",
+      "description": "MOSDNS 读写上游 dnsmasq，需要 dnsmasq-full。",
+      "category": "proxy",
+      "packages": ["luci-app-mosdns", "dnsmasq-full"],
+      "targets": ["x86/64"],
+      "license": "GPL-3.0-only",
+      "publicAllowed": true,
+      "tests": ["dependency"]
+    },
+    {
+      "id": "nas-samba",
+      "title": "Samba 文件共享",
+      "description": "Samba4 服务端与 LuCI 管理页。",
+      "category": "nas",
+      "packages": ["luci-app-samba4"],
+      "targets": ["x86/64"],
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "tests": ["dependency", "installability"]
+    },
+    {
+      "id": "nas-docker",
+      "title": "Docker 容器面板",
+      "description": "Dockerman 容器管理页；当前仅限私有计划。",
+      "category": "nas",
+      "packages": ["luci-app-dockerman"],
+      "targets": ["x86/64"],
+      "license": "AGPL-3.0-only",
+      "publicAllowed": false,
+      "tests": ["dependency"]
+    },
+    {
+      "id": "dl-aria2",
+      "title": "Aria2 下载",
+      "description": "Aria2 下载器与 LuCI 前端。",
+      "category": "download",
+      "packages": ["luci-app-aria2"],
+      "targets": ["x86/64"],
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "tests": ["dependency", "installability"]
+    },
+    {
+      "id": "dl-qbittorrent",
+      "title": "qBittorrent 下载",
+      "description": "qBittorrent 种子下载与 LuCI 前端。",
+      "category": "download",
+      "packages": ["luci-app-qbittorrent"],
+      "targets": ["x86/64"],
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "tests": ["dependency"]
+    },
+    {
+      "id": "monitor-netdata",
+      "title": "Netdata 监控",
+      "description": "Netdata 实时监控面板。",
+      "category": "monitor",
+      "packages": ["luci-app-netdata"],
+      "targets": ["x86/64"],
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "tests": ["dependency"]
+    },
+    {
+      "id": "monitor-ttyd",
+      "title": "ttyd 网页终端",
+      "description": "浏览器里的终端。",
+      "category": "monitor",
+      "packages": ["luci-app-ttyd"],
+      "targets": ["x86/64"],
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "tests": ["dependency"]
+    },
+    {
+      "id": "theme-argon",
+      "title": "Argon 主题",
+      "description": "浅色与深色两套配色的 LuCI 主题。",
+      "category": "theme",
+      "packages": ["luci-theme-argon"],
+      "targets": ["x86/64"],
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "tests": ["dependency"]
+    },
+    {
+      "id": "theme-aurora",
+      "title": "Aurora 主题",
+      "description": "极光渐变 LuCI 主题。",
+      "category": "theme",
+      "packages": ["luci-theme-aurora"],
+      "targets": ["x86/64"],
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "tests": ["dependency"]
+    },
+    {
+      "id": "system-dns-adblock",
+      "title": "DNS 去广告",
+      "description": "dnsmasq-full 加 AdGuard Home（dllkids 预编译）。",
+      "category": "system",
+      "packages": ["dnsmasq-full", "luci-app-adguardhome"],
+      "targets": ["x86/64"],
+      "license": "GPL-2.0-only",
+      "publicAllowed": true,
+      "tests": ["dependency"]
+    },
+    {
+      "id": "system-store",
+      "title": "iStore 应用商店",
+      "description": "iStore 应用商店（supplement 重建）。",
+      "category": "system",
+      "packages": ["luci-app-store"],
+      "targets": ["x86/64"],
+      "license": "GPL-3.0-only",
+      "publicAllowed": true,
+      "tests": ["dependency"]
+    }
+  ]
+}

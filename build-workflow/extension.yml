@@ -1,0 +1,426 @@
+name: extension
+run-name: extension ${{ github.event.client_payload.base_version || github.event.inputs.base_version || '25.12.2' }}
+
+# Build curated extension packages from their pinned upstream commits, produce
+# the extension feed artifact and sign it in combinewrt-packages. The registry
+# (config/sources/registry.json in the site repo) is the authority: every entry
+# is re-validated here before a build farm job starts, and the feed lock is the
+# sorted list of name@repo@ref@subdir so one published index is reproducible.
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: Space separated extension package names (empty = every registry entry)
+        required: false
+        default: ""
+        type: string
+      base_version:
+        description: ImmortalWrt base version (empty = 25.12.2)
+        required: false
+        default: ""
+        type: string
+      target:
+        description: Feed target (x86/64 only for now)
+        required: false
+        default: "x86/64"
+        type: string
+      registry_json:
+        description: Inline registry JSON for pre-merge testing (empty = fetch registry_url)
+        required: false
+        default: ""
+        type: string
+      bundles_json:
+        description: Inline bundles JSON for pre-merge testing (empty = fetch bundles_url)
+        required: false
+        default: ""
+        type: string
+      registry_url:
+        description: Registry URL used when registry_json is empty
+        required: false
+        default: "https://raw.githubusercontent.com/wuyuzaddd/combinewrt/main/config/sources/registry.json"
+        type: string
+      bundles_url:
+        description: Bundles URL used when bundles_json is empty
+        required: false
+        default: "https://raw.githubusercontent.com/wuyuzaddd/combinewrt/main/config/extension/bundles.json"
+        type: string
+      publish_mode:
+        description: live dispatches the signed feed to combinewrt-packages; staging only builds
+        required: false
+        default: "live"
+        type: choice
+        options:
+          - live
+          - staging
+      gate_reason:
+        description: Why this publish mode was picked (audit only)
+        required: false
+        default: ""
+        type: string
+  # A brand new workflow file only becomes dispatchable once it is on the
+  # default branch, so the evidence run on an unreleased ticket branch is
+  # triggered by touching this marker file instead.
+  push:
+    branches: [v2/ticket-12]
+    paths: ["ci/extension-trigger.txt"]
+  repository_dispatch:
+    types: [extension-build]
+
+permissions:
+  contents: read
+
+env:
+  BASE_VERSION: ${{ github.event.client_payload.base_version || github.event.inputs.base_version || '25.12.2' }}
+  TARGET: ${{ github.event.client_payload.target || github.event.inputs.target || 'x86/64' }}
+  # GNU make's builtin %.o rule appends $(TARGET_ARCH) to the compiler line,
+  # so the workflow must not export a bare TARGET_ARCH (that broke the SDK
+  # Kconfig host build with: cc: error: x86_64: linker input file not found).
+  FEED_ARCH: x86_64
+  PUBLISH_MODE: ${{ github.event.client_payload.publish_mode || github.event.inputs.publish_mode || 'live' }}
+  GATE_REASON: ${{ github.event.client_payload.gate_reason || github.event.inputs.gate_reason || 'manual' }}
+  REGISTRY_JSON: ${{ github.event.client_payload.registry_json || github.event.inputs.registry_json || '' }}
+  BUNDLES_JSON: ${{ github.event.client_payload.bundles_json || github.event.inputs.bundles_json || '' }}
+  REGISTRY_URL: ${{ github.event.inputs.registry_url || 'https://raw.githubusercontent.com/wuyuzaddd/combinewrt/main/config/sources/registry.json' }}
+  BUNDLES_URL: ${{ github.event.inputs.bundles_url || 'https://raw.githubusercontent.com/wuyuzaddd/combinewrt/main/config/extension/bundles.json' }}
+  SDK_URL: https://downloads.immortalwrt.org/releases/${{ github.event.client_payload.base_version || github.event.inputs.base_version || '25.12.2' }}/targets/x86/64/immortalwrt-sdk-${{ github.event.client_payload.base_version || github.event.inputs.base_version || '25.12.2' }}-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      feed_lock: ${{ steps.select.outputs.feed_lock }}
+      count: ${{ steps.select.outputs.count }}
+      full: ${{ steps.select.outputs.full }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve registry and bundles
+        run: |
+          set -euo pipefail
+          if [ -n "$REGISTRY_JSON" ]; then
+            printf '%s' "$REGISTRY_JSON" > registry.json
+            echo "using inline registry"
+          elif [ -f ci/extension/registry.json ]; then
+            cp ci/extension/registry.json registry.json
+            echo "using the ci/extension registry snapshot (site repo not merged yet)"
+          else
+            curl -fsSL --retry 3 -o registry.json "$REGISTRY_URL"
+            echo "fetched $REGISTRY_URL"
+          fi
+          if [ -n "$BUNDLES_JSON" ]; then
+            printf '%s' "$BUNDLES_JSON" > bundles.json
+          elif [ -f ci/extension/bundles.json ]; then
+            cp ci/extension/bundles.json bundles.json
+          else
+            curl -fsSL --retry 3 -o bundles.json "$BUNDLES_URL"
+          fi
+          node -e 'const fs=require("fs");const r=JSON.parse(fs.readFileSync("registry.json","utf8"));console.log(`registry: ${(r.packages||[]).length} packages`);'
+
+      - name: Select pinned extension packages
+        id: select
+        env:
+          PACKAGES_INPUT: ${{ github.event.inputs.packages || github.event.client_payload.packages || '' }}
+          SELECTION_PATH: selection.json
+        run: |
+          set -euo pipefail
+          packages="$PACKAGES_INPUT"
+          if [ -z "$packages" ] && [ -f ci/extension/packages.txt ]; then
+            packages="$(tr '\n' ' ' < ci/extension/packages.txt)"
+            echo "packages from ci/extension/packages.txt: $packages"
+          fi
+          node scripts/select-extension-packages.mjs registry.json "$packages"
+
+      - name: Generate the feed signing key
+        # One key per feed lock, shared by every build leg, so all packages in
+        # the published tree verify against the single key shipped in it.
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/signing"
+          openssl genrsa -out "$RUNNER_TEMP/signing/private-key.pem" 3072
+          openssl rsa -in "$RUNNER_TEMP/signing/private-key.pem" \
+            -pubout -out "$RUNNER_TEMP/signing/public-key.pem"
+          sha256sum "$RUNNER_TEMP/signing/public-key.pem"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-signing-key
+          path: ${{ runner.temp }}/signing
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selection
+          path: |
+            selection.json
+            registry.json
+            bundles.json
+          retention-days: 7
+
+      - uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: .cache/sdk.tar.zst
+          key: immortalwrt-sdk-${{ env.BASE_VERSION }}-x86_64-v1
+
+      - name: Download SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p .cache
+          curl -fL --retry 3 --retry-delay 5 -o .cache/sdk.tar.zst "$SDK_URL"
+          ls -l .cache/sdk.tar.zst
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .cache/sdk.tar.zst
+          key: immortalwrt-sdk-${{ env.BASE_VERSION }}-x86_64-v1
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gawk gettext libncurses-dev unzip zlib1g-dev file rsync zstd patch
+
+      - name: Extract SDK
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sdk"
+          tar --zstd -xf .cache/sdk.tar.zst -C "$RUNNER_TEMP/sdk" --strip-components=1
+          test -f "$RUNNER_TEMP/sdk/Makefile"
+
+      - name: Fetch ${{ matrix.package }} sources
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/src"
+          curl -fsSL --retry 3 "https://codeload.github.com/${{ matrix.repo }}/tar.gz/${{ matrix.ref }}" \
+            | tar -xz -C "$RUNNER_TEMP/src" --strip-components=1
+          if [ "${{ matrix.subdir }}" = "." ]; then
+            test -f "$RUNNER_TEMP/src/Makefile"
+          else
+            test -f "$RUNNER_TEMP/src/${{ matrix.subdir }}/Makefile"
+          fi
+
+      - name: Prepare SDK
+        run: scripts/prepare-sdk.sh "$RUNNER_TEMP/sdk"
+
+      - name: Fetch the feed signing key
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-signing-key
+          path: ${{ runner.temp }}/signing
+
+      - name: Sign built packages with the SDK build key
+        # ImmortalWrt 25.12.2 (the release the SDK is cut from) does NOT have
+        # CONFIG_SIGN_EACH_PACKAGE: include/package-pack.mk calls `apk mkpkg`
+        # without --sign there (master-only feature), so a stock SDK build
+        # produces unsigned packages and `apk verify` can only say UNTRUSTED.
+        # Wrap the host apk binary to inject --sign-key for mkpkg only. Every
+        # other subcommand passes through untouched, and the generated public
+        # key is what the verify step and the published feed key correspond to.
+        run: |
+          set -euo pipefail
+          sdk="$RUNNER_TEMP/sdk"
+          apk_bin="$sdk/staging_dir/host/bin/apk"
+          if [ ! -x "$apk_bin" ]; then
+            echo "missing host apk binary: $apk_bin" >&2
+            exit 1
+          fi
+          key_dir="$RUNNER_TEMP/signing"
+          if [ ! -s "$key_dir/private-key.pem" ] || [ ! -s "$key_dir/public-key.pem" ]; then
+            echo "missing the shared signing key from the prepare job" >&2
+            exit 1
+          fi
+          cp "$key_dir/private-key.pem" "$sdk/private-key.pem"
+          cp "$key_dir/public-key.pem" "$sdk/public-key.pem"
+          mv "$apk_bin" "$apk_bin.real"
+          cat > "$apk_bin" <<'WRAPPER'
+          #!/bin/sh
+          real="${0}.real"
+          if [ "$1" = "mkpkg" ]; then
+            shift
+            exec "$real" mkpkg --sign-key "${APK_SIGN_KEY:?APK_SIGN_KEY is not set}" "$@"
+          fi
+          exec "$real" "$@"
+          WRAPPER
+          chmod +x "$apk_bin"
+          echo "APK_SIGN_KEY=$sdk/private-key.pem" >> "$GITHUB_ENV"
+          echo "signing key: $(sha256sum "$sdk/public-key.pem" | cut -d' ' -f1)"
+
+      - name: Build ${{ matrix.package }}
+        env:
+          EXT_SUBDIR: ${{ matrix.subdir }}
+        run: |
+          set -euo pipefail
+          if [ "$EXT_SUBDIR" = "." ]; then
+            source_dir="$RUNNER_TEMP/src"
+          else
+            source_dir="$RUNNER_TEMP/src/$EXT_SUBDIR"
+          fi
+          scripts/build-extension-package.sh "$RUNNER_TEMP/sdk" "$source_dir" "${{ matrix.package }}"
+
+      - name: Download apk-tools 3.0.9
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/apk-tools.apk" \
+            https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/apk-tools-static-3.0.9-r0.apk
+          mkdir -p "$RUNNER_TEMP/apkstatic"
+          tar -xzf "$RUNNER_TEMP/apk-tools.apk" -C "$RUNNER_TEMP/apkstatic" --ignore-zeros
+
+      - name: Verify built apk signature
+        # Signing happens inside the SDK at build time (CONFIG_SIGN_EACH_PACKAGE),
+        # so the package verifies against the SDK build key with no
+        # --allow-untrusted. The public key ships with the artifact so the
+        # signature can be re-checked outside CI.
+        run: |
+          set -uo pipefail
+          apk_tool="$RUNNER_TEMP/apkstatic/sbin/apk.static"
+          apk_file="$(ls "$GITHUB_WORKSPACE"/out/*.apk | head -1)"
+          sdk="$RUNNER_TEMP/sdk"
+          key_dir="$RUNNER_TEMP/verify-keys"
+          rm -rf "$key_dir"
+          mkdir -p "$key_dir"
+          cp "$sdk/public-key.pem" "$key_dir/public-key.pem"
+          cp "$sdk/public-key.pem" out/apk-signing-key.pem
+          {
+            echo "verifying $(basename "$apk_file")"
+            echo "signing key sha256: $(sha256sum "$key_dir/public-key.pem" | cut -d' ' -f1)"
+            openssl pkey -pubin -in "$key_dir/public-key.pem" -text -noout 2>/dev/null | head -2
+          } | tee out/apk-verify.txt
+          if "$apk_tool" verify --keys-dir "$key_dir" "$apk_file" 2>&1 | tee -a out/apk-verify.txt; then
+            echo "apk verify: OK" | tee -a out/apk-verify.txt
+          else
+            echo "apk verify: FAILED" | tee -a out/apk-verify.txt
+            # Keep the artifact so the manifest job can report the result, but
+            # make the job fail: an unverifiable package must not be published.
+            exit 1
+          fi
+
+      - name: Record failure
+        if: failure()
+        run: |
+          mkdir -p out
+          printf 'COMBINEWRT_FAILURE package=%s target=%s reason=build\n' \
+            "${{ matrix.package }}" "$TARGET" > "out/failure-${{ matrix.package }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ext-apk-${{ matrix.package }}
+          path: out
+          if-no-files-found: error
+          retention-days: 7
+
+  manifest:
+    needs: [prepare, build]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: selection
+          path: selection
+
+      - name: Make artifact directory
+        run: mkdir -p artifacts build
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: ext-apk-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Download apk-tools 3.0.9
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/apk-tools.apk" \
+            https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/apk-tools-static-3.0.9-r0.apk
+          mkdir -p "$RUNNER_TEMP/apkstatic"
+          tar -xzf "$RUNNER_TEMP/apk-tools.apk" -C "$RUNNER_TEMP/apkstatic" --ignore-zeros
+
+      - name: Build manifest
+        run: |
+          node scripts/make-manifest.mjs \
+            --artifacts artifacts \
+            --selection selection/selection.json \
+            --out build \
+            --run-id "$GITHUB_RUN_ID" \
+            --apk-tool "$RUNNER_TEMP/apkstatic/sbin/apk.static" \
+            --base-version "$BASE_VERSION"
+          mkdir -p build/verify
+          cp -a artifacts/*.txt build/verify/ 2>/dev/null || true
+          if [ -f artifacts/apk-signing-key.pem ]; then
+            # Publish the per-build package signing key beside the feed so a
+            # client can re-run `apk verify` on the published packages.
+            cp artifacts/apk-signing-key.pem build/apk-signing-key.pem
+          fi
+
+      - name: Bundle dependency test
+        run: |
+          node scripts/test-extension-bundles.mjs \
+            --bundles selection/bundles.json \
+            --registry selection/registry.json \
+            --selection selection/selection.json \
+            --manifest build/manifest.json \
+            --target "$TARGET" \
+            --out build/bundles.json
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### extension-build" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "- base version: \`$BASE_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- target: \`$TARGET\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- feed lock: \`${{ needs.prepare.outputs.feed_lock }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- publish mode: \`$PUBLISH_MODE\` (gate: \`$GATE_REASON\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          if [ -f build/manifest.json ]; then
+            node -e '
+              const m = require("./build/manifest.json");
+              for (const e of m.entries) {
+                console.log(`- ${e.status === "ok" ? "✅" : "❌"} \`${e.name}\`${e.status === "ok" ? ` ${e.version}` : ""}`);
+              }
+            ' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extension-build
+          path: build
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Dispatch publish to combinewrt-packages
+        if: needs.build.result == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api --method POST repos/wuyuzaddd/combinewrt-packages/dispatches \
+            -f event_type=extension-built \
+            -F client_payload[build_run_id]=${{ github.run_id }} \
+            -f client_payload[base_version]="$BASE_VERSION" \
+            -f client_payload[target]="$TARGET" \
+            -f client_payload[feed_lock]="${{ needs.prepare.outputs.feed_lock }}" \
+            -f client_payload[publish_mode]="$PUBLISH_MODE" \
+            -f client_payload[build_conclusion]="${{ needs.build.result }}"
