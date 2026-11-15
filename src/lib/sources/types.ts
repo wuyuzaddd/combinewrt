@@ -56,4 +56,9 @@ export interface SourceQuery {
  */
 export interface SourceRegistry {
   lookup(name: string, query?: SourceQuery): SourceRegistryEntry | null;
+  /**
+   * Every registered entry, in document order. The supplement watch derives
+   * its rebuild recipe from the `supplement` layer (ticket 11).
+   */
+  list(): readonly SourceRegistryEntry[];
 }

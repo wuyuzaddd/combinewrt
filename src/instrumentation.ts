@@ -7,12 +7,14 @@ export async function register() {
     const { startBaseVersionCheck, startBaseVersionMonitor } = await import("./lib/base");
     const { startCatalogRefresh } = await import("./lib/catalog/refresh-scheduler");
     const { startSourceWatch } = await import("./lib/source-watch");
+    const { startSupplementWatch } = await import("./lib/supplement-watch");
     startReconciler();
     startRetention();
     startBaseVersionCheck();
     startBaseVersionMonitor();
     startCatalogRefresh();
     startSourceWatch();
+    startSupplementWatch();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[combinewrt] startup failed:\n${message}`);
