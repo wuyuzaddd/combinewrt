@@ -9,6 +9,7 @@
     "start:prod": "npm run build && next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "capabilities:validate": "tsx scripts/validate-capabilities.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "hash-password": "node scripts/hash-password.mjs",
