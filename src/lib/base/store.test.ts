@@ -64,6 +64,28 @@ describe("base version store", () => {
     db.close();
   });
 
+  it("updates an existing version in place instead of duplicating it", () => {
+    const db = database();
+    const store = createBaseVersionStore(db);
+    const first = store.upsert({
+      version: "25.12.3",
+      releaseDate: "2026-10-01",
+      imageBuilderUrl: "https://example.invalid/ib.tar.zst",
+      imageBuilderSha256: "a".repeat(64),
+    });
+    const second = store.upsert({
+      version: "25.12.3",
+      releaseDate: "2026-10-02",
+      imageBuilderUrl: "https://example.invalid/ib.tar.zst",
+      imageBuilderSha256: "b".repeat(64),
+    });
+    expect(store.list().filter((record) => record.version === "25.12.3")).toHaveLength(1);
+    expect(second.createdAt).toBe(first.createdAt);
+    expect(second.releaseDate).toBe("2026-10-02");
+    expect(second.imageBuilderSha256).toBe("b".repeat(64));
+    db.close();
+  });
+
   it("activates the newest snapshot for a baseline", () => {
     const db = database();
     const store = createBaseVersionStore(db);

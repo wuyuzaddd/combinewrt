@@ -55,6 +55,18 @@ export function parseImageBuilderSha256(text: string, version: string): string |
   return null;
 }
 
+export async function discoverRelease(version: string, fetchImpl: typeof fetch): Promise<ReleaseCandidate> {
+  const response = await fetchImpl(RELEASES_ROOT);
+  if (!response.ok) {
+    throw new Error(`failed to fetch ImmortalWrt releases: HTTP ${response.status}`);
+  }
+  const release = parseReleaseIndex(await response.text()).find((entry) => entry.version === version);
+  if (!release) {
+    throw new Error(`ImmortalWrt ${version} was not found in the release index`);
+  }
+  return fetchReleaseCandidate(release.version, release.releaseDate, fetchImpl);
+}
+
 export async function fetchReleaseCandidate(
   version: string,
   releaseDate: string | null,

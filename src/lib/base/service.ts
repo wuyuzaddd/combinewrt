@@ -6,7 +6,8 @@ import {
   parseReleaseIndex,
 } from "./releases";
 import type { BaseVersionStore } from "./store";
-import type { BaseCheckState, BaseVersionState, SmokeState } from "./types";
+import type { BaseCheckState, BaseVersion, BaseVersionState, SmokeState } from "./types";
+import type { BaseVersionInput } from "./records";
 import type { BuildStatus } from "../builds/types";
 
 export interface BaseVersionServiceOptions {
@@ -26,6 +27,7 @@ export interface BaseVersionService {
   revert(): Promise<BaseVersionState>;
   readState(): BaseVersionState;
   noteSmokeBuild(status: BuildStatus, error: string | null): void;
+  register(input: BaseVersionInput): BaseVersion;
 }
 
 function message(error: unknown): string {
@@ -208,6 +210,9 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
       return readState();
     },
     readState,
+    register(input) {
+      return store.upsert(input);
+    },
     noteSmokeBuild(status, error) {
       const smoke = store.smoke();
 

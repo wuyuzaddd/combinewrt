@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth/current-session";
 import { getConfig } from "@/lib/config";
 import { getDatabase } from "@/lib/db";
 import { readBaseVersionState } from "@/lib/base";
+import { createBaseVersionStore } from "@/lib/base/store";
 import { listWorkflowRuns, type WorkflowRunSummary } from "@/lib/builds/github";
 import { readCatalogRefreshState } from "@/lib/catalog/refresh-control";
 import { readRetentionSummary } from "@/lib/builds/retention";
@@ -52,6 +53,7 @@ export default async function AdminPage() {
   if (!session) redirect("/login?next=/admin");
   const retention = readRetentionSummary(getDatabase());
   const baseVersion = readBaseVersionState();
+  const baseVersions = createBaseVersionStore(getDatabase()).list();
   const catalogRefresh = readCatalogRefreshState(getDatabase());
   const recentRuns = await loadRecentRuns();
 
@@ -83,7 +85,7 @@ export default async function AdminPage() {
         ))}
       </div>
 
-      <BaseVersionPanel state={baseVersion} />
+      <BaseVersionPanel state={baseVersion} versions={baseVersions} />
 
       <RecentRunsPanel error={recentRuns.error} runs={recentRuns.runs} />
 
