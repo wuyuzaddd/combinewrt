@@ -6,7 +6,7 @@ import {
   parseReleaseIndex,
 } from "./releases";
 import type { BaseVersionStore } from "./store";
-import type { BaseCheckState, BaseVersion, BaseVersionState, SmokeState } from "./types";
+import type { BaseCheckState, BaseVersion, BaseVersionState, SmokeState, SupplementBuildState } from "./types";
 import type { BaseVersionInput } from "./records";
 import type { BuildStatus } from "../builds/types";
 
@@ -28,6 +28,7 @@ export interface BaseVersionService {
   readState(): BaseVersionState;
   noteSmokeBuild(status: BuildStatus, error: string | null): void;
   register(input: BaseVersionInput): BaseVersion;
+  triggerSupplementBuildNow(version: string): Promise<SupplementBuildState>;
 }
 
 function message(error: unknown): string {
@@ -212,6 +213,29 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
     readState,
     register(input) {
       return store.upsert(input);
+    },
+    async triggerSupplementBuildNow(version) {
+      if (!triggerSupplementBuild) throw new Error("supplement package builds are not configured");
+      const triggeredAt = now().toISOString();
+      try {
+        const result = await triggerSupplementBuild(version);
+        const state: SupplementBuildState = {
+          baseVersion: version,
+          triggeredAt,
+          runId: result.runId ?? null,
+          error: null,
+        };
+        store.setSupplementBuild(state);
+        return state;
+      } catch (error) {
+        store.setSupplementBuild({
+          baseVersion: version,
+          triggeredAt,
+          runId: null,
+          error: message(error),
+        });
+        throw new Error(message(error));
+      }
     },
     noteSmokeBuild(status, error) {
       const smoke = store.smoke();

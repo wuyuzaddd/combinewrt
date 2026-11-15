@@ -284,6 +284,27 @@ export async function listWorkflowRuns(options: WorkflowRunsOptions): Promise<Wo
   }));
 }
 
+
+export interface FindWorkflowRunOptions extends WorkflowRunsOptions {
+  titleIncludes: string;
+  after?: string;
+  attempts?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export async function findWorkflowRunByTitle(options: FindWorkflowRunOptions): Promise<string | null> {
+  const { titleIncludes, after, attempts = 10, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = options;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const runs = await listWorkflowRuns({ ...options, limit: 20 });
+    const match = runs.find(
+      (run) => run.title.includes(titleIncludes) && (!after || run.createdAt >= after),
+    );
+    if (match) return match.id;
+    await sleep(1_000);
+  }
+  return null;
+}
+
 export interface BuildManifest {
   artifactName?: string;
   sha256: string;

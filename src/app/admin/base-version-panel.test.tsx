@@ -32,6 +32,7 @@ describe("BaseVersionPanel", () => {
     const html = renderToStaticMarkup(
       <BaseVersionPanel
         state={STATE}
+        repo="wuyuzaddd/combinewrt-build"
         versions={[
           STATE.active!,
           {

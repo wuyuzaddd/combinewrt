@@ -32,7 +32,15 @@ function formatDate(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10);
 }
 
-export function BaseVersionPanel({ state, versions }: { state: BaseVersionState; versions: BaseVersion[] }) {
+export function BaseVersionPanel({
+  state,
+  versions,
+  repo,
+}: {
+  state: BaseVersionState;
+  versions: BaseVersion[];
+  repo: string;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +73,21 @@ export function BaseVersionPanel({ state, versions }: { state: BaseVersionState;
     try {
       if (action === "check") await post("/api/admin/base-version/check");
       if (action === "revert") await post("/api/admin/base-version", { action: "revert" });
+      router.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function triggerSupplement() {
+    setBusy("supplement");
+    setError(null);
+    setNotice(null);
+    try {
+      await post("/api/admin/base-version/supplement");
+      setNotice("已触发 supplement 包构建，稍后可在最近工作流运行中查看。");
       router.refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -176,6 +199,14 @@ export function BaseVersionPanel({ state, versions }: { state: BaseVersionState;
             type="button"
           >
             登记版本
+          </button>
+          <button
+            className="rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-300 disabled:opacity-50"
+            disabled={busy !== null || !state.active}
+            onClick={triggerSupplement}
+            type="button"
+          >
+            {busy === "supplement" ? "触发中…" : "重建 supplement 包"}
           </button>
         </div>
       </div>
@@ -360,6 +391,16 @@ export function BaseVersionPanel({ state, versions }: { state: BaseVersionState;
               基线 {state.supplementBuild.baseVersion}
             </span>
           </p>
+          {state.supplementBuild.runId && repo && (
+            <p className="mt-1 text-xs">
+              <a
+                className="text-emerald-300 underline decoration-emerald-800"
+                href={`https://github.com/${repo}/actions/runs/${state.supplementBuild.runId}`}
+              >
+                查看 supplement 运行 {state.supplementBuild.runId}
+              </a>
+            </p>
+          )}
           {state.supplementBuild.error && (
             <p className="mt-1 break-words text-xs text-rose-300">{state.supplementBuild.error}</p>
           )}

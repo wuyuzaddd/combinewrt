@@ -85,7 +85,7 @@ export default async function AdminPage() {
         ))}
       </div>
 
-      <BaseVersionPanel state={baseVersion} versions={baseVersions} />
+      <BaseVersionPanel repo={getConfig().buildRepo} state={baseVersion} versions={baseVersions} />
 
       <RecentRunsPanel error={recentRuns.error} runs={recentRuns.runs} />
 
