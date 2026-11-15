@@ -26,11 +26,28 @@ export interface AppConfig {
   supplementKeyFingerprint: string;
   /** Project image feed set configuration (ticket 09). */
   imageFeed: ImageFeedConfig;
+  /**
+   * Upstream repository the supplement packages are rebuilt from. The watch
+   * observes its `supplementSourceRef` head and dispatches a build for that
+   * exact commit (ADR 0008).
+   */
+  supplementSourceRepo: string;
+  supplementSourceRef: string;
+  /** Target id the supplement feed publishes for (`x86_64`). */
+  supplementTarget: string;
+  /** Live publish audit record written by the feed repo. */
+  supplementPublishAuditUrl: string;
+  /** Staging publish audit record written by the feed repo. */
+  supplementStagingAuditUrl: string;
+  /** Whether the supplement watch dispatches builds on commit changes. */
+  supplementWatchEnabled: boolean;
   buildAdapter: "github" | "fake";
   buildWorkflow: string;
   supplementWorkflow: string;
   buildRepo: string;
   buildRepoToken: string;
+  /** Branch or tag the build workflows run on (default: main). */
+  buildRef: string;
   artifactCacheDir: string;
   artifactRetentionDays: number;
   sourceWatchIntervalHours: number;
@@ -189,6 +206,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   }
   const sourceCacheDir =
     env.SOURCE_CACHE_DIR?.trim() || join(dirname(databasePath), "source-cache");
+  const buildRef = env.BUILD_REF?.trim() || "main";
+  if (!/^[A-Za-z0-9._/-]+$/.test(buildRef)) {
+    issues.push("BUILD_REF must be a branch or tag name");
+  }
   const buildRepo = env.BUILD_REPO?.trim() || "";
   const buildRepoToken = env.BUILD_REPO_TOKEN?.trim() || "";
   if (buildAdapter === "github") {
@@ -204,8 +225,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const baseVersion = env.IMMORTALWRT_BASE_VERSION?.trim() || "25.12.2";
   const dllkidsFeedUrl = imageFeed.dllkidsFeedUrl;
   const dllkidsIndexSha256 = imageFeed.dllkidsIndexSha256;
+  // Live supplement channel: version-scoped, but always the current index for
+  // this base version. The feed repo also keeps the V1 flat `/x86_64/` copy.
   const supplementFeedUrl =
-    env.SUPPLEMENT_FEED_URL?.trim() || "https://wuyuzaddd.github.io/combinewrt-packages/x86_64";
+    env.SUPPLEMENT_FEED_URL?.trim() ||
+    `https://wuyuzaddd.github.io/combinewrt-packages/supplement/${baseVersion}/x86_64`;
   const supplementKeyUrl = imageFeed.keyUrl;
   if (!/^https?:\/\//.test(supplementFeedUrl)) {
     issues.push("SUPPLEMENT_FEED_URL must be an http:// or https:// URL");
@@ -215,6 +239,31 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     issues.push("SUPPLEMENT_FEED_COMMIT must be a 40 character lowercase git commit or empty");
   }
   const supplementKeyFingerprint = imageFeed.keyFingerprint;
+  const supplementSourceRepo = env.SUPPLEMENT_SOURCE_REPO?.trim() || "kiddin9/op-packages";
+  if (!/^[^/\s]+\/[^/\s]+$/.test(supplementSourceRepo)) {
+    issues.push("SUPPLEMENT_SOURCE_REPO must be owner/repo");
+  }
+  const supplementSourceRef = env.SUPPLEMENT_SOURCE_REF?.trim() || "main";
+  if (!/^[A-Za-z0-9._/-]+$/.test(supplementSourceRef)) {
+    issues.push("SUPPLEMENT_SOURCE_REF must be a branch, tag or 40 character commit");
+  }
+  const supplementTarget = env.SUPPLEMENT_TARGET?.trim() || "x86_64";
+  if (!/^[A-Za-z0-9._-]+$/.test(supplementTarget)) {
+    issues.push("SUPPLEMENT_TARGET must be a target id such as x86_64");
+  }
+  const supplementPublishAuditUrl =
+    env.SUPPLEMENT_PUBLISH_AUDIT_URL?.trim() ||
+    "https://wuyuzaddd.github.io/combinewrt-packages/publish.json";
+  const supplementStagingAuditUrl =
+    env.SUPPLEMENT_STAGING_AUDIT_URL?.trim() ||
+    "https://wuyuzaddd.github.io/combinewrt-packages/staging.json";
+  if (!/^https?:\/\//.test(supplementPublishAuditUrl)) {
+    issues.push("SUPPLEMENT_PUBLISH_AUDIT_URL must be an http:// or https:// URL");
+  }
+  if (!/^https?:\/\//.test(supplementStagingAuditUrl)) {
+    issues.push("SUPPLEMENT_STAGING_AUDIT_URL must be an http:// or https:// URL");
+  }
+  const supplementWatchEnabled = (env.SUPPLEMENT_WATCH_ENABLED?.trim() || "true") !== "false";
 
   if (issues.length > 0) {
     throw new ConfigError(issues);
@@ -235,11 +284,18 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     supplementFeedCommit,
     supplementKeyFingerprint,
     imageFeed,
+    supplementSourceRepo,
+    supplementSourceRef,
+    supplementTarget,
+    supplementPublishAuditUrl,
+    supplementStagingAuditUrl,
+    supplementWatchEnabled,
     buildAdapter: buildAdapter as "github" | "fake",
     buildWorkflow,
     supplementWorkflow,
     buildRepo,
     buildRepoToken,
+    buildRef,
     artifactCacheDir,
     artifactRetentionDays,
     sourceWatchIntervalHours,
