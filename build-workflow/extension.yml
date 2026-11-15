@@ -136,9 +136,10 @@ jobs:
           fi
           node scripts/select-extension-packages.mjs registry.json "$packages"
 
-      - name: Generate the feed signing key
-        # One key per feed lock, shared by every build leg, so all packages in
-        # the published tree verify against the single key shipped in it.
+      - name: Generate the build signing key
+        # One throwaway key per feed lock, shared by every build leg so each
+        # leg can check its own output. It is never published: the packages are
+        # re-signed with the stable project key when the feed is published.
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/signing"
@@ -149,7 +150,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: extension-signing-key
+          name: build-signing-key
           path: ${{ runner.temp }}/signing
           retention-days: 7
 
@@ -219,10 +220,10 @@ jobs:
       - name: Prepare SDK
         run: scripts/prepare-sdk.sh "$RUNNER_TEMP/sdk"
 
-      - name: Fetch the feed signing key
+      - name: Fetch the build signing key
         uses: actions/download-artifact@v4
         with:
-          name: extension-signing-key
+          name: build-signing-key
           path: ${{ runner.temp }}/signing
 
       - name: Sign built packages with the SDK build key
@@ -231,8 +232,9 @@ jobs:
         # without --sign there (master-only feature), so a stock SDK build
         # produces unsigned packages and `apk verify` can only say UNTRUSTED.
         # Wrap the host apk binary to inject --sign-key for mkpkg only. Every
-        # other subcommand passes through untouched, and the generated public
-        # key is what the verify step and the published feed key correspond to.
+        # other subcommand passes through untouched. This key is throwaway: it
+        # only exists so the build can verify its own output, and the published
+        # feed packages are re-signed with the project key at publish time.
         run: |
           set -euo pipefail
           sdk="$RUNNER_TEMP/sdk"
@@ -283,10 +285,10 @@ jobs:
           tar -xzf "$RUNNER_TEMP/apk-tools.apk" -C "$RUNNER_TEMP/apkstatic" --ignore-zeros
 
       - name: Verify built apk signature
-        # Signing happens inside the SDK at build time (CONFIG_SIGN_EACH_PACKAGE),
-        # so the package verifies against the SDK build key with no
-        # --allow-untrusted. The public key ships with the artifact so the
-        # signature can be re-checked outside CI.
+        # Signing happens inside the SDK at build time, so the package verifies
+        # against the build key with no --allow-untrusted. The build key stays
+        # in this job's temp dir: the published feed is re-signed with the
+        # stable project key (see combinewrt-packages publish.yml).
         run: |
           set -uo pipefail
           apk_tool="$RUNNER_TEMP/apkstatic/sbin/apk.static"
@@ -296,7 +298,6 @@ jobs:
           rm -rf "$key_dir"
           mkdir -p "$key_dir"
           cp "$sdk/public-key.pem" "$key_dir/public-key.pem"
-          cp "$sdk/public-key.pem" out/apk-signing-key.pem
           {
             echo "verifying $(basename "$apk_file")"
             echo "signing key sha256: $(sha256sum "$key_dir/public-key.pem" | cut -d' ' -f1)"
@@ -367,11 +368,6 @@ jobs:
             --base-version "$BASE_VERSION"
           mkdir -p build/verify
           cp -a artifacts/*.txt build/verify/ 2>/dev/null || true
-          if [ -f artifacts/apk-signing-key.pem ]; then
-            # Publish the per-build package signing key beside the feed so a
-            # client can re-run `apk verify` on the published packages.
-            cp artifacts/apk-signing-key.pem build/apk-signing-key.pem
-          fi
 
       - name: Bundle dependency test
         run: |

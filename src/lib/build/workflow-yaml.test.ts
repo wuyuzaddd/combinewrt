@@ -38,3 +38,26 @@ describe("build workflow", () => {
     expect(run).toContain("fail preflight");
   });
 });
+
+describe("extension workflow", () => {
+  const source = readFileSync(
+    new URL("../../../build-workflow/extension.yml", import.meta.url),
+    "utf8",
+  );
+
+  it("parses as YAML and keeps the build signing key out of the published artifact", () => {
+    const workflow = yaml.load(source) as Workflow;
+    expect(Object.keys(workflow.jobs)).toEqual(expect.arrayContaining(["prepare", "build", "manifest"]));
+    expect(source).toContain("name: build-signing-key");
+    // The per-build key only exists so each leg can check its own output; it is
+    // never published, because the feed is signed by the stable project key.
+    expect(source).not.toContain("apk-signing-key");
+  });
+
+  it("verifies the built apk with the build key and no --allow-untrusted", () => {
+    const steps = (yaml.load(source) as Workflow).jobs.build.steps;
+    const run = steps.find((step) => step.name === "Verify built apk signature")?.run ?? "";
+    expect(run).toContain('verify --keys-dir "$key_dir" "$apk_file"');
+    expect(run).not.toContain("--allow-untrusted");
+  });
+});
