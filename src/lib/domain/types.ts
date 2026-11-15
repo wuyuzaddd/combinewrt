@@ -59,6 +59,15 @@ export interface ModeRef {
   title?: string;
 }
 
+/**
+ * Every V2 plan starts from exactly one base preset; overlays stack on top of
+ * it (ADR 0006). Preset contents arrive with tickets 07/08; the plan schema
+ * only carries the id so older plans stay readable.
+ */
+export type BasePresetId = "minimal" | "common" | "router-default";
+
+export const BASE_PRESET_IDS: readonly BasePresetId[] = ["minimal", "common", "router-default"];
+
 export const DEFAULT_TARGET_ID = "x86/64";
 
 export const DEFAULT_TARGET: Target = {
