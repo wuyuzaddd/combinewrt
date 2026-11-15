@@ -1,0 +1,19 @@
+{
+  "id": "wifi",
+  "layer": "file/board",
+  "title": "WiFi",
+  "experimental": true,
+  "description": "Typed WiFi SSID/key/country/channel/band. It requires a radio-capable target or the usb-wifi overlay, and stays experimental on x86.",
+  "requiresAny": [
+    [
+      "capability:radio",
+      "capability:wifi",
+      "mode:usb-wifi"
+    ]
+  ],
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": [
+    "/etc/uci-defaults/90-combinewrt-modes"
+  ]
+}

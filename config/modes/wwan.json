@@ -1,0 +1,10 @@
+{
+  "id": "wwan",
+  "layer": "package/kernel",
+  "title": "WWAN",
+  "experimental": true,
+  "description": "WWAN packages and kmods; capability-gated with no hardware guarantee.",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": []
+}

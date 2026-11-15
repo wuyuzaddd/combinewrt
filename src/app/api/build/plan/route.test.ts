@@ -278,6 +278,41 @@ describe("POST /api/build/plan (V2 form)", () => {
     expect(body.plan.visibility).toBe("public");
   });
 
+  it("rejects wan-eth0 together with switch-port as a readable 409", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({
+        ...validFormV2,
+        modes: [
+          { id: "wan-eth0", layer: "file/board" },
+          { id: "switch-port", layer: "file/board" },
+        ],
+        network: { switchPort: { wan: "wan", lan: ["lan1", "lan2"] } },
+      }),
+    );
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { names: string[]; message: string }[] };
+    expect(body.conflicts[0].names).toEqual(expect.arrayContaining(["wan-eth0", "switch-port"]));
+    expect(body.conflicts[0].message).toContain("wan-mapping");
+  });
+
+  it("rejects wifi without radio support as a readable 409", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({
+        ...validFormV2,
+        modes: [{ id: "wifi", layer: "file/board" }],
+        network: {
+          wifi: { ssid: "combinewrt", key: "correct horse", country: "CN", channel: 36, band: "5g" },
+        },
+      }),
+    );
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { message: string }[]; plan: { modes: { experimental: string[] } } };
+    expect(body.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/radio/);
+    expect(body.plan.modes.experimental).toContain("wifi");
+  });
+
   it("rejects a mode the selected kernel line cannot run", async () => {
     state.session = { sub: "admin", iat: 0, exp: 1 };
     const response = await POST(

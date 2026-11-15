@@ -8,13 +8,13 @@ import { imageTypeForVariant } from "./artifact-name";
 const HOSTNAME_LABEL = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
-function isValidIpv4(value: string): boolean {
+export function isValidIpv4(value: string): boolean {
   const match = IPV4.exec(value);
   if (!match) return false;
   return match.slice(1).every((octet) => Number(octet) >= 0 && Number(octet) <= 255);
 }
 
-function isContiguousNetmask(value: string): boolean {
+export function isContiguousNetmask(value: string): boolean {
   if (!isValidIpv4(value)) return false;
   const [a, b, c, d] = value.split(".").map(Number);
   const mask = ((a << 24) | (b << 16) | (c << 8) | d) >>> 0;
@@ -27,7 +27,7 @@ const IMAGE_TYPE_IDS = IMAGE_FORMATS.map((format) => format.id) as [ImageFormatI
 const BASE_PRESETS = BASE_PRESET_IDS as [BasePresetId, ...BasePresetId[]];
 const PACKAGE_NAME = /^(?:(?:official|dllkids|supplement)\/)?[A-Za-z0-9][A-Za-z0-9+._-]*(?:@[A-Za-z0-9+._~-]+)?$/;
 
-function ipv4ToInt(value: string): number {
+export function ipv4ToInt(value: string): number {
   return value.split(".").reduce((result, octet) => (result << 8) + Number(octet), 0) >>> 0;
 }
 
@@ -94,6 +94,116 @@ const modeRefSchema = z.object({
   title: z.string().trim().min(1).optional(),
 });
 
+function isIpv4OrCidr(value: string): boolean {
+  const [address, prefix, extra] = value.split("/");
+  if (extra !== undefined || !isValidIpv4(address)) return false;
+  if (prefix === undefined) return true;
+  if (!/^\d{1,2}$/.test(prefix)) return false;
+  const number = Number(prefix);
+  return number >= 0 && number <= 32;
+}
+
+const NO_CONTROL = /[\u0000-\u001f\u007f]/;
+const PORT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
+const LEASE = /^\d{1,5}[smhdw]$/;
+
+const dhcpServerSchema = z
+  .object({
+    enabled: z.boolean(),
+    start: z.number().int().min(1).max(254).optional(),
+    limit: z.number().int().min(1).max(253).optional(),
+    lease: z.string().trim().regex(LEASE, "lease must look like 12h or 1d").optional(),
+  })
+  .strict();
+
+const wanNetworkSchema = z
+  .object({
+    protocol: z.enum(["dhcp", "static", "pppoe"]),
+    device: z.string().trim().regex(PORT_ID, "wan device is invalid").optional(),
+    ipv4: z.string().trim().refine(isValidIpv4, "wan ipv4 must be an IPv4 address").optional(),
+    netmask: z
+      .string()
+      .trim()
+      .refine(isContiguousNetmask, "wan netmask must be a contiguous IPv4 mask")
+      .optional(),
+    gateway: z.string().trim().refine(isValidIpv4, "wan gateway must be an IPv4 address").optional(),
+    username: z
+      .string()
+      .min(1, "pppoe username is required")
+      .max(128, "pppoe username is too long")
+      .refine((value) => !NO_CONTROL.test(value), "pppoe username must not contain control characters")
+      .optional(),
+    password: z
+      .string()
+      .min(1, "pppoe password is required")
+      .max(128, "pppoe password is too long")
+      .refine((value) => !NO_CONTROL.test(value), "pppoe password must not contain control characters")
+      .optional(),
+    mtu: z.number().int().min(576).max(1500).optional(),
+  })
+  .strict();
+
+const wifiNetworkSchema = z
+  .object({
+    ssid: z
+      .string()
+      .trim()
+      .min(1, "wifi ssid is required")
+      .max(32, "wifi ssid is too long")
+      .refine((value) => !NO_CONTROL.test(value), "wifi ssid must not contain control characters"),
+    key: z
+      .string()
+      .min(8, "wifi key must be at least 8 characters")
+      .max(63, "wifi key is too long")
+      .refine((value) => !NO_CONTROL.test(value), "wifi key must not contain control characters")
+      .optional(),
+    country: z.string().trim().regex(/^[A-Z]{2}$/, "wifi country must be two uppercase letters"),
+    channel: z.number().int().min(1).max(233),
+    band: z.enum(["2g", "5g", "6g"]),
+  })
+  .strict();
+
+const switchPortSchema = z
+  .object({
+    wan: z.string().trim().regex(PORT_ID, "wan port is invalid"),
+    lan: z
+      .array(z.string().trim().regex(PORT_ID, "lan port is invalid"))
+      .min(1, "at least one lan port is required")
+      .max(32),
+  })
+  .strict();
+
+const bypassSchema = z
+  .object({
+    gateway: z.string().trim().refine(isValidIpv4, "bypass gateway must be an IPv4 address").optional(),
+    dns: z.array(z.string().trim().refine(isValidIpv4, "bypass dns must be an IPv4 address")).max(4).optional(),
+    sourceIps: z
+      .array(z.string().trim().refine(isIpv4OrCidr, "bypass source must be an IPv4 address or CIDR"))
+      .max(16)
+      .optional(),
+  })
+  .strict();
+
+/**
+ * Typed network overrides. Strict objects everywhere: an unknown key would be
+ * a free-form escape hatch (writes routes to mode declarations), so it is a
+ * validation error instead.
+ */
+export const networkInputSchema = z
+  .object({
+    lan: z.object({ dhcp: dhcpServerSchema.optional() }).strict().optional(),
+    wan: wanNetworkSchema.optional(),
+    dns: z
+      .array(z.string().trim().refine(isValidIpv4, "dns must be an IPv4 address"))
+      .max(4, "too many dns servers")
+      .optional(),
+    ipv6: z.enum(["disabled", "dhcpv6", "ra", "relay"]).optional(),
+    wifi: wifiNetworkSchema.optional(),
+    switchPort: switchPortSchema.optional(),
+    bypass: bypassSchema.optional(),
+  })
+  .strict();
+
 const schemaV2 = z.object({
   profile: z.string().trim().min(1, "profile is required"),
   target: z.string().trim().min(1, "target is required"),
@@ -101,6 +211,7 @@ const schemaV2 = z.object({
   imageVariant: variantSchema,
   basePreset: z.enum(BASE_PRESETS).optional(),
   modes: z.array(modeRefSchema).max(50, "too many modes").optional(),
+  network: networkInputSchema.optional(),
   ...configFields,
 });
 

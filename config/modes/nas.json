@@ -1,0 +1,18 @@
+{
+  "id": "nas",
+  "layer": "package/kernel",
+  "title": "NAS packages",
+  "experimental": false,
+  "description": "Installs Samba and disk tools and writes a default share. It never partitions, formats or mounts a disk.",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": [
+    "/etc/config/samba4"
+  ],
+  "nas": {
+    "shareName": "share",
+    "path": "/mnt",
+    "readOnly": false,
+    "guestOk": false
+  }
+}

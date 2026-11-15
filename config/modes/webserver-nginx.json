@@ -1,0 +1,11 @@
+{
+  "id": "webserver-nginx",
+  "layer": "package/kernel",
+  "title": "nginx web server",
+  "experimental": false,
+  "description": "Selects the nginx web server; mutually exclusive with uHTTPd and lighttpd.",
+  "exclusiveGroup": "webserver",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": []
+}

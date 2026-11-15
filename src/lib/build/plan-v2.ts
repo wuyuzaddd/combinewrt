@@ -1,11 +1,13 @@
 import type { BuildPlanV1, BuildPlanV2 } from "../domain/build-plan";
 import { CapabilityError, getKernelLine, getProfile, getTarget, loadCapabilities, supportsMode, supportsVariant, type CapabilityRegistry } from "../catalog/capabilities";
 import type { CatalogProfile, SourcePins } from "../catalog/types";
-import type { BaseChannel, BuildEngine, ImageVariant } from "../domain/types";
+import type { BaseChannel, BuildEngine } from "../domain/types";
+import { resolveImageVariant } from "../image/variants";
 import { EMPTY_SOURCE_REGISTRY } from "../sources/registry";
 import { decideStrategy } from "../sources/strategy";
 import type { SourceRegistry } from "../sources/types";
 import { artifactNameV2, imageTypeForVariant } from "./artifact-name";
+import { resolveModes } from "./modes";
 import { createBuildPlan } from "./plan";
 import type { BuildConflict, BuildFormInputV2, PackageLookup, PackageLookupAll } from "./types";
 
@@ -56,18 +58,6 @@ function reject(issue: string, status: 400 | 409 = 400): PlanV2Failure {
   return { ok: false, status, issues: [issue] };
 }
 
-function resolveVariant(variant: ImageVariant, defaultOverlayMb: number): ImageVariant {
-  if (variant.artifact === "rootfs") {
-    return { boot: variant.boot, filesystem: variant.filesystem, artifact: variant.artifact };
-  }
-  return {
-    boot: variant.boot,
-    filesystem: variant.filesystem,
-    artifact: variant.artifact,
-    overlaySizeMb: variant.overlaySizeMb ?? defaultOverlayMb,
-  };
-}
-
 /**
  * V2 plan composer.
  *
@@ -114,8 +104,30 @@ export async function createBuildPlanV2(
     }
   }
 
-  const imageVariant = resolveVariant(form.imageVariant, profile.overlay.defaultMb);
+  const imageVariant = resolveImageVariant(form.imageVariant, profile.overlay.defaultMb);
   const imageType = imageTypeForVariant(imageVariant);
+
+  // Modes are declarative input; resolving them may reject the form (400) or
+  // report an unsatisfied requirement / exclusivity violation (409 via the
+  // route's conflict handling).
+  const modeResolution = resolveModes({
+    basePreset: form.basePreset,
+    overlays: form.modes ?? [],
+    network: form.network,
+    hostname: form.hostname,
+    baseVersion: context.baseVersion,
+    feedCommit: context.feedCommit,
+    targetId: target.id,
+    architecture: target.architecture,
+    imageVariant,
+    engine: kernel.engine,
+    capabilities: profile.capabilities,
+    lanIp: form.lanIp,
+    netmask: form.netmask,
+  });
+  if (modeResolution.issues.length > 0) {
+    return { ok: false, status: 400, issues: modeResolution.issues };
+  }
 
   const catalogProfile = context.catalogProfiles.find((item) => item.id === profile.id);
   const profileForPlan: CatalogProfile = catalogProfile
@@ -173,7 +185,7 @@ export async function createBuildPlanV2(
     return { ...entry, ...decision };
   });
 
-  const conflicts = [...basePlan.conflicts, ...strategyConflicts];
+  const conflicts = [...basePlan.conflicts, ...strategyConflicts, ...modeResolution.conflicts];
   const engine: BuildEngine = kernel.engine;
 
   const plan: BuildPlanV2 = {
@@ -201,6 +213,8 @@ export async function createBuildPlanV2(
     imageVariant,
     basePreset: { id: form.basePreset ?? "minimal", layer: "file/board" },
     overlays,
+    modes: modeResolution.state,
+    files: [...basePlan.files, ...modeResolution.files],
     engine,
     artifactName: artifactNameV2({
       baseVersion: context.baseVersion,
