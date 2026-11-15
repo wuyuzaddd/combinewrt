@@ -3,10 +3,25 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
+import type { BuildStep } from "@/lib/builds/types";
 import { createComplianceReport } from "@/lib/compliance";
 import { ComplianceIssueList } from "@/components/compliance";
 import { BuildPoller } from "./build-poller";
 import { CancelButton } from "../cancel-button";
+
+const STEP_LABELS: Record<BuildStep, string> = {
+  "prepare-plan": "生成构建计划",
+  "install-tools": "安装构建工具",
+  "download-imagebuilder": "下载 ImageBuilder",
+  "download-packages": "下载并校验软件包",
+  "write-files": "写入构建配置",
+  "build-image": "构建镜像",
+  "assert-packages": "校验镜像内软件包",
+  "package-artifact": "打包产物",
+  dispatch: "派发构建",
+  timeout: "构建超时",
+  workflow: "工作流",
+};
 
 export default async function BuildDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -50,7 +65,30 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
         </div>
       </header>
 
-      {build.error && (
+      {build.failure && (
+        <section className="rounded-xl border border-rose-900 bg-rose-950/40 p-4 text-sm text-rose-200">
+          <p className="text-xs uppercase tracking-wider text-rose-300">失败定位</p>
+          <p className="mt-2 font-medium">
+            步骤：{STEP_LABELS[build.failure.step] ?? build.failure.step}
+          </p>
+          {(build.failure.package || build.failure.source || build.failure.version) && (
+            <p className="mt-1 break-all font-mono text-xs text-rose-100">
+              {build.failure.package ? `package=${build.failure.package}` : ""}
+              {build.failure.source ? ` source=${build.failure.source}` : ""}
+              {build.failure.version ? ` version=${build.failure.version}` : ""}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-rose-200/90">{build.failure.message}</p>
+        </section>
+      )}
+
+      {build.error && build.failure && build.error !== build.failure.message && (
+        <p className="rounded-xl border border-rose-900/60 bg-rose-950/20 p-4 text-xs text-rose-200">
+          {build.error}
+        </p>
+      )}
+
+      {build.error && !build.failure && (
         <p className="rounded-xl border border-rose-900 bg-rose-950/40 p-4 text-sm text-rose-200">{build.error}</p>
       )}
 
@@ -71,6 +109,12 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
           查看完整 source offer
         </Link>
       </section>
+
+      {build.status === "succeeded" && !build.artifactName && (
+        <p className="rounded-xl border border-amber-900 bg-amber-950/30 p-4 text-sm text-amber-200">
+          工作流已结束，但没有找到可下载的产物。请检查工作流日志中的 package-artifact 步骤。
+        </p>
+      )}
 
       {build.status === "succeeded" && build.artifactName && (
         <div className="flex flex-col gap-2">

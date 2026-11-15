@@ -1,6 +1,31 @@
 import type { BuildConfig, BuildPlan } from "../build/types";
+import type { PackageSource } from "../catalog/types";
 
 export type BuildStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export const BUILD_STEPS = [
+  "prepare-plan",
+  "install-tools",
+  "download-imagebuilder",
+  "download-packages",
+  "write-files",
+  "build-image",
+  "assert-packages",
+  "package-artifact",
+  "dispatch",
+  "timeout",
+  "workflow",
+] as const;
+
+export type BuildStep = (typeof BUILD_STEPS)[number];
+
+export interface BuildFailure {
+  step: BuildStep;
+  package: string | null;
+  source: PackageSource | null;
+  version: string | null;
+  message: string;
+}
 
 export interface BuildRecord {
   id: string;
@@ -11,6 +36,7 @@ export interface BuildRecord {
   adapter: "github" | "fake";
   logTail: string;
   error: string | null;
+  failure?: BuildFailure | null;
   artifactName: string | null;
   artifactSha256?: string | null;
   artifactSize?: number | null;
@@ -22,6 +48,7 @@ export interface RunUpdate {
   status: BuildStatus;
   logTail?: string;
   error?: string | null;
+  failure?: BuildFailure | null;
   artifactName?: string | null;
   artifactSha256?: string | null;
   artifactSize?: number | null;

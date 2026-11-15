@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it, vi } from "vitest";
-import { createGitHubAdapter, dispatchRepositoryEvent, mapRunState, parseManifest } from "./github";
+import { createGitHubAdapter, dispatchRepositoryEvent, mapRunState, parseFailure, parseManifest } from "./github";
 import type { BuildPlan } from "../build/types";
 
 const plan = {
@@ -214,4 +214,34 @@ describe("github adapter", () => {
     expect(update.artifactName).toBe("image.gz");
   });
 
+});
+
+describe("parseFailure", () => {
+  it("parses the structured failure marker with source details", () => {
+    const log = [
+      "step output",
+      'COMBINEWRT_FAILURE={"step":"download-packages","package":"lucky","source":"dllkids","version":"3.5.0-r1","message":"hash mismatch"}',
+    ].join("\n");
+    expect(parseFailure(log)).toEqual({
+      step: "download-packages",
+      package: "lucky",
+      source: "dllkids",
+      version: "3.5.0-r1",
+      message: "hash mismatch",
+    });
+  });
+
+  it("falls back to the legacy missing-package marker", () => {
+    expect(parseFailure("ok\nCOMBINEWRT_FAILED_PACKAGE=luci-app-lucky\n")).toEqual({
+      step: "assert-packages",
+      package: "luci-app-lucky",
+      source: null,
+      version: null,
+      message: "package luci-app-lucky is missing from the generated image",
+    });
+  });
+
+  it("returns null without a marker", () => {
+    expect(parseFailure("plain failure")).toBeNull();
+  });
 });

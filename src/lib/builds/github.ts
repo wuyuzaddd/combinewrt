@@ -1,6 +1,8 @@
 import { unzipSync } from "fflate";
 import type { BuildPlan } from "../build/types";
-import type { ArtifactDownload, BuildAdapter, RunUpdate } from "./types";
+import { PACKAGE_SOURCES } from "../catalog/types";
+import { BUILD_STEPS } from "./types";
+import type { ArtifactDownload, BuildAdapter, BuildFailure, RunUpdate } from "./types";
 
 const API = "https://api.github.com";
 
@@ -137,7 +139,16 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
           const text = tailLogs(new Uint8Array(await logs.arrayBuffer()));
           if (text) {
             update.logTail = text;
-            if (update.status === "failed") update.error = summarizeFailure(text);
+            if (update.status === "failed") {
+              update.error = summarizeFailure(text);
+              update.failure = parseFailure(text) ?? {
+                step: "workflow",
+                package: null,
+                source: null,
+                version: null,
+                message: update.error,
+              };
+            }
             const manifest = parseManifest(text);
             if (manifest) {
               update.artifactSha256 = manifest.sha256;
@@ -246,6 +257,40 @@ export function parseManifest(log: string): BuildManifest | null {
   } catch {
     return null;
   }
+}
+
+export function parseFailure(log: string): BuildFailure | null {
+  const markers = [...log.matchAll(/COMBINEWRT_FAILURE=(\{[^\n]*\})/g)];
+  for (const marker of markers.reverse()) {
+    try {
+      const parsed = JSON.parse(marker[1]) as Record<string, unknown>;
+      if (typeof parsed.step !== "string" || !(BUILD_STEPS as readonly string[]).includes(parsed.step)) continue;
+      const source = typeof parsed.source === "string" && (PACKAGE_SOURCES as readonly string[]).includes(parsed.source)
+        ? (parsed.source as (typeof PACKAGE_SOURCES)[number])
+        : null;
+      return {
+        step: parsed.step as (typeof BUILD_STEPS)[number],
+        package: typeof parsed.package === "string" && parsed.package ? parsed.package : null,
+        source,
+        version: typeof parsed.version === "string" && parsed.version ? parsed.version : null,
+        message: typeof parsed.message === "string" && parsed.message ? parsed.message : "workflow failed",
+      };
+    } catch {
+      // Ignore malformed markers; a later marker may still be valid.
+    }
+  }
+
+  const legacy = [...log.matchAll(/COMBINEWRT_FAILED_PACKAGE=([^\s]+)/g)].at(-1)?.[1];
+  if (legacy) {
+    return {
+      step: "assert-packages",
+      package: legacy,
+      source: null,
+      version: null,
+      message: `package ${legacy} is missing from the generated image`,
+    };
+  }
+  return null;
 }
 
 export function summarizeFailure(log: string): string {

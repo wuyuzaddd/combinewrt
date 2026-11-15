@@ -35,9 +35,17 @@ export function createBuildService(options: {
   adapter: BuildAdapter;
   now?: () => Date;
   pollIntervalMs?: number;
+  buildTimeoutMs?: number;
   cacheDir?: string;
 }): BuildService {
-  const { store, adapter, now = () => new Date(), pollIntervalMs = 0, cacheDir } = options;
+  const {
+    store,
+    adapter,
+    now = () => new Date(),
+    pollIntervalMs = 0,
+    buildTimeoutMs = 60 * 60 * 1000,
+    cacheDir,
+  } = options;
   const inFlight = new Map<string, Promise<BuildRecord | null>>();
   const lastPoll = new Map<string, number>();
 
@@ -71,6 +79,20 @@ export function createBuildService(options: {
     const record = store.get(id);
     if (!record) return null;
     if (isTerminal(record.status) && !needsEnrichment(record)) return record;
+    if (!isTerminal(record.status) && now().getTime() - Date.parse(record.createdAt) > buildTimeoutMs) {
+      const minutes = Math.round(buildTimeoutMs / 60_000);
+      return store.update(id, {
+        status: "failed",
+        error: `构建超过 ${minutes} 分钟仍未完成，已标记为超时`,
+        failure: {
+          step: "timeout",
+          package: null,
+          source: null,
+          version: null,
+          message: `build did not finish within ${minutes} minutes`,
+        },
+      }, record.updatedAt);
+    }
     if (!record.runId) {
       const age = now().getTime() - Date.parse(record.createdAt);
       if (age > 120_000) {
@@ -92,6 +114,7 @@ export function createBuildService(options: {
           status: update.status,
           logTail: tail(update.logTail) ?? record.logTail,
           error: update.error ?? null,
+          failure: update.failure ?? record.failure ?? null,
           artifactName: update.artifactName ?? record.artifactName,
           artifactSha256: update.artifactSha256 ?? record.artifactSha256 ?? null,
           artifactSize: update.artifactSize ?? record.artifactSize ?? null,
@@ -144,9 +167,11 @@ export function createBuildService(options: {
         };
         return store.update(id, { runId });
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         return store.update(id, {
           status: "failed",
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
+          failure: { step: "dispatch", package: null, source: null, version: null, message },
         });
       }
     },

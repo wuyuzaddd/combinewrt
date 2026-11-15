@@ -106,6 +106,7 @@ describe("build service", () => {
     const record = await service.submit(plan());
     expect(record.status).toBe("failed");
     expect(record.error).toContain("401");
+    expect(record.failure?.step).toBe("dispatch");
   });
 
   it("keeps the previous status when a poll fails", async () => {
@@ -167,6 +168,29 @@ describe("build service resilience", () => {
 
     expect(refreshed?.status).toBe("failed");
     expect(refreshed?.error).toContain("matched");
+  });
+
+  it("marks a build failed after the build timeout", async () => {
+    const db = database();
+    const store = createBuildStore(db);
+    const old = new Date(Date.now() - 61 * 60_000).toISOString();
+    store.create({
+      id: "b-timeout",
+      plan: plan(),
+      status: "running",
+      runId: "r-timeout",
+      adapter: "fake",
+      logTail: "",
+      error: null,
+      artifactName: null,
+      createdAt: old,
+      updatedAt: old,
+    });
+    const service = createBuildService({ store, adapter: createFakeAdapter() });
+    const refreshed = await service.refresh("b-timeout");
+    expect(refreshed?.status).toBe("failed");
+    expect(refreshed?.error).toContain("超时");
+    expect(refreshed?.failure?.step).toBe("timeout");
   });
 
   it("keeps polling a running build after a restart", async () => {

@@ -158,13 +158,13 @@ export function findSourceConflicts(
     if (pin.version && entry.version !== pin.version) {
       conflicts.push({
         names: [pin.name],
-        message: `包 ${pin.name} 固定版本 ${pin.version}，但来源版本为 ${entry.version ?? "未知"}`,
+        message: `包 ${pin.name}（来源 ${entry.packageSource ?? "未知"}）固定版本 ${pin.version}，但来源版本为 ${entry.version ?? "未知"}`,
       });
     }
     if (pin.sha256 && entry.sha256 !== pin.sha256) {
       conflicts.push({
         names: [pin.name],
-        message: `包 ${pin.name} 的 sha256 与 pin 不一致：${entry.sha256 ?? "缺失"}`,
+        message: `包 ${pin.name}（来源 ${entry.packageSource ?? "未知"}）的 sha256 与 pin 不一致：${entry.sha256 ?? "缺失"}`,
       });
     }
   }
@@ -174,7 +174,7 @@ export function findSourceConflicts(
     if (request.version && entry && entry.version !== request.version) {
       conflicts.push({
         names: [request.name],
-        message: `包 ${request.name} 请求版本 ${request.version}，但来源版本为 ${entry.version ?? "未知"}`,
+        message: `包 ${request.name}（来源 ${entry.packageSource ?? "未知"}）请求版本 ${request.version}，但来源版本为 ${entry.version ?? "未知"}`,
       });
     }
   }
@@ -195,7 +195,7 @@ export function buildDownloadManifest(
     if (!hit?.sha256 || !hit.filename || !hit.downloadUrl) {
       conflicts.push({
         names: [entry.name],
-        message: `非官方包 ${entry.name} 缺少可校验的下载信息（sha256/文件名/URL）`,
+        message: `非官方包 ${entry.name}（来源 ${entry.packageSource ?? "未知"}）缺少可校验的下载信息（sha256/文件名/URL）`,
       });
       continue;
     }

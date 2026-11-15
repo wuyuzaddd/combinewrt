@@ -2,7 +2,7 @@
 
 自用 OpenWrt 固件在线构建站。公开页面只读，管理员登录后可提交构建、查看历史与下载产物。
 
-当前进度：ticket 06（站点骨架、管理员会话、目录快照、构建表单与计划预览、真实 ImageBuilder 构建、产物下载、历史/重建/取消/保留）。
+当前进度：ticket 10（站点骨架、管理员会话、目录快照、三层来源组合、真实 ImageBuilder 构建、产物下载、历史/重建/取消/保留、端到端与失败诊断）。
 
 ## 技术栈
 
@@ -108,6 +108,26 @@ export APK_BIN="$PWD/immortalwrt-imagebuilder-25.12.2-x86-64.Linux-x86_64/stagin
 ## 测试与 CI
 
 `npm run lint`、`npm run typecheck`、`npm test`、`npm run build` 在本地与 GitHub Actions（`.github/workflows/ci.yml`）跑同一组检查。
+
+端到端测试使用 Playwright + 临时 SQLite + `BUILD_ADAPTER=fake`，不访问外部网络：
+
+```bash
+npx playwright install chromium
+npm run test:e2e        # 先构建，再启动生产服务器跑 e2e
+npm run test:e2e:only   # 复用已有 .next 构建，只跑 e2e
+```
+
+`e2e/build-flow.spec.ts` 覆盖登录、生成三层来源计划、派发、状态轮询、产物下载，以及同名跨来源、非官方 kmod、版本 pin 不符、目录无此包等拒绝路径。种子脚本 `scripts/seed-e2e.ts` 每次删除并重建 `DATABASE_PATH`（默认 `/tmp/combinewrt-e2e.db`）。
+
+### 构建失败诊断
+
+构建工作流在失败时输出一行机器可读标记：
+
+```text
+COMBINEWRT_FAILURE={"step":"download-packages","package":"lucky","source":"dllkids","version":"3.5.0-r1","message":"..."}
+```
+
+站点解析最后一个标记，在构建详情页显示步骤、包名、来源、版本与原因；旧工作流仍兼容 `COMBINEWRT_FAILED_PACKAGE=<name>`。步骤标识：`prepare-plan`、`install-tools`、`download-imagebuilder`、`download-packages`、`write-files`、`build-image`、`assert-packages`、`package-artifact`、`dispatch`、`timeout`、`workflow`。成功结束但没有产物的构建只显示警告，不会被误判为失败。
 
 ## 首次部署清单
 
