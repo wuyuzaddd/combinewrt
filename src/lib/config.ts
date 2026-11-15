@@ -17,6 +17,7 @@ export interface AppConfig {
   supplementKeyFingerprint: string;
   buildAdapter: "github" | "fake";
   buildWorkflow: string;
+  supplementWorkflow: string;
   buildRepo: string;
   buildRepoToken: string;
   artifactCacheDir: string;
@@ -73,6 +74,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const buildWorkflow = env.BUILD_WORKFLOW?.trim() || "build.yml";
   if (!/^[A-Za-z0-9._-]+$/.test(buildWorkflow)) {
     issues.push("BUILD_WORKFLOW must be a workflow file name such as build.yml");
+  }
+  const supplementWorkflow = env.SUPPLEMENT_WORKFLOW?.trim() || "packages.yml";
+  if (!/^[A-Za-z0-9._-]+$/.test(supplementWorkflow)) {
+    issues.push("SUPPLEMENT_WORKFLOW must be a workflow file name such as packages.yml");
   }
   const artifactRetentionDays = Number(env.ARTIFACT_RETENTION_DAYS?.trim() || "7");
   if (!Number.isInteger(artifactRetentionDays) || artifactRetentionDays < 0 || artifactRetentionDays > 365) {
@@ -144,6 +149,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     supplementKeyFingerprint,
     buildAdapter: buildAdapter as "github" | "fake",
     buildWorkflow,
+    supplementWorkflow,
     buildRepo,
     buildRepoToken,
     artifactCacheDir,

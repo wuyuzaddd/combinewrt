@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
+import { getConfig } from "@/lib/config";
 import { getDatabase } from "@/lib/db";
 import { readBaseVersionState } from "@/lib/base";
+import { listWorkflowRuns, type WorkflowRunSummary } from "@/lib/builds/github";
 import { readCatalogRefreshState } from "@/lib/catalog/refresh-control";
 import { readRetentionSummary } from "@/lib/builds/retention";
 import { BaseVersionPanel } from "./base-version-panel";
 import { LogoutButton } from "./logout-button";
+import { RecentRunsPanel } from "./recent-runs-panel";
 
 const sections = [
   { title: "固件构建", body: "选择设备、镜像格式、软件包并预览构建计划。", href: "/build" },
@@ -14,12 +17,43 @@ const sections = [
   { title: "软件包目录", body: "浏览 ImmortalWrt 官方 feed 的目录快照。", href: "/catalog" },
 ];
 
+async function loadRecentRuns(): Promise<{ runs: WorkflowRunSummary[]; error: string | null }> {
+  const config = getConfig();
+  if (config.buildAdapter !== "github" || !config.buildRepo || !config.buildRepoToken) {
+    return { runs: [], error: "当前未启用 GitHub 构建适配器，无法读取工作流运行。" };
+  }
+  try {
+    const [builds, packages] = await Promise.all([
+      listWorkflowRuns({
+        repo: config.buildRepo,
+        token: config.buildRepoToken,
+        workflow: config.buildWorkflow,
+      }),
+      listWorkflowRuns({
+        repo: config.buildRepo,
+        token: config.buildRepoToken,
+        workflow: config.supplementWorkflow,
+      }),
+    ]);
+    const runs = [...builds, ...packages]
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+      .slice(0, 10);
+    return { runs, error: null };
+  } catch (error) {
+    return {
+      runs: [],
+      error: error instanceof Error ? error.message : "读取工作流运行失败",
+    };
+  }
+}
+
 export default async function AdminPage() {
   const session = await getSession();
   if (!session) redirect("/login?next=/admin");
   const retention = readRetentionSummary(getDatabase());
   const baseVersion = readBaseVersionState();
   const catalogRefresh = readCatalogRefreshState(getDatabase());
+  const recentRuns = await loadRecentRuns();
 
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 px-6 py-12">
@@ -50,6 +84,8 @@ export default async function AdminPage() {
       </div>
 
       <BaseVersionPanel state={baseVersion} />
+
+      <RecentRunsPanel error={recentRuns.error} runs={recentRuns.runs} />
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
         <h2 className="font-medium">目录自动刷新</h2>

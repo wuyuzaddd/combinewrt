@@ -22,6 +22,7 @@ interface WorkflowRun {
   conclusion: string | null;
   created_at: string;
   display_title?: string;
+  html_url?: string;
 }
 
 export function mapRunState(run: WorkflowRun): RunUpdate {
@@ -233,6 +234,54 @@ export async function dispatchRepositoryEvent(options: RepositoryEventOptions): 
     const body = (await response.text()).slice(0, 500);
     throw new Error(`GitHub POST /repos/${repo}/dispatches failed: ${response.status} ${body}`);
   }
+}
+
+export interface WorkflowRunSummary {
+  id: string;
+  workflow: string;
+  status: string;
+  conclusion: string | null;
+  title: string;
+  createdAt: string;
+  url: string;
+}
+
+export interface WorkflowRunsOptions {
+  repo: string;
+  token: string;
+  workflow: string;
+  limit?: number;
+  fetchImpl?: typeof fetch;
+}
+
+export async function listWorkflowRuns(options: WorkflowRunsOptions): Promise<WorkflowRunSummary[]> {
+  const { repo, token, workflow, limit = 5, fetchImpl = fetch } = options;
+  const perPage = Math.max(1, Math.min(20, limit));
+  const response = await fetchImpl(
+    `${API}/repos/${repo}/actions/workflows/${workflow}/runs?per_page=${perPage}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok) {
+    const body = (await response.text()).slice(0, 500);
+    throw new Error(`GitHub GET workflow runs failed: ${response.status} ${body}`);
+  }
+  const payload = (await response.json()) as { workflow_runs?: WorkflowRun[] };
+  return (payload.workflow_runs ?? []).slice(0, perPage).map((run) => ({
+    id: String(run.id),
+    workflow,
+    status: run.status,
+    conclusion: run.conclusion,
+    title: run.display_title ?? run.name ?? "",
+    createdAt: run.created_at,
+    url: run.html_url ?? `https://github.com/${repo}/actions/runs/${run.id}`,
+  }));
 }
 
 export interface BuildManifest {

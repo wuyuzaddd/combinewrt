@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it, vi } from "vitest";
-import { createGitHubAdapter, dispatchRepositoryEvent, mapRunState, parseFailure, parseManifest } from "./github";
+import { createGitHubAdapter, dispatchRepositoryEvent, listWorkflowRuns, mapRunState, parseFailure, parseManifest } from "./github";
 import type { BuildPlan } from "../build/types";
 
 const plan = {
@@ -214,6 +214,56 @@ describe("github adapter", () => {
     expect(update.artifactName).toBe("image.gz");
   });
 
+});
+
+describe("listWorkflowRuns", () => {
+  it("lists recent runs with workflow, state and URL", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      response({
+        workflow_runs: [
+          {
+            id: 42,
+            name: "packages",
+            display_title: "packages 25.12.2",
+            status: "completed",
+            conclusion: "success",
+            created_at: "2026-11-15T04:00:00Z",
+            html_url: "https://github.com/me/build/actions/runs/42",
+          },
+        ],
+      }),
+    );
+
+    const runs = await listWorkflowRuns({
+      repo: "me/build",
+      token: "t",
+      workflow: "packages.yml",
+      limit: 3,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(runs).toEqual([
+      {
+        id: "42",
+        workflow: "packages.yml",
+        status: "completed",
+        conclusion: "success",
+        title: "packages 25.12.2",
+        createdAt: "2026-11-15T04:00:00Z",
+        url: "https://github.com/me/build/actions/runs/42",
+      },
+    ]);
+    const [url, init] = fetchImpl.mock.calls[0]! as [string, RequestInit];
+    expect(url).toContain("/actions/workflows/packages.yml/runs?per_page=3");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t");
+  });
+
+  it("surfaces GitHub errors without leaking the token", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response("nope", { status: 403 }));
+    await expect(
+      listWorkflowRuns({ repo: "me/build", token: "secret", workflow: "build.yml", fetchImpl }),
+    ).rejects.toThrow(/403 nope/);
+  });
 });
 
 describe("parseFailure", () => {

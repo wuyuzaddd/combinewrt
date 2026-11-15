@@ -16,6 +16,17 @@ describe("loadConfig", () => {
     expect(config.artifactCacheDir).toContain("artifacts");
     expect(config.supplementFeedUrl).toContain("combinewrt-packages");
     expect(config.supplementKeyFingerprint).toHaveLength(64);
+    expect(config.supplementWorkflow).toBe("packages.yml");
+  });
+
+  it("rejects a malformed supplement workflow name", () => {
+    expect(() =>
+      loadConfig({
+        SESSION_SECRET: SECRET,
+        ADMIN_PASSWORD_HASH: HASH,
+        SUPPLEMENT_WORKFLOW: "../packages.yml",
+      }),
+    ).toThrow(/SUPPLEMENT_WORKFLOW/);
   });
 
   it("rejects a malformed supplement feed URL", () => {
