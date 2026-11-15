@@ -1,0 +1,291 @@
+{
+  "schemaVersion": 1,
+  "kernelLines": [
+    {
+      "id": "6.6",
+      "version": "6.6",
+      "engine": "source",
+      "experimental": true,
+      "sourceRecipeRef": "config/kernel/6.6.config"
+    },
+    {
+      "id": "6.12",
+      "version": "6.12",
+      "engine": "imagebuilder",
+      "experimental": false
+    },
+    {
+      "id": "6.18",
+      "version": "6.18",
+      "engine": "source",
+      "experimental": true,
+      "sourceRecipeRef": "config/kernel/6.18.config"
+    }
+  ],
+  "modes": [
+    { "id": "istoreos-brand", "layer": "file/board", "title": "iStoreOS branding", "experimental": false },
+    { "id": "nas", "layer": "package/kernel", "title": "NAS packages", "experimental": false },
+    {
+      "id": "docker",
+      "layer": "kernel/config",
+      "title": "Docker",
+      "experimental": false,
+      "requiresEngine": "source"
+    },
+    { "id": "wan-eth0", "layer": "file/board", "title": "WAN on eth0", "experimental": false },
+    { "id": "switch-port", "layer": "file/board", "title": "Switch port mapping", "experimental": false },
+    { "id": "ipv6", "layer": "file/board", "title": "IPv6", "experimental": false },
+    { "id": "pppoe", "layer": "file/board", "title": "PPPoE WAN", "experimental": false },
+    { "id": "wifi", "layer": "file/board", "title": "WiFi", "experimental": true },
+    { "id": "webserver-uhttpd", "layer": "package/kernel", "title": "uHTTPd web server", "experimental": false },
+    { "id": "webserver-nginx", "layer": "package/kernel", "title": "nginx web server", "experimental": false },
+    {
+      "id": "webserver-lighttpd",
+      "layer": "package/kernel",
+      "title": "lighttpd web server",
+      "experimental": true
+    },
+    { "id": "https-selfsigned", "layer": "file/board", "title": "Self-signed HTTPS", "experimental": false },
+    { "id": "usb-wired", "layer": "package/kernel", "title": "USB wired networking", "experimental": true },
+    { "id": "usb-wifi", "layer": "package/kernel", "title": "USB WiFi", "experimental": true },
+    { "id": "wwan", "layer": "package/kernel", "title": "WWAN", "experimental": true },
+    { "id": "bypass", "layer": "file/board", "title": "Bypass gateway", "experimental": false }
+  ],
+  "targets": [
+    {
+      "id": "x86/64",
+      "architecture": "x86_64",
+      "subtarget": "generic",
+      "title": "x86/64 (generic)",
+      "status": "verified",
+      "profiles": [
+        {
+          "id": "generic",
+          "title": "Generic x86/64",
+          "status": "verified",
+          "capabilities": [
+            "efi",
+            "legacy",
+            "ext4",
+            "squashfs",
+            "combined",
+            "rootfs",
+            "vmdk",
+            "qcow2",
+            "overlay"
+          ],
+          "overlay": { "minMb": 256, "maxMb": 16384, "stepMb": 256, "defaultMb": 1024 },
+          "kernelLines": ["6.6", "6.12", "6.18"],
+          "modes": [
+            { "id": "istoreos-brand" },
+            { "id": "nas" },
+            { "id": "docker" },
+            { "id": "wan-eth0" },
+            { "id": "switch-port" },
+            { "id": "ipv6" },
+            { "id": "pppoe" },
+            { "id": "wifi", "experimental": true },
+            { "id": "webserver-uhttpd" },
+            { "id": "webserver-nginx" },
+            { "id": "webserver-lighttpd", "experimental": true },
+            { "id": "https-selfsigned" },
+            { "id": "usb-wired", "experimental": true },
+            { "id": "usb-wifi", "experimental": true },
+            { "id": "wwan", "experimental": true },
+            { "id": "bypass" }
+          ],
+          "variants": [
+            {
+              "boot": "efi",
+              "filesystem": "ext4",
+              "artifact": "combined",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "efi",
+              "filesystem": "squashfs",
+              "artifact": "combined",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "ext4",
+              "artifact": "combined",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "squashfs",
+              "artifact": "combined",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "efi",
+              "filesystem": "ext4",
+              "artifact": "vmdk",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "efi",
+              "filesystem": "squashfs",
+              "artifact": "vmdk",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "ext4",
+              "artifact": "vmdk",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "squashfs",
+              "artifact": "vmdk",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "efi",
+              "filesystem": "ext4",
+              "artifact": "qcow2",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "efi",
+              "filesystem": "squashfs",
+              "artifact": "qcow2",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "ext4",
+              "artifact": "qcow2",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "squashfs",
+              "artifact": "qcow2",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: x86/64 generic variants match upstream ImageBuilder image names"
+            },
+            {
+              "boot": "efi",
+              "filesystem": "ext4",
+              "artifact": "rootfs",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: rootfs tarball is boot independent"
+            },
+            {
+              "boot": "efi",
+              "filesystem": "squashfs",
+              "artifact": "rootfs",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: rootfs tarball is boot independent"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "ext4",
+              "artifact": "rootfs",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: rootfs tarball is boot independent"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "squashfs",
+              "artifact": "rootfs",
+              "supported": true,
+              "experimental": false,
+              "verifiedBy": "src/lib/catalog/capabilities.test.ts: rootfs tarball is boot independent"
+            },
+            {
+              "boot": "efi",
+              "filesystem": "ext4",
+              "artifact": "emmc",
+              "supported": false,
+              "experimental": true,
+              "verifiedBy": "deferred: eMMC acceptance ships with the first ARM target (V2.0 out of scope)"
+            },
+            {
+              "boot": "efi",
+              "filesystem": "squashfs",
+              "artifact": "emmc",
+              "supported": false,
+              "experimental": true,
+              "verifiedBy": "deferred: eMMC acceptance ships with the first ARM target (V2.0 out of scope)"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "ext4",
+              "artifact": "emmc",
+              "supported": false,
+              "experimental": true,
+              "verifiedBy": "deferred: eMMC acceptance ships with the first ARM target (V2.0 out of scope)"
+            },
+            {
+              "boot": "legacy",
+              "filesystem": "squashfs",
+              "artifact": "emmc",
+              "supported": false,
+              "experimental": true,
+              "verifiedBy": "deferred: eMMC acceptance ships with the first ARM target (V2.0 out of scope)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mediatek/filogic",
+      "architecture": "aarch64_cortex-a53",
+      "subtarget": "filogic",
+      "title": "MediaTek Filogic (ARM, modelled only)",
+      "status": "placeholder",
+      "profiles": [
+        {
+          "id": "generic",
+          "title": "Generic MediaTek Filogic (not built in V2.0)",
+          "status": "placeholder",
+          "capabilities": ["emmc"],
+          "overlay": { "minMb": 256, "maxMb": 8192, "stepMb": 256, "defaultMb": 1024 },
+          "kernelLines": ["6.12"],
+          "modes": [],
+          "variants": [
+            {
+              "boot": "efi",
+              "filesystem": "squashfs",
+              "artifact": "emmc",
+              "supported": false,
+              "experimental": true,
+              "verifiedBy": "deferred: eMMC acceptance ships with the first ARM target (V2.0 out of scope)"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
