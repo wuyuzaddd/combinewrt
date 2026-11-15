@@ -13,14 +13,24 @@ describe("loadConfig", () => {
     expect(config.appOrigin).toBe("http://localhost:3000");
     expect(config.secureCookies).toBe(false);
     expect(config.artifactRetentionDays).toBe(7);
+    expect(config.artifactCacheMaxBytes).toBe(20 * 1024 ** 3);
     expect(config.artifactCacheDir).toContain("artifacts");
     expect(config.supplementFeedUrl).toContain("combinewrt-packages");
     expect(config.supplementKeyFingerprint).toHaveLength(64);
     expect(config.supplementWorkflow).toBe("packages.yml");
   });
 
-  it("rejects a malformed supplement workflow name", () => {
+  it("rejects an invalid artifact cache ceiling", () => {
     expect(() =>
+      loadConfig({
+        SESSION_SECRET: SECRET,
+        ADMIN_PASSWORD_HASH: HASH,
+        ARTIFACT_CACHE_MAX_BYTES: "-1",
+      }),
+    ).toThrow(/ARTIFACT_CACHE_MAX_BYTES/);
+  });
+
+  it("rejects a malformed supplement workflow name", () => {    expect(() =>
       loadConfig({
         SESSION_SECRET: SECRET,
         ADMIN_PASSWORD_HASH: HASH,
