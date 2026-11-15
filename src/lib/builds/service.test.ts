@@ -54,13 +54,15 @@ afterEach(() => {
 describe("build service", () => {
   it("cancels a running build and keeps it terminal", async () => {
     const db = database();
-    const service = createBuildService({ store: createBuildStore(db), adapter: createFakeAdapter() });
+    const store = createBuildStore(db);
+    const service = createBuildService({ store, adapter: createFakeAdapter() });
     const submitted = await service.submit(plan());
     expect((await service.refresh(submitted.id))?.status).toBe("queued");
 
     const cancelled = await service.cancel(submitted.id);
     expect(cancelled?.status).toBe("cancelled");
     expect((await service.refresh(submitted.id))?.status).toBe("cancelled");
+    expect(store.listEvents(submitted.id).at(-1)?.source).toBe("cancel");
   });
 
   it("records queued, polls to succeeded, and survives a restart", async () => {
@@ -102,11 +104,13 @@ describe("build service", () => {
       },
     };
     const db = database();
-    const service = createBuildService({ store: createBuildStore(db), adapter: failing });
+    const store = createBuildStore(db);
+    const service = createBuildService({ store, adapter: failing });
     const record = await service.submit(plan());
     expect(record.status).toBe("failed");
     expect(record.error).toContain("401");
     expect(record.failure?.step).toBe("dispatch");
+    expect(store.listEvents(record.id).at(-1)?.source).toBe("dispatch");
   });
 
   it("keeps the previous status when a poll fails", async () => {
@@ -191,6 +195,7 @@ describe("build service resilience", () => {
     expect(refreshed?.status).toBe("failed");
     expect(refreshed?.error).toContain("超时");
     expect(refreshed?.failure?.step).toBe("timeout");
+    expect(store.listEvents("b-timeout").at(-1)?.source).toBe("timeout");
   });
 
   it("keeps polling a running build after a restart", async () => {

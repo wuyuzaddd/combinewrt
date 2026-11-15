@@ -60,4 +60,35 @@ describe("build store", () => {
     expect(store.get("b")?.config?.hostname).toBe("host-b");
     db.close();
   });
+
+  it("records creation and status transitions as events", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"));
+
+    store.update("a", { status: "running" }, undefined, "poll");
+    store.update("a", { status: "cancelled" }, undefined, "cancel");
+    store.update("a", { logTail: "still here" });
+
+    expect(store.listEvents("a").map((event) => [event.fromStatus, event.toStatus, event.source])).toEqual([
+      [null, "queued", "create"],
+      ["queued", "running", "poll"],
+      ["running", "cancelled", "cancel"],
+    ]);
+    db.close();
+  });
+
+  it("does not write an event when the optimistic update loses the race", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"));
+
+    store.update("a", { status: "running" }, "2000-01-01T00:00:00.000Z");
+
+    expect(store.get("a")?.status).toBe("queued");
+    expect(store.listEvents("a")).toHaveLength(1);
+    db.close();
+  });
 });

@@ -3,6 +3,17 @@ import type { PackageSource } from "../catalog/types";
 
 export type BuildStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
+export type BuildEventSource = "create" | "dispatch" | "poll" | "cancel" | "timeout";
+
+export interface BuildEvent {
+  id: number;
+  buildId: string;
+  fromStatus: BuildStatus | null;
+  toStatus: BuildStatus;
+  source: BuildEventSource;
+  createdAt: string;
+}
+
 export const BUILD_STEPS = [
   "prepare-plan",
   "install-tools",

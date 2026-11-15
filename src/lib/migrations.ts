@@ -163,4 +163,16 @@ export const MIGRATIONS: Migration[] = [
     version: "008_build_failure",
     sql: `ALTER TABLE builds ADD COLUMN failure_json TEXT;`,
   },
+  {
+    version: "009_build_events",
+    sql: `CREATE TABLE build_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      build_id TEXT NOT NULL REFERENCES builds(id) ON DELETE CASCADE,
+      from_status TEXT,
+      to_status TEXT NOT NULL,
+      source TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX build_events_build_id ON build_events(build_id, id);`,
+  },
 ];

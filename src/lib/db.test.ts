@@ -28,6 +28,7 @@ describe("database bootstrap", () => {
       "006_package_sources",
       "007_base_versions",
       "008_build_failure",
+      "009_build_events",
     ]);
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
