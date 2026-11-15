@@ -159,4 +159,8 @@ export const MIGRATIONS: Migration[] = [
       ON CONFLICT (key) DO NOTHING;
     `,
   },
+  {
+    version: "008_build_failure",
+    sql: `ALTER TABLE builds ADD COLUMN failure_json TEXT;`,
+  },
 ];

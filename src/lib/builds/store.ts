@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { BuildConfig, BuildPlan } from "../build/types";
-import type { BuildRecord, BuildStatus } from "./types";
+import type { BuildFailure, BuildRecord, BuildStatus } from "./types";
 
 interface BuildRow {
   id: string;
@@ -11,6 +11,7 @@ interface BuildRow {
   adapter: string;
   log_tail: string;
   error: string | null;
+  failure_json: string | null;
   artifact_name: string | null;
   artifact_sha256: string | null;
   artifact_size: number | null;
@@ -28,6 +29,7 @@ function toRecord(row: BuildRow): BuildRecord {
     adapter: row.adapter as "github" | "fake",
     logTail: row.log_tail,
     error: row.error,
+    failure: row.failure_json ? (JSON.parse(row.failure_json) as BuildFailure) : null,
     artifactName: row.artifact_name,
     artifactSha256: row.artifact_sha256,
     artifactSize: row.artifact_size,
@@ -47,7 +49,7 @@ export interface BuildStore {
     patch: Partial<
       Pick<
         BuildRecord,
-        "status" | "runId" | "logTail" | "error" | "artifactName" | "artifactSha256" | "artifactSize"
+        "status" | "runId" | "logTail" | "error" | "failure" | "artifactName" | "artifactSha256" | "artifactSize"
       >
     >,
     expectedUpdatedAt?: string,
@@ -63,8 +65,8 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
   return {
     create(build) {
       db.prepare(
-        `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, artifact_name, artifact_sha256, artifact_size, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, failure_json, artifact_name, artifact_sha256, artifact_size, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         build.id,
         JSON.stringify(build.plan),
@@ -74,6 +76,7 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
         build.adapter,
         build.logTail,
         build.error,
+        build.failure ? JSON.stringify(build.failure) : null,
         build.artifactName,
         build.artifactSha256 ?? null,
         build.artifactSize ?? null,
@@ -110,13 +113,14 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
       }
       const next: BuildRecord = { ...current, ...patch, updatedAt };
       const sql = expectedUpdatedAt
-        ? "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, updated_at = ? WHERE id = ? AND updated_at = ?"
-        : "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, updated_at = ? WHERE id = ?";
+        ? "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, failure_json = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, updated_at = ? WHERE id = ? AND updated_at = ?"
+        : "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, failure_json = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, updated_at = ? WHERE id = ?";
       const params = [
         next.status,
         next.runId,
         next.logTail,
         next.error,
+        next.failure ? JSON.stringify(next.failure) : null,
         next.artifactName,
         next.artifactSha256 ?? null,
         next.artifactSize ?? null,

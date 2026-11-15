@@ -18,13 +18,30 @@ jobs:
         run: |
           set -euo pipefail
           jq '.client_payload' "$GITHUB_EVENT_PATH" > plan.json
-          jq -e '.artifactName and .imageType and .profileId and .baseVersion' plan.json >/dev/null
+          fail() {
+            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
+              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
+              | sed 's/^/COMBINEWRT_FAILURE=/'
+            exit 1
+          }
+          for field in artifactName imageType profileId baseVersion; do
+            jq -e --arg field "$field" 'has($field) and (.[$field] | type == "string") and (.[$field] | length > 0)' plan.json >/dev/null \
+              || fail prepare-plan "" "" "" "client_payload is missing $field"
+          done
           echo "PLAN_ARTIFACT=$(jq -r .artifactName plan.json)" >> "$GITHUB_ENV"
 
       - name: Install tools
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq zstd jq qemu-utils genisoimage e2fsprogs squashfs-tools
+          set -euo pipefail
+          fail() {
+            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
+              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
+              | sed 's/^/COMBINEWRT_FAILURE=/'
+            exit 1
+          }
+          if ! sudo apt-get update -qq || ! sudo apt-get install -y -qq zstd jq qemu-utils genisoimage e2fsprogs squashfs-tools; then
+            fail install-tools "" "" "" "failed to install ImageBuilder dependencies"
+          fi
 
       - name: Download ImageBuilder
         run: |
@@ -32,16 +49,32 @@ jobs:
           BASE=$(jq -r .baseVersion plan.json)
           URL="https://downloads.immortalwrt.org/releases/${BASE}/targets/x86/64/immortalwrt-imagebuilder-${BASE}-x86-64.Linux-x86_64.tar.zst"
           echo "Downloading $URL"
-          curl -fL --retry 3 --retry-delay 5 -o ib.tar.zst "$URL"
+          fail() {
+            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
+              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
+              | sed 's/^/COMBINEWRT_FAILURE=/'
+            exit 1
+          }
+          if ! curl -fL --retry 3 --retry-delay 5 -o ib.tar.zst "$URL"; then
+            fail download-imagebuilder "" "" "$BASE" "failed to download $URL"
+          fi
           ls -l ib.tar.zst
           mkdir ib
-          tar --zstd -xf ib.tar.zst -C ib --strip-components=1
+          if ! tar --zstd -xf ib.tar.zst -C ib --strip-components=1; then
+            fail download-imagebuilder "" "" "$BASE" "failed to extract the ImageBuilder archive"
+          fi
 
       - name: Download pinned third-party packages
         run: |
           set -euo pipefail
           cd ib
           mkdir -p packages
+          fail() {
+            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
+              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
+              | sed 's/^/COMBINEWRT_FAILURE=/'
+            exit 1
+          }
           APK_BIN="$PWD/staging_dir/host/bin/apk"
           COUNT=$(jq '.composition.downloads // [] | length' ../plan.json)
           echo "COMBINEWRT_DOWNLOADS=$COUNT"
@@ -51,20 +84,25 @@ jobs:
             sha=$(echo "$download" | jq -r .sha256)
             name=$(echo "$download" | jq -r .name)
             version=$(echo "$download" | jq -r .version)
+            source=$(echo "$download" | jq -r .source)
             case "$filename" in
               *.apk) ;;
-              *) echo "refusing unexpected package filename: $filename" >&2; exit 1 ;;
+              *) fail download-packages "$name" "$source" "$version" "unexpected package filename: $filename" ;;
             esac
             case "$filename" in
-              */*|*..*) echo "refusing unsafe package filename: $filename" >&2; exit 1 ;;
+              */*|*..*) fail download-packages "$name" "$source" "$version" "unsafe package filename: $filename" ;;
             esac
             echo "downloading $name $version from pinned source: $filename"
-            curl -fL --retry 3 --retry-delay 5 -o "packages/$filename" "$url"
+            if ! curl -fL --retry 3 --retry-delay 5 -o "packages/$filename" "$url"; then
+              fail download-packages "$name" "$source" "$version" "failed to download $filename"
+            fi
             # The feed index's "hashes" value is the APK package hash that apk
             # itself computes (a sha256 over the signed package), not the
             # sha256 of the .apk file bytes. Rebuilding a one-package index
             # with apk is the authoritative check against the pinned index.
-            "$APK_BIN" verify --allow-untrusted "packages/$filename" >/dev/null
+            if ! "$APK_BIN" verify --allow-untrusted "packages/$filename" >/dev/null; then
+              fail download-packages "$name" "$source" "$version" "apk verify failed for $filename"
+            fi
             verify_dir=$(mktemp -d)
             cp "packages/$filename" "$verify_dir/"
             (
@@ -76,8 +114,7 @@ jobs:
             actual=$(cat "$verify_dir/actual")
             rm -rf "$verify_dir"
             if [ "$actual" != "$sha" ]; then
-              echo "package sha256 does not match pinned index: $filename expected=$sha actual=$actual" >&2
-              exit 1
+              fail download-packages "$name" "$source" "$version" "package sha256 does not match pinned index: $filename expected=$sha actual=$actual"
             fi
             echo "verified pinned package sha256: $filename $actual"
             echo "COMBINEWRT_DOWNLOAD_SHA256=$filename $(sha256sum "packages/$filename" | cut -d' ' -f1)"
@@ -94,10 +131,14 @@ jobs:
           fi
           rm -f packages/packages.adb
           IB_ROOT="$PWD"
-          (cd packages && "$IB_ROOT/staging_dir/host/bin/apk" mkndx --allow-untrusted \
+          if ! (cd packages && "$IB_ROOT/staging_dir/host/bin/apk" mkndx --allow-untrusted \
             --keys-dir "$IB_ROOT/keys" --sign-key "$IB_ROOT/keys/local-private-key.pem" \
-            --output packages.adb ./*.apk)
-          staging_dir/host/bin/apk verify --keys-dir "$IB_ROOT/keys" packages/packages.adb
+            --output packages.adb ./*.apk); then
+            fail download-packages "" "" "" "failed to rebuild the local APK index"
+          fi
+          if ! staging_dir/host/bin/apk verify --keys-dir "$IB_ROOT/keys" packages/packages.adb; then
+            fail download-packages "" "" "" "failed to verify the local APK index"
+          fi
           ls -l packages/*.apk | head -20
           echo "local package index rebuilt and signed with pinned apks"
 
@@ -105,6 +146,12 @@ jobs:
         run: |
           set -euo pipefail
           cd ib
+          fail() {
+            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
+              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
+              | sed 's/^/COMBINEWRT_FAILURE=/'
+            exit 1
+          }
           jq -c '.files[]' ../plan.json | while IFS= read -r file; do
             path=$(echo "$file" | jq -r .path)
             mode=$(echo "$file" | jq -r '.mode // 420')
@@ -124,8 +171,16 @@ jobs:
           echo "COMBINEWRT_PROFILE=$PROFILE"
           echo "COMBINEWRT_PACKAGES=$PACKAGES"
           echo "COMBINEWRT_MAKE=make -j$(nproc) image PROFILE=\"$PROFILE\" PACKAGES=\"$PACKAGES\" FILES=files"
-          make -j"$(nproc)" image PROFILE="$PROFILE" PACKAGES="$PACKAGES" FILES=files \
-            CONFIG_ISO_IMAGES= CONFIG_QCOW2_IMAGES= CONFIG_VDI_IMAGES= CONFIG_VMDK_IMAGES= CONFIG_VHDX_IMAGES= 2>&1 | tee build.log
+                    fail() {
+            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
+              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
+              | sed 's/^/COMBINEWRT_FAILURE=/'
+            exit 1
+          }
+          if ! make -j"$(nproc)" image PROFILE="$PROFILE" PACKAGES="$PACKAGES" FILES=files \
+            CONFIG_ISO_IMAGES= CONFIG_QCOW2_IMAGES= CONFIG_VDI_IMAGES= CONFIG_VMDK_IMAGES= CONFIG_VHDX_IMAGES= 2>&1 | tee build.log; then
+            fail build-image "" "" "$(jq -r .baseVersion ../plan.json)" "make image failed; see the workflow log"
+          fi
 
       - name: Assert top-level packages
         run: |
@@ -133,10 +188,15 @@ jobs:
           cd ib
           IMAGE_TYPE=$(jq -r .imageType ../plan.json)
           ARTIFACT=$(jq -r .artifactName ../plan.json)
+          fail() {
+            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
+              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
+              | sed 's/^/COMBINEWRT_FAILURE=/'
+            exit 1
+          }
           IMG=$(find bin/targets -type f -name "$ARTIFACT" | head -1)
           if [ -z "$IMG" ]; then
-            echo "expected artifact $ARTIFACT was not produced" >&2
-            exit 1
+            fail package-artifact "" "" "" "expected artifact $ARTIFACT was not produced"
           fi
           ROOT=$(mktemp -d)
           CLEANUP_LOOP=""
@@ -184,15 +244,14 @@ jobs:
           esac
           jq -r '.composition.topLevelPackages[]?' ../plan.json > /tmp/combinewrt-top-level.txt
           if [ ! -s /tmp/combinewrt-top-level.txt ]; then
-            echo "plan has no top-level packages" >&2
-            exit 1
+            fail assert-packages "" "" "" "plan has no top-level packages"
           fi
           while IFS= read -r pkg; do
             [ -z "$pkg" ] && continue
+            source=$(jq -r --arg pkg "$pkg" '[.composition.downloads[]? | select(.name == $pkg) | .source] | first // "official"' ../plan.json)
             if ! sudo staging_dir/host/bin/apk --root "$ROOT" info -e "$pkg" >/dev/null 2>&1; then
               echo "COMBINEWRT_FAILED_PACKAGE=$pkg"
-              echo "package $pkg is missing from the generated image" >&2
-              exit 1
+              fail assert-packages "$pkg" "$source" "" "package $pkg is missing from the generated image"
             fi
             echo "verified package: $pkg"
           done < /tmp/combinewrt-top-level.txt
@@ -202,11 +261,16 @@ jobs:
           set -euo pipefail
           cd ib
           ARTIFACT=$(jq -r .artifactName ../plan.json)
+                    fail() {
+            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
+              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
+              | sed 's/^/COMBINEWRT_FAILURE=/'
+            exit 1
+          }
           IMG=$(find bin/targets -type f -name "$ARTIFACT" | head -1)
           if [ -z "$IMG" ]; then
-            echo "expected artifact $ARTIFACT was not produced" >&2
             find bin/targets -type f | sort >&2
-            exit 1
+            fail package-artifact "" "" "" "expected artifact $ARTIFACT was not produced"
           fi
           gzip -t "$IMG"
           SHA=$(sha256sum "$IMG" | cut -d' ' -f1)
