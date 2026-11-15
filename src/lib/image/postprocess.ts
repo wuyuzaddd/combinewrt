@@ -239,3 +239,42 @@ export function assertArtifactSize(
     throw new ArtifactSizeLimitError(actualBytes, limitBytes);
   }
 }
+
+/**
+ * Manifest artifact sizes, structurally typed so this module does not import
+ * the build package (`BuildManifest` in `lib/builds/github.ts` satisfies it).
+ */
+export interface ManifestArtifactSizes {
+  size?: number;
+  raw?: { size?: number } | null;
+  converted?: { size?: number } | null;
+}
+
+/**
+ * Check every size a V2 manifest records (top-level, raw and converted) against
+ * the per-artifact cap. The converted file is the one actually archived, but
+ * the raw image is capped too so a qemu-img conversion cannot sneak a 3 GiB
+ * source past the limit on the way to a smaller VMDK.
+ */
+export function checkManifestArtifactSizes(
+  manifest: ManifestArtifactSizes,
+  limitBytes: number = ARTIFACT_SIZE_LIMIT_BYTES,
+): ArtifactSizeCheck {
+  const sizes = [manifest.size, manifest.raw?.size, manifest.converted?.size].filter(
+    (value): value is number => typeof value === "number",
+  );
+  for (const actualBytes of sizes) {
+    const check = checkArtifactSize(actualBytes, limitBytes);
+    if (!check.ok) return check;
+  }
+  return { ok: true, actualBytes: sizes.length > 0 ? Math.max(...sizes) : 0, limitBytes };
+}
+
+/** Verify a manifest's recorded artifact sizes before archiving its output. */
+export function assertManifestArtifactSizes(
+  manifest: ManifestArtifactSizes,
+  limitBytes: number = ARTIFACT_SIZE_LIMIT_BYTES,
+): void {
+  const check = checkManifestArtifactSizes(manifest, limitBytes);
+  if (!check.ok) throw new ArtifactSizeLimitError(check.actualBytes, check.limitBytes);
+}
