@@ -44,6 +44,7 @@ const documentSchema = z.object({
 export function createSourceRegistry(entries: readonly SourceRegistryEntry[]): SourceRegistry {
   const list = entries.map((entry) => ({ ...entry }));
   return {
+    list: () => list,
     lookup(name, query = {}) {
       const matches = list.filter((entry) => entry.name === name);
       if (query.source) {
@@ -54,7 +55,7 @@ export function createSourceRegistry(entries: readonly SourceRegistryEntry[]): S
   };
 }
 
-export const EMPTY_SOURCE_REGISTRY: SourceRegistry = { lookup: () => null };
+export const EMPTY_SOURCE_REGISTRY: SourceRegistry = { lookup: () => null, list: () => [] };
 
 /** Parse a registry document; every schema violation is reported at once. */
 export function parseSourceRegistry(raw: unknown): SourceRegistry {
