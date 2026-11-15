@@ -51,7 +51,8 @@ jobs:
           echo "PLAN_ARTIFACT=$(jq -r .artifactName plan.json)" >> "$GITHUB_ENV"
           if [ "$SCHEMA" = "2" ]; then
             TARGET_ID=$(jq -r '.composition.v2.target.id // ""' plan.json)
-            echo "COMBINEWRT_CONTEXT=$(jq -c '.composition.v2 | {target:.target.id,variant:(.imageVariant | "\(.boot)-\(.filesystem)-\(.artifact)"),engine:.engine}' plan.json)" >> "$GITHUB_ENV"
+            export COMBINEWRT_CONTEXT=$(jq -c '.composition.v2 | {target:.target.id,variant:(.imageVariant | "\(.boot)-\(.filesystem)-\(.artifact)"),engine:.engine}' plan.json)
+            echo "COMBINEWRT_CONTEXT=$COMBINEWRT_CONTEXT" >> "$GITHUB_ENV"
             echo "COMBINEWRT_TARGET=$TARGET_ID"
             echo "COMBINEWRT_KERNEL_LINE=$(jq -r '.composition.v2.kernelLine.id // ""' plan.json)"
             echo "COMBINEWRT_VARIANT=$(jq -r '.composition.v2.imageVariant | "\(.boot)-\(.filesystem)-\(.artifact)"' plan.json)"
