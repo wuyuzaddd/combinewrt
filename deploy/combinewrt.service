@@ -1,0 +1,29 @@
+[Unit]
+Description=combinewrt firmware build site
+Documentation=file:///opt/combinewrt/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=combinewrt
+Group=combinewrt
+WorkingDirectory=/opt/combinewrt
+EnvironmentFile=/etc/combinewrt.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGINT
+
+# The service only needs its own data and the Next.js runtime cache.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/combinewrt /opt/combinewrt/.next/cache
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,55 @@
+# /etc/nginx/sites-enabled/combinewrt.example
+#
+# Reverse proxy for a single combinewrt Node process on 127.0.0.1:3000.
+# Keep the Host and X-Forwarded-Proto headers: the app uses APP_ORIGIN for
+# cookie security and redirects.
+
+upstream combinewrt {
+    server 127.0.0.1:3000;
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    server_name firmware.example.lan;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name firmware.example.lan;
+
+    ssl_certificate     /etc/letsencrypt/live/firmware.example.lan/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/firmware.example.lan/privkey.pem;
+
+    # Artifact downloads can be large.
+    client_max_body_size 1m;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy same-origin always;
+
+    location / {
+        proxy_pass http://combinewrt;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+
+        # Session cookies are set by the app; do not rewrite them here.
+        # Streaming downloads should not be buffered to disk.
+        proxy_buffering off;
+    }
+
+    location = /api/health {
+        proxy_pass http://combinewrt;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        access_log off;
+    }
+}

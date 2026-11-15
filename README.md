@@ -155,6 +155,7 @@ COMBINEWRT_FAILURE={"step":"download-packages","package":"lucky","source":"dllki
 5. **备份**：定期备份 SQLite；WAL 模式下用 `sqlite3 data/combinewrt.db ".backup backup.db"`，不要只拷主文件。
 6. **公开构建仓库**：创建 public 的 build 仓库，放入 `build-workflow/build.yml`；fine-grained PAT 只授予该仓库 `Actions: write`。设置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REPO_TOKEN=github_pat_...`（详见“构建派发”）。PAT 只放在站点服务器的环境变量/secret 中，不下发前端。工作流日志公开，禁止 `echo` 密码，root 密码只以 crypt hash 传给构建。
 7. **产物下载**：构建产物放 workflow artifact（保留 7 天），站点按需缓存到 `ARTIFACT_CACHE_DIR` 并用 token 代理下载；缓存按 `ARTIFACT_RETENTION_DAYS` 清理。不要把大文件提交进 git。
+8. **生产部署**：可直接使用仓库内的 `deploy/combinewrt.service`、`deploy/combinewrt.env.example`、`deploy/nginx-combinewrt.conf.example` 与 `deploy/backup-db.sh`；安装、升级、备份/恢复与保留策略见 [`deploy/README.md`](deploy/README.md)。健康检查为 `GET /api/health`。
 
 ## 安全说明
 
