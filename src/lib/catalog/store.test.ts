@@ -135,7 +135,7 @@ describe("catalog store", () => {
         ],
       }),
     );
-    expect(store.sourceCounts(snapshot.id)).toEqual({ official: 1, dllkids: 2, supplement: 0 });
+    expect(store.sourceCounts(snapshot.id)).toEqual({ official: 1, dllkids: 2, supplement: 0, extension: 0 });
     expect(store.getPackageCandidates(snapshot.id, "lucky").map((item) => item.source)).toEqual([
       "official",
       "dllkids",

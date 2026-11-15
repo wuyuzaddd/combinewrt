@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "themes": [
+    {
+      "package": "luci-theme-argon",
+      "title": "Argon",
+      "description": "深色玻璃质感主题，适合 NAS 与桌面浏览。",
+      "preview": "/themes/argon.svg",
+      "luciVersions": ["24.10", "25.12"],
+      "default": true
+    },
+    {
+      "package": "luci-theme-aurora",
+      "title": "Aurora",
+      "description": "极光渐变主题，25.12 起可用。",
+      "preview": "/themes/aurora.svg",
+      "luciVersions": ["25.12"],
+      "default": false
+    }
+  ]
+}

@@ -9,10 +9,19 @@ import type { PackageSource } from "../catalog/types";
 export type AcquisitionStrategy = "prebuilt" | "rebuild" | "blocked";
 
 /**
- * The four acquisition layers V2 knows about. The first three match the V1
- * catalog sources; `extension` is the curated extension feed (ticket 12).
+ * The four acquisition layers V2 knows about: the three V1 catalog sources plus
+ * `extension`, the curated extension feed (ticket 12).
  */
-export type SourceLayer = PackageSource | "extension";
+export type SourceLayer = PackageSource;
+
+/**
+ * How much of an extension package's upstream text has been reviewed (ticket
+ * 12, ADR 0003). This is display metadata only: it never changes the source,
+ * licence, ABI or `publicAllowed` decisions.
+ */
+export type I18nStatus = "curated" | "auto" | "unreviewed";
+
+export const I18N_STATUSES: readonly I18nStatus[] = ["curated", "auto", "unreviewed"];
 
 /**
  * One package as registered in `config/sources/registry.json`. Ticket 12 owns
@@ -39,6 +48,20 @@ export interface SourceRegistryEntry {
   abi?: string | null;
   /** Source patches applied before building (ticket 12). */
   patches?: readonly string[];
+
+  // ---- extension layer (ticket 12) -------------------------------------
+  /** Upstream GitHub repository (`owner/name`) an extension package is built from. */
+  repo?: string | null;
+  /** Pinned 40-hex upstream commit the extension package is built from. */
+  ref?: string | null;
+  /** Package directory inside `repo`; `.` means the repository root. */
+  subdir?: string | null;
+  /** sha256 of `recipe`, so the acquisition identity cannot drift silently. */
+  recipeHash?: string | null;
+  /** How much of the upstream text is curated; metadata only (ADR 0003). */
+  i18nStatus?: I18nStatus;
+  /** Marks an extension package the catalog surfaces as experimental. */
+  experimental?: boolean;
 }
 
 export interface SourceQuery {
@@ -61,4 +84,16 @@ export interface SourceRegistry {
    * its rebuild recipe from the `supplement` layer (ticket 11).
    */
   list(): readonly SourceRegistryEntry[];
+}
+
+/** A single registry problem, reported with the JSON path that caused it. */
+export interface SourceRegistryViolation {
+  path: string;
+  message: string;
+}
+
+/** Result of validating a registry document: parsed entries plus every problem. */
+export interface ParsedSourceRegistry {
+  entries: SourceRegistryEntry[];
+  violations: SourceRegistryViolation[];
 }

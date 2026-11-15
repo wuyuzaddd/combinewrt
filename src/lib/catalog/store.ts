@@ -298,7 +298,7 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
     const rows = db
       .prepare("SELECT source, COUNT(*) AS count FROM catalog_packages WHERE snapshot_id = ? GROUP BY source")
       .all(snapshotId) as Array<{ source: PackageSource; count: number }>;
-    const counts: Record<PackageSource, number> = { official: 0, dllkids: 0, supplement: 0 };
+    const counts = Object.fromEntries(PACKAGE_SOURCES.map((source) => [source, 0])) as Record<PackageSource, number>;
     for (const row of rows) counts[row.source] = Number(row.count);
     return counts;
   }

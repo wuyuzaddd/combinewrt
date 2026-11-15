@@ -1,4 +1,4 @@
-import type { SourcePins } from "../catalog/types";
+import type { PackageSource, SourcePins } from "../catalog/types";
 import type { Target } from "../domain/types";
 import type { BuildVisibility, GeneratedFile } from "./types";
 
@@ -120,10 +120,10 @@ export interface ImageFeedPlanInput {
   kernel?: SourcePins["kernel"];
   visibility: BuildVisibility;
   /** Resolved plan entries; used to detect selected extension packages. */
-  resolved?: readonly { packageSource: string | null }[];
+  resolved?: readonly { packageSource: PackageSource | null }[];
   /** Download entries; the same detection for old plans without `resolved`. */
   downloads?: readonly { source: string }[];
-  /** Explicit override for callers before `PackageSource` grows `extension`. */
+  /** Explicit override when a caller already knows the extension feed is wanted. */
   extensionSelected?: boolean;
 }
 
@@ -165,9 +165,7 @@ function projectFeedUrl(
 
 function selectsExtension(input: ImageFeedPlanInput): boolean {
   if (input.extensionSelected !== undefined) return input.extensionSelected;
-  const fromResolved = (input.resolved ?? []).some(
-    (entry) => (entry.packageSource as string | null) === "extension",
-  );
+  const fromResolved = (input.resolved ?? []).some((entry) => entry.packageSource === "extension");
   const fromDownloads = (input.downloads ?? []).some((entry) => entry.source === "extension");
   return fromResolved || fromDownloads;
 }
