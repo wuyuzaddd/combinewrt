@@ -282,17 +282,29 @@ jobs:
           APK=staging_dir/host/bin/apk
           ROOT=$(mktemp -d)
           trap 'rm -rf "$ROOT"' EXIT
-          REPO_ARGS=(--keys-dir "$PWD/keys")
+          # apk-tools 3 will not run against a bare mktemp root: it needs the
+          # world file and the installed database directory to exist, and it
+          # does not create them itself (not even with --initdb). Bootstrap
+          # them so the preflight resolves against an empty throwaway rootfs.
+          mkdir -p "$ROOT/etc/apk" "$ROOT/lib/apk/db" "$ROOT/var/cache/apk" "$PWD/preflight-cache"
+          : > "$ROOT/etc/apk/world"
+          REPO_ARGS=(--root "$ROOT" --arch "$FEED_TARGET" \
+            --cache-dir "$PWD/preflight-cache" \
+            --repositories-file "$PWD/preflight.repositories" \
+            --keys-dir "$PWD/keys")
           # The pinned third-party packages were re-indexed and signed above;
           # trust it through keys/ and never by disabling signature checks.
           if [ -f packages/packages.adb ]; then
             REPO_ARGS+=(--repository "$PWD/packages")
           fi
           echo "COMBINEWRT_PREFLIGHT_PACKAGES=$(jq -r '.composition.preflight.packages | length' ../plan.json)"
-          if ! "$APK" add --simulate --no-progress --initdb --root "$ROOT" \
-            --arch "$FEED_TARGET" --cache-dir "$PWD/preflight-cache" \
-            --repositories-file "$PWD/preflight.repositories" \
-            "${REPO_ARGS[@]}" $PACKAGES 2>&1 | tee preflight.log; then
+          # apk add only reads indexes from the cache, so refresh them first
+          # with the same repositories and keys; otherwise an empty cache looks
+          # exactly like "package not found".
+          if ! "$APK" update --no-progress "${REPO_ARGS[@]}" 2>&1 | tee preflight-update.log; then
+            fail preflight "" "" "" "failed to refresh the package indexes for the installability preflight"
+          fi
+          if ! "$APK" add --simulate --no-progress "${REPO_ARGS[@]}" $PACKAGES 2>&1 | tee preflight.log; then
             # apk prints the unresolved world entries as
             # "  name (reason):" lines under "unable to select packages".
             MISSING=$(awk '
