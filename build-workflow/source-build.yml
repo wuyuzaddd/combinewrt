@@ -243,6 +243,13 @@ jobs:
             fi
           fi
 
+      - name: Save download cache
+        if: steps.dl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: source/dl
+          key: ${{ env.DL_CACHE_KEY }}
+
       - name: Build image
         run: |
           set -euo pipefail
@@ -254,6 +261,21 @@ jobs:
             fail build "" "$SOURCE_REF" "$KERNEL_LINE" "make failed; see build.log."
           fi
           echo "COMBINEWRT_BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Save build staging cache
+        if: success() && steps.staging-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            source/staging_dir/host
+            source/staging_dir/toolchain-*
+          key: ${{ env.STAGING_CACHE_KEY }}
+      - name: Save compiler cache
+        if: success() && steps.ccache-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.ccache
+          key: source-build-ccache-${{ env.SOURCE_KEY }}-${{ env.CONFIG_HASH }}
 
       - name: Package image and manifest
         env:
@@ -279,8 +301,16 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/out"
           artifact="$GITHUB_WORKSPACE/out/$ARTIFACT_NAME"
           cp "$image" "$artifact"
-          if ! gzip -t "$artifact"; then
-            fail package "" "$SOURCE_REF" "$KERNEL_LINE" "gzip integrity check failed for ${ARTIFACT_NAME}."
+          if ! gzip -t "$artifact" 2>"$RUNNER_TEMP/gzip.err"; then
+            # Some x86 disk images carry padding after the gzip member. gzip
+            # verifies the stream CRC and then only warns about that padding,
+            # so accept exactly that case and reject any other damage.
+            if grep -q "trailing garbage ignored" "$RUNNER_TEMP/gzip.err"; then
+              echo "gzip: stream verified; padding after the gzip member ignored"
+            else
+              cat "$RUNNER_TEMP/gzip.err" >&2
+              fail package "" "$SOURCE_REF" "$KERNEL_LINE" "gzip integrity check failed for ${ARTIFACT_NAME}."
+            fi
           fi
           sha=$(sha256sum "$artifact" | awk '{print $1}')
           size=$(stat -c%s "$artifact")
@@ -319,18 +349,3 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: Save download cache
-        if: steps.dl-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: source/dl
-          key: ${{ env.DL_CACHE_KEY }}
-
-      - name: Save build staging cache
-        if: success() && steps.staging-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            source/staging_dir/host
-            source/staging_dir/toolchain-*
-          key: ${{ env.STAGING_CACHE_KEY }}
