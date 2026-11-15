@@ -1,5 +1,14 @@
 import { dirname, join } from "node:path";
 import { PASSWORD_HASH_PATTERN } from "./auth/password-format";
+import {
+  DEFAULT_DLLKIDS_FEED_URL,
+  DEFAULT_DLLKIDS_INDEX_SHA256,
+  DEFAULT_FEED_BASE_URL,
+  DEFAULT_FEED_KEY_FINGERPRINT,
+  DEFAULT_FEED_KEY_URL,
+  OFFICIAL_FEED_BASE,
+  type ResolvedImageFeedOptions,
+} from "./build/feeds";
 
 export interface AppConfig {
   sessionSecret: string;
@@ -15,6 +24,8 @@ export interface AppConfig {
   supplementKeyUrl: string;
   supplementFeedCommit: string | null;
   supplementKeyFingerprint: string;
+  /** Project image feed set configuration (ticket 09). */
+  imageFeed: ImageFeedConfig;
   /**
    * Upstream repository the supplement packages are rebuilt from. The watch
    * observes its `supplementSourceRef` head and dispatches a build for that
@@ -53,8 +64,90 @@ export class ConfigError extends Error {
   }
 }
 
+/**
+ * Image feed set configuration (ticket 09): the official base (or
+ * `IMMORTALWRT_MIRROR` override) plus the project supplement/extension feeds.
+ */
+export type ImageFeedConfig = ResolvedImageFeedOptions;
+
+function parseImageFeedConfig(
+  env: Record<string, string | undefined>,
+  issues: string[],
+): ImageFeedConfig {
+  const mirrorRaw = env.IMMORTALWRT_MIRROR?.trim() ?? "";
+  let officialMirror: string | null = null;
+  if (mirrorRaw) {
+    if (!/^https?:\/\//.test(mirrorRaw)) {
+      issues.push("IMMORTALWRT_MIRROR must be an http:// or https:// URL");
+    } else {
+      officialMirror = mirrorRaw.replace(/\/+$/, "");
+    }
+  }
+
+  const feedBaseUrl = (env.COMBINEWRT_FEED_BASE_URL?.trim() || DEFAULT_FEED_BASE_URL).replace(/\/+$/, "");
+  if (!/^https?:\/\//.test(feedBaseUrl)) {
+    issues.push("COMBINEWRT_FEED_BASE_URL must be an http:// or https:// URL");
+  }
+
+  const keyUrl = env.SUPPLEMENT_KEY_URL?.trim() || DEFAULT_FEED_KEY_URL;
+  if (!/^https?:\/\//.test(keyUrl)) {
+    issues.push("SUPPLEMENT_KEY_URL must be an http:// or https:// URL");
+  }
+
+  const keyFingerprint = env.SUPPLEMENT_KEY_FINGERPRINT?.trim() || DEFAULT_FEED_KEY_FINGERPRINT;
+  if (!/^[0-9a-f]{64}$/.test(keyFingerprint)) {
+    issues.push("SUPPLEMENT_KEY_FINGERPRINT must be a 64 character lowercase sha256");
+  }
+
+  const optionalSha = (raw: string | undefined, name: string): string | null => {
+    const value = raw?.trim() ?? "";
+    if (!value) return null;
+    if (!/^[0-9a-f]{64}$/.test(value)) {
+      issues.push(`${name} must be a 64 character lowercase sha256 or empty`);
+      return null;
+    }
+    return value;
+  };
+
+  const dllkidsFeedUrl = env.DLLKIDS_FEED_URL?.trim() || DEFAULT_DLLKIDS_FEED_URL;
+  if (!/^https?:\/\//.test(dllkidsFeedUrl)) {
+    issues.push("DLLKIDS_FEED_URL must be an http:// or https:// URL");
+  }
+  const dllkidsIndexSha256 = env.DLLKIDS_INDEX_SHA256?.trim() || DEFAULT_DLLKIDS_INDEX_SHA256;
+  if (!/^[0-9a-f]{64}$/.test(dllkidsIndexSha256)) {
+    issues.push("DLLKIDS_INDEX_SHA256 must be a 64 character lowercase sha256");
+  }
+
+  return {
+    officialBaseUrl: officialMirror ?? OFFICIAL_FEED_BASE,
+    officialMirror,
+    feedBaseUrl,
+    keyUrl,
+    keyFingerprint,
+    supplementIndexSha256: optionalSha(env.SUPPLEMENT_INDEX_SHA256, "SUPPLEMENT_INDEX_SHA256"),
+    extensionIndexSha256: optionalSha(env.EXTENSION_INDEX_SHA256, "EXTENSION_INDEX_SHA256"),
+    dllkidsFeedUrl,
+    dllkidsIndexSha256,
+  };
+}
+
+/**
+ * Read only the image feed variables. Kept separate from `loadConfig` so plan
+ * preparation does not require the full session/build environment (route tests
+ * deliberately do not set SESSION_SECRET).
+ */
+export function loadImageFeedConfig(
+  env: Record<string, string | undefined> = process.env,
+): ImageFeedConfig {
+  const issues: string[] = [];
+  const config = parseImageFeedConfig(env, issues);
+  if (issues.length > 0) throw new ConfigError(issues);
+  return config;
+}
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   const issues: string[] = [];
+  const imageFeed = parseImageFeedConfig(env, issues);
 
   const sessionSecret = env.SESSION_SECRET?.trim() ?? "";
   if (!sessionSecret) {
@@ -130,40 +223,22 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
   const apkBin = env.APK_BIN?.trim() || "apk";
   const baseVersion = env.IMMORTALWRT_BASE_VERSION?.trim() || "25.12.2";
-  const dllkidsFeedUrl =
-    env.DLLKIDS_FEED_URL?.trim() || "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64";
-  const dllkidsIndexSha256 =
-    env.DLLKIDS_INDEX_SHA256?.trim() || "04a549ed7028b126218002b126cbc60eb3a4bdc3463f15425bce3ba6b91a04ba";
-  if (!/^https?:\/\//.test(dllkidsFeedUrl)) {
-    issues.push("DLLKIDS_FEED_URL must be an http:// or https:// URL");
-  }
-  if (!/^[0-9a-f]{64}$/.test(dllkidsIndexSha256)) {
-    issues.push("DLLKIDS_INDEX_SHA256 must be a 64 character lowercase sha256");
-  }
+  const dllkidsFeedUrl = imageFeed.dllkidsFeedUrl;
+  const dllkidsIndexSha256 = imageFeed.dllkidsIndexSha256;
   // Live supplement channel: version-scoped, but always the current index for
   // this base version. The feed repo also keeps the V1 flat `/x86_64/` copy.
   const supplementFeedUrl =
     env.SUPPLEMENT_FEED_URL?.trim() ||
     `https://wuyuzaddd.github.io/combinewrt-packages/supplement/${baseVersion}/x86_64`;
-  const supplementKeyUrl =
-    env.SUPPLEMENT_KEY_URL?.trim() ||
-    "https://wuyuzaddd.github.io/combinewrt-packages/keys/combinewrt-feed.pub.pem";
+  const supplementKeyUrl = imageFeed.keyUrl;
   if (!/^https?:\/\//.test(supplementFeedUrl)) {
     issues.push("SUPPLEMENT_FEED_URL must be an http:// or https:// URL");
-  }
-  if (!/^https?:\/\//.test(supplementKeyUrl)) {
-    issues.push("SUPPLEMENT_KEY_URL must be an http:// or https:// URL");
   }
   const supplementFeedCommit = env.SUPPLEMENT_FEED_COMMIT?.trim() || null;
   if (supplementFeedCommit && !/^[0-9a-f]{40}$/.test(supplementFeedCommit)) {
     issues.push("SUPPLEMENT_FEED_COMMIT must be a 40 character lowercase git commit or empty");
   }
-  const supplementKeyFingerprint =
-    env.SUPPLEMENT_KEY_FINGERPRINT?.trim() ||
-    "f71286670f3cc138ec4f55e650c6aa4ed2bd7fff7d29851aef2ac53bae72d083";
-  if (!/^[0-9a-f]{64}$/.test(supplementKeyFingerprint)) {
-    issues.push("SUPPLEMENT_KEY_FINGERPRINT must be a 64 character lowercase sha256");
-  }
+  const supplementKeyFingerprint = imageFeed.keyFingerprint;
   const supplementSourceRepo = env.SUPPLEMENT_SOURCE_REPO?.trim() || "kiddin9/op-packages";
   if (!/^[^/\s]+\/[^/\s]+$/.test(supplementSourceRepo)) {
     issues.push("SUPPLEMENT_SOURCE_REPO must be owner/repo");
@@ -208,6 +283,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     supplementKeyUrl,
     supplementFeedCommit,
     supplementKeyFingerprint,
+    imageFeed,
     supplementSourceRepo,
     supplementSourceRef,
     supplementTarget,

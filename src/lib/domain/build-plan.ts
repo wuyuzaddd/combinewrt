@@ -1,4 +1,5 @@
 import type { ImageFormatId, SourcePins } from "../catalog/types";
+import type { ImageFeedSet, ImagePreflight } from "../build/feeds";
 import type { ComplianceReport } from "../compliance";
 import type {
   AppliedPatch,
@@ -86,6 +87,13 @@ export interface BuildPlanV2 extends BuildPlanBase {
   kernelConfig?: string[];
   /** Docker data root when the docker mode is selected (ticket 08). */
   docker?: { dataRoot: string };
+  /**
+   * Image package feed set (ticket 09). Optional so plans written before the
+   * feed set existed still read back; readers treat absence as "unknown".
+   */
+  feedSet?: ImageFeedSet;
+  /** Exact installability preflight the workflow runs before `make image`. */
+  preflight?: ImagePreflight;
 }
 
 export type BuildPlan = BuildPlanV1 | BuildPlanV2;

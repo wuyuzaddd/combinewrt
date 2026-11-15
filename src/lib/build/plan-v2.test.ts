@@ -3,6 +3,7 @@ import { readBuildPlan } from "../domain/build-plan";
 import type { SourcePins } from "../catalog/types";
 import { createSourceRegistry } from "../sources/registry";
 import { createBuildPlan } from "./plan";
+import { DLLKIDS_WRAPPER_PATH, IMAGE_FEED_LIST_PATH, feedPlanPath } from "./feeds";
 import { parseCommonPreset } from "../presets/common";
 import { DOCKER_UCI_PATH } from "./modes";
 import { createBuildPlanV2, type PlanV2Context, type PlanV2Success } from "./plan-v2";
@@ -302,7 +303,11 @@ describe("createBuildPlanV2", () => {
 
   it("writes the controlled mode file only for plans that change the network", async () => {
     const plain = planOf(await createBuildPlanV2(formV2(), contextV2()));
-    expect(plain.files.map((file) => file.path)).toEqual(["files/etc/uci-defaults/99-combinewrt"]);
+    expect(plain.files.map((file) => file.path)).toEqual([
+      "files/etc/uci-defaults/99-combinewrt",
+      feedPlanPath(IMAGE_FEED_LIST_PATH),
+      feedPlanPath(DLLKIDS_WRAPPER_PATH),
+    ]);
 
     const routed = planOf(
       await createBuildPlanV2(
@@ -314,6 +319,71 @@ describe("createBuildPlanV2", () => {
     expect(modeFile?.mode).toBe(0o755);
     expect(modeFile?.content).toContain("uci set network.wan6.proto='dhcpv6'");
     expect(routed.modes?.generatedFiles).toContain("/etc/uci-defaults/90-combinewrt-modes");
+  });
+
+  it("attaches a public feed set with no default dllkids repository", async () => {
+    const plan = planOf(await createBuildPlanV2(formV2({ visibility: "public" }), contextV2()));
+
+    expect(plan.feedSet?.visibility).toBe("public");
+    expect(plan.feedSet?.repositories.map((repository) => repository.id)).toEqual([
+      "official",
+      "supplement",
+    ]);
+    expect(plan.files.map((file) => file.path)).not.toContain(feedPlanPath(DLLKIDS_WRAPPER_PATH));
+    expect(JSON.stringify(plan.feedSet)).not.toContain("dllkids.xyz");
+    expect(plan.preflight?.packages).toEqual(plan.packages);
+    expect(plan.preflight?.allowUntrusted).toBe(false);
+  });
+
+  it("attaches a private feed set with the explicit dllkids wrapper", async () => {
+    const plan = planOf(await createBuildPlanV2(formV2(), contextV2()));
+
+    expect(plan.feedSet?.visibility).toBe("private");
+    expect(plan.feedSet?.repositories.map((repository) => repository.id)).toEqual([
+      "official",
+      "supplement",
+      "dllkids",
+    ]);
+    const wrapper = plan.files.find((file) => file.path === feedPlanPath(DLLKIDS_WRAPPER_PATH));
+    expect(wrapper?.mode).toBe(0o755);
+    expect(wrapper?.content).toContain("apk --allow-untrusted");
+    expect(plan.preflight?.repositories.join("\n")).not.toContain("dllkids.xyz");
+  });
+
+  it("records the actually used mirror in the feed set", async () => {
+    const mirror = "https://mirror.example.test/immortalwrt";
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2({ visibility: "public" }),
+        contextV2({ feedOptions: { officialBaseUrl: mirror, officialMirror: mirror } }),
+      ),
+    );
+
+    expect(plan.feedSet?.officialMirror).toBe(mirror);
+    expect(plan.feedSet?.officialBaseUrl).toBe(mirror);
+    const list = plan.files.find((file) => file.path === feedPlanPath(IMAGE_FEED_LIST_PATH));
+    expect(list?.content).toContain(mirror);
+  });
+
+  it("adds the extension feed only when an extension package resolves", async () => {
+    const without = planOf(
+      await createBuildPlanV2(formV2({ visibility: "public" }), contextV2()),
+    );
+    expect(without.feedSet?.repositories.map((repository) => repository.id)).not.toContain(
+      "extension",
+    );
+
+    const withExtension = planOf(
+      await createBuildPlanV2(
+        formV2({ visibility: "public" }),
+        contextV2({
+          lookup: (name) => entry(name, { source: "extension" as PackageLookupEntry["source"] }),
+        }),
+      ),
+    );
+    expect(withExtension.feedSet?.repositories.map((repository) => repository.id)).toContain(
+      "extension",
+    );
   });
 
   it("turns an unmet mode requirement into a 409-grade conflict", async () => {
