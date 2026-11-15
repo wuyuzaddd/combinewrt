@@ -1,5 +1,5 @@
 import type { BaseVersion } from "../base/types";
-import type { BuildConfig, BuildPlan, AppliedPatch, BuildVisibility } from "../build/types";
+import type { AppliedMode, BuildConfig, BuildPlan, AppliedPatch, BuildVisibility } from "../build/types";
 import type { BuildRecord, BuildStatus } from "../builds/types";
 import {
   EMPTY_SOURCE_PINS,
@@ -18,6 +18,25 @@ export interface SourceOfferPackage {
   feed: string | null;
   license: string | null;
   proprietary: boolean;
+}
+
+export interface SourceOfferModeSummary {
+  id: string;
+  layer: AppliedMode["layer"];
+  title: string;
+  experimental: boolean;
+}
+
+/**
+ * Mode labels and generated paths only. The typed network section (which may
+ * contain PPPoE credentials) and the HTTPS secret spec are deliberately not
+ * part of the source offer; the manifest is public by design.
+ */
+export interface SourceOfferModes {
+  basePreset: SourceOfferModeSummary;
+  overlays: SourceOfferModeSummary[];
+  experimental: string[];
+  generatedFiles: string[];
 }
 
 export interface SourceOfferManifest {
@@ -40,10 +59,15 @@ export interface SourceOfferManifest {
   patches: AppliedPatch[];
   config: BuildConfig | null;
   generatedFiles: string[];
+  modes?: SourceOfferModes;
   compliance: ComplianceReport;
   visibility: BuildVisibility;
   publicDistribution: boolean;
   notes: string[];
+}
+
+function summarizeMode(mode: AppliedMode): SourceOfferModeSummary {
+  return { id: mode.id, layer: mode.layer, title: mode.title, experimental: mode.experimental };
 }
 
 export function distributionLabel(
@@ -65,6 +89,15 @@ export function createSourceOffer(
   const compliance = plan.compliance ?? createComplianceReport(plan.resolved);
   const visibility = plan.visibility ?? "private";
   const publicDistribution = visibility === "public" && compliance.publicEligible;
+  const modeSummary: SourceOfferModes | undefined =
+    plan.schemaVersion === 2 && plan.modes
+      ? {
+          basePreset: summarizeMode(plan.modes.basePreset),
+          overlays: plan.modes.overlays.map(summarizeMode),
+          experimental: [...plan.modes.experimental],
+          generatedFiles: [...plan.modes.generatedFiles],
+        }
+      : undefined;
   const notes = [
     "This manifest is the GPL source offer for the pinned package sources used by this image.",
     "No firmware or third-party source code is published by this repository; dllkids is referenced by URL and sha256 only.",
@@ -85,6 +118,11 @@ export function createSourceOffer(
   }
   if (!imageBuilder) {
     notes.push("The active base-version record no longer exists; the ImageBuilder checksum is unavailable.");
+  }
+  if (modeSummary) {
+    notes.push(
+      "Mode network settings, PPPoE credentials and the HTTPS private key are deliberately omitted from this manifest.",
+    );
   }
 
   return {
@@ -118,6 +156,7 @@ export function createSourceOffer(
     patches: plan.patches ?? [],
     config: build.config ?? plan.config ?? null,
     generatedFiles: plan.files.map((file) => file.path),
+    ...(modeSummary ? { modes: modeSummary } : {}),
     compliance,
     visibility,
     publicDistribution,

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { CapabilityRegistry } from "../src/lib/catalog/capabilities";
 import { capabilitiesFilePath, validateCapabilities } from "../src/lib/catalog/capabilities";
+import { loadModeDeclarations, validateModeDeclarations } from "../src/lib/build/modes";
 
 /**
  * Validate the checked-in capability registry.
@@ -41,6 +42,25 @@ function main(): number {
   }
 
   const registry = raw as CapabilityRegistry;
+
+  // Mode declarations and the capability registry must agree on id, layer and
+  // experimental flag; a mode gated to an engine must declare that requirement.
+  let declarations;
+  try {
+    declarations = loadModeDeclarations();
+  } catch (error) {
+    console.error(`modes: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+  const modeViolations = validateModeDeclarations(declarations, registry.modes);
+  if (modeViolations.length > 0) {
+    console.error(`modes: ${modeViolations.length} violation(s) against ${filePath}`);
+    for (const violation of modeViolations) {
+      console.error(`  - ${violation}`);
+    }
+    return 1;
+  }
+
   const profiles = registry.targets.reduce((total, target) => total + target.profiles.length, 0);
   const variants = registry.targets.reduce(
     (total, target) => total + target.profiles.reduce((count, profile) => count + profile.variants.length, 0),
@@ -48,7 +68,8 @@ function main(): number {
   );
   console.log(
     `capabilities: OK — ${registry.targets.length} target(s), ${profiles} profile(s), ${variants} variant declaration(s), ` +
-      `${registry.kernelLines.length} kernel line(s), ${registry.modes.length} mode(s) from ${filePath}`,
+      `${registry.kernelLines.length} kernel line(s), ${registry.modes.length} mode(s), ` +
+      `${declarations.length} mode declaration(s) from ${filePath}`,
   );
   return 0;
 }

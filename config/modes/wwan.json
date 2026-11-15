@@ -1,0 +1,19 @@
+{
+  "id": "wwan",
+  "layer": "package/kernel",
+  "title": "WWAN",
+  "experimental": true,
+  "description": "WWAN packages and kmods; capability-gated with no hardware guarantee.",
+  "packages": [
+    "kmod-usb-net-qmi-wwan",
+    "kmod-usb-net-cdc-mbim",
+    "kmod-usb-serial-option",
+    "uqmi",
+    "umbim",
+    "usb-modeswitch",
+    "luci-proto-qmi",
+    "luci-proto-3g"
+  ],
+  "kernelConfig": [],
+  "generatedFiles": []
+}
