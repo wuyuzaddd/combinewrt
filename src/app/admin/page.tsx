@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
 import { getDatabase } from "@/lib/db";
 import { readBaseVersionState } from "@/lib/base";
+import { readCatalogRefreshState } from "@/lib/catalog/refresh-control";
 import { readRetentionSummary } from "@/lib/builds/retention";
 import { BaseVersionPanel } from "./base-version-panel";
 import { LogoutButton } from "./logout-button";
@@ -18,6 +19,7 @@ export default async function AdminPage() {
   if (!session) redirect("/login?next=/admin");
   const retention = readRetentionSummary(getDatabase());
   const baseVersion = readBaseVersionState();
+  const catalogRefresh = readCatalogRefreshState(getDatabase());
 
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 px-6 py-12">
@@ -48,6 +50,27 @@ export default async function AdminPage() {
       </div>
 
       <BaseVersionPanel state={baseVersion} />
+
+      <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
+        <h2 className="font-medium">目录自动刷新</h2>
+        {catalogRefresh.lastSuccessAt ? (
+          <p className="mt-1 text-slate-400">
+            上次成功 {new Date(catalogRefresh.lastSuccessAt).toLocaleString("zh-CN")} · 快照 #
+            {catalogRefresh.snapshotId ?? "?"}
+          </p>
+        ) : (
+          <p className="mt-1 text-slate-500">尚未成功刷新。</p>
+        )}
+        {catalogRefresh.lastAttemptAt && (
+          <p className="mt-1 text-xs text-slate-500">
+            上次尝试 {new Date(catalogRefresh.lastAttemptAt).toLocaleString("zh-CN")}
+          </p>
+        )}
+        {catalogRefresh.lastError && (
+          <p className="mt-2 break-words text-xs text-rose-300">刷新失败：{catalogRefresh.lastError}</p>
+        )}
+        <p className="mt-2 text-xs text-slate-500">每天最多自动刷新一次；手动刷新不受此限制。</p>
+      </section>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
         <h2 className="font-medium">产物清理</h2>
