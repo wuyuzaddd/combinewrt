@@ -6,6 +6,7 @@ import { isSpdxId } from "./spdx";
 import {
   I18N_STATUSES,
   type AcquisitionStrategy,
+  type I18nMetadata,
   type I18nStatus,
   type ParsedSourceRegistry,
   type SourceRegistry,
@@ -42,6 +43,40 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function recipeFor(repo: string, ref: string, subdir: string): string {
   return `github:${repo}@${ref}/${subdir}`;
+}
+
+/**
+ * Validate the nested `i18n` object. The status is required and restricted to
+ * the ADR 0003 values; title/description are optional display text. This is
+ * metadata only and deliberately independent of every admission check.
+ */
+function parseI18nMetadata(raw: unknown, fail: (message: string) => void): I18nMetadata | undefined {
+  if (raw === undefined) {
+    fail("i18n is required and must declare a status");
+    return undefined;
+  }
+  if (!isPlainObject(raw)) {
+    fail("i18n must be an object with a status");
+    return undefined;
+  }
+  const status = raw.status;
+  if (typeof status !== "string" || !(I18N_STATUSES as readonly string[]).includes(status)) {
+    fail(`i18n.status must be one of ${I18N_STATUSES.join(", ")}`);
+    return undefined;
+  }
+  const title = raw.title;
+  if (title !== undefined && (typeof title !== "string" || !title.trim())) {
+    fail("i18n.title must be a non-empty string when present");
+  }
+  const description = raw.description;
+  if (description !== undefined && (typeof description !== "string" || !description.trim())) {
+    fail("i18n.description must be a non-empty string when present");
+  }
+  return {
+    status: status as I18nStatus,
+    ...(typeof title === "string" && title.trim() ? { title: title.trim() } : {}),
+    ...(typeof description === "string" && description.trim() ? { description: description.trim() } : {}),
+  };
 }
 
 function sha256(value: string): string {
@@ -143,10 +178,10 @@ function validateEntry(
     }
   }
 
-  const i18nStatus = raw.i18nStatus;
-  if (i18nStatus !== undefined && (typeof i18nStatus !== "string" || !(I18N_STATUSES as readonly string[]).includes(i18nStatus))) {
-    fail(`i18nStatus must be one of ${I18N_STATUSES.join(", ")}`);
+  if (raw.i18nStatus !== undefined) {
+    fail("i18nStatus is not supported at the top level; move it under i18n.status");
   }
+  const i18n = parseI18nMetadata(raw.i18n, fail);
 
   if (raw.experimental !== undefined && typeof raw.experimental !== "boolean") {
     fail("experimental must be a boolean when present");
@@ -170,7 +205,7 @@ function validateEntry(
     ...(typeof raw.recipe === "string" ? { recipe: raw.recipe } : {}),
     ...(typeof raw.abi === "string" ? { abi: raw.abi } : {}),
     ...(patches ? { patches } : {}),
-    ...(typeof raw.i18nStatus === "string" ? { i18nStatus: raw.i18nStatus as I18nStatus } : {}),
+    ...(i18n ? { i18n, i18nStatus: i18n.status } : {}),
     ...(typeof raw.experimental === "boolean" ? { experimental: raw.experimental } : {}),
   };
 

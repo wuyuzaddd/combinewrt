@@ -46,11 +46,19 @@ export interface CreateExtensionCatalogInput {
 }
 
 function matchesPackage(
-  entry: Pick<SourceRegistryEntry, "name" | "repo" | "license" | "i18nStatus">,
+  entry: Pick<SourceRegistryEntry, "name" | "repo" | "license" | "i18n">,
   theme: ExtensionTheme | null,
   needle: string,
 ): boolean {
-  const haystack = [entry.name, entry.repo ?? "", entry.license ?? "", theme?.title ?? "", theme?.description ?? ""]
+  const haystack = [
+    entry.name,
+    entry.repo ?? "",
+    entry.license ?? "",
+    entry.i18n?.title ?? "",
+    entry.i18n?.description ?? "",
+    theme?.title ?? "",
+    theme?.description ?? "",
+  ]
     .join(" ")
     .toLowerCase();
   return haystack.includes(needle);
@@ -74,12 +82,20 @@ export function createExtensionCatalog(input: CreateExtensionCatalogInput): Exte
   const entries = input.registry.list().filter((entry) => entry.source === "extension");
 
   const packages: ExtensionCatalogPackage[] = entries
+    .filter((entry) => {
+      if (!needle) return true;
+      const theme = themesByPackage.get(entry.name) ?? null;
+      return matchesPackage(entry, theme, needle);
+    })
     .map((entry) => {
       const theme = themesByPackage.get(entry.name) ?? null;
+      const i18n = entry.i18n ?? null;
       return {
         name: entry.name,
-        title: theme?.title ?? entry.name,
-        description: theme?.description ?? `扩展包 ${entry.name}`,
+        // Theme presentation metadata wins for themes; otherwise the curated
+        // registry text is the human label, and the package name is the fallback.
+        title: theme?.title ?? i18n?.title ?? entry.name,
+        description: theme?.description ?? i18n?.description ?? `扩展包 ${entry.name}`,
         license: entry.license ?? null,
         publicAllowed: entry.publicAllowed === true,
         i18nStatus: i18nStatusOf(entry),
@@ -90,9 +106,6 @@ export function createExtensionCatalog(input: CreateExtensionCatalogInput): Exte
         theme,
       };
     })
-    .filter((item) =>
-      needle ? matchesPackage({ name: item.name, repo: item.repo, license: item.license }, item.theme, needle) : true,
-    )
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const bundles = input.bundles

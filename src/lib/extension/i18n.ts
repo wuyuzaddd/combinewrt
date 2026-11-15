@@ -21,20 +21,23 @@ export const I18N_SHORT_LABELS: Record<I18nStatus, string> = {
   unreviewed: "i18n 未校对",
 };
 
-/** Effective status of an entry: an absent status means "unreviewed". */
-export function i18nStatusOf(entry: Pick<SourceRegistryEntry, "i18nStatus">): I18nStatus {
-  return entry.i18nStatus ?? "unreviewed";
+/** Minimal shape accepted by the label helpers: nested `i18n` or legacy accessor. */
+export type I18nCarrier = Pick<SourceRegistryEntry, "i18n" | "i18nStatus">;
+
+/** Effective status of an entry: the nested status first, otherwise the accessor, otherwise "unreviewed". */
+export function i18nStatusOf(entry: I18nCarrier): I18nStatus {
+  return entry.i18n?.status ?? entry.i18nStatus ?? "unreviewed";
 }
 
-export function i18nLabel(entry: Pick<SourceRegistryEntry, "i18nStatus">): string {
+export function i18nLabel(entry: I18nCarrier): string {
   return I18N_LABELS[i18nStatusOf(entry)];
 }
 
-export function i18nShortLabel(entry: Pick<SourceRegistryEntry, "i18nStatus">): string {
+export function i18nShortLabel(entry: I18nCarrier): string {
   return I18N_SHORT_LABELS[i18nStatusOf(entry)];
 }
 
 /** True when the package falls back to unreviewed or automatically sourced text. */
-export function i18nFallsBack(entry: Pick<SourceRegistryEntry, "i18nStatus">): boolean {
+export function i18nFallsBack(entry: I18nCarrier): boolean {
   return i18nStatusOf(entry) !== "curated";
 }

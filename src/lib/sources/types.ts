@@ -24,6 +24,17 @@ export type I18nStatus = "curated" | "auto" | "unreviewed";
 export const I18N_STATUSES: readonly I18nStatus[] = ["curated", "auto", "unreviewed"];
 
 /**
+ * Display metadata stored under `i18n` in `config/sources/registry.json`.
+ * `status` is required; `title`/`description` are the curated Chinese strings
+ * that the catalog renders for packages without more specific theme metadata.
+ */
+export interface I18nMetadata {
+  status: I18nStatus;
+  title?: string;
+  description?: string;
+}
+
+/**
  * One package as registered in `config/sources/registry.json`. Ticket 12 owns
  * the checked-in document; the planner only reads it through `SourceRegistry`.
  */
@@ -58,7 +69,12 @@ export interface SourceRegistryEntry {
   subdir?: string | null;
   /** sha256 of `recipe`, so the acquisition identity cannot drift silently. */
   recipeHash?: string | null;
-  /** How much of the upstream text is curated; metadata only (ADR 0003). */
+  /** Curated display text and review status; metadata only (ADR 0003). */
+  i18n?: I18nMetadata;
+  /**
+   * Derived status accessor kept for code paths that predate the nested
+   * object. Entries produced by the registry loader mirror `i18n.status` here.
+   */
   i18nStatus?: I18nStatus;
   /** Marks an extension package the catalog surfaces as experimental. */
   experimental?: boolean;

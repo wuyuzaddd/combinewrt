@@ -193,6 +193,9 @@ export default async function ExtensionCatalogPage({
                           experimental
                         </span>
                       ) : null}
+                      {item.title !== item.name ? (
+                        <p className="mt-0.5 text-xs text-slate-300">{item.title}</p>
+                      ) : null}
                       <p className="mt-1 text-[11px] text-slate-500">{item.description}</p>
                     </td>
                     <td className="px-4 py-2 font-mono text-[11px] text-slate-400">

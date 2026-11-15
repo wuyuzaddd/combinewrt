@@ -21,7 +21,7 @@ function extensionEntry(overrides: Record<string, unknown> = {}) {
     subdir: ".",
     recipe,
     recipeHash,
-    i18nStatus: "curated",
+    i18n: { status: "curated", title: "Argon 主题", description: "深色玻璃质感主题。" },
     ...overrides,
   };
 }
@@ -38,6 +38,7 @@ describe("source registry extension validation", () => {
       subdir: ".",
       recipe,
       recipeHash,
+      i18n: { status: "curated", title: "Argon 主题", description: "深色玻璃质感主题。" },
       i18nStatus: "curated",
       publicAllowed: true,
     });
@@ -93,6 +94,7 @@ describe("source registry extension validation", () => {
           license: "Apache-2.0",
           publicAllowed: true,
           strategy: "prebuilt",
+          i18n: { status: "curated", title: "Argon 主题" },
         },
       ],
     });
