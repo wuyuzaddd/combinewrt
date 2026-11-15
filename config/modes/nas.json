@@ -4,7 +4,19 @@
   "title": "NAS packages",
   "experimental": false,
   "description": "Installs Samba and disk tools and writes a default share. It never partitions, formats or mounts a disk.",
-  "packages": [],
+  "packages": [
+    "samba4-server",
+    "luci-app-samba4",
+    "kmod-usb-storage",
+    "block-mount",
+    "kmod-fs-ext4",
+    "kmod-fs-vfat",
+    "kmod-fs-exfat",
+    "ntfs-3g",
+    "e2fsprogs",
+    "smartmontools",
+    "rsync"
+  ],
   "kernelConfig": [],
   "generatedFiles": [
     "/etc/config/samba4"

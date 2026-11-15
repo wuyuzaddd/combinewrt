@@ -1,0 +1,624 @@
+{
+  "schemaVersion": 1,
+  "groups": [
+    {
+      "id": "network",
+      "title": "网络工具",
+      "description": "连通性、隧道与网络诊断相关的常用软件包",
+      "packages": [
+        {
+          "name": "luci-app-ddns",
+          "description": "动态 DNS 客户端，自动更新域名解析",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-upnp",
+          "description": "通用即插即用端口映射，方便内网服务穿透",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-sqm",
+          "description": "智能队列管理，降低上行缓冲膨胀",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-nlbwmon",
+          "description": "按主机统计带宽用量",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-wol",
+          "description": "网络唤醒，远程开机内网设备",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-https-dns-proxy",
+          "description": "把 DNS 查询转发到加密解析服务",
+          "license": "GPL-3.0-only",
+          "source": "official"
+        },
+        {
+          "name": "curl",
+          "description": "命令行 HTTP 客户端，便于脚本调试接口",
+          "license": "MIT",
+          "source": "official"
+        },
+        {
+          "name": "wget-ssl",
+          "description": "支持 HTTPS 的下载工具",
+          "license": "GPL-3.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "tcpdump",
+          "description": "抓包与流量分析",
+          "license": "BSD-3-Clause",
+          "source": "official"
+        },
+        {
+          "name": "nmap",
+          "description": "网络端口扫描与服务识别",
+          "license": "NPSL",
+          "source": "official"
+        },
+        {
+          "name": "socat",
+          "description": "双向数据流中继，排查串口与网络问题",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "openssh-client",
+          "description": "SSH 客户端",
+          "license": "SSH-OpenSSH",
+          "source": "official"
+        },
+        {
+          "name": "openssh-server",
+          "description": "SSH 服务端",
+          "license": "SSH-OpenSSH",
+          "source": "official"
+        },
+        {
+          "name": "wireguard-tools",
+          "description": "WireGuard 虚拟专用网命令行工具",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-wireguard",
+          "description": "WireGuard 虚拟专用网的网页配置",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "kmod-wireguard",
+          "description": "WireGuard 内核模块，需要与内核线匹配",
+          "license": "GPL-2.0-only",
+          "source": "official",
+          "kernelLines": [
+            "6.6",
+            "6.12",
+            "6.18"
+          ]
+        },
+        {
+          "name": "luci-app-frpc",
+          "description": "FRP 内网穿透客户端面板",
+          "license": "GPL-3.0-only",
+          "source": "official"
+        },
+        {
+          "name": "frpc",
+          "description": "FRP 内网穿透客户端程序",
+          "license": "Apache-2.0",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-zerotier",
+          "description": "ZeroTier 虚拟局域网的网页配置",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "zerotier",
+          "description": "ZeroTier 组网客户端",
+          "license": "BSL-1.1",
+          "source": "dllkids"
+        }
+      ]
+    },
+    {
+      "id": "storage",
+      "title": "存储与共享",
+      "description": "磁盘、文件系统、共享与媒体服务",
+      "packages": [
+        {
+          "name": "block-mount",
+          "description": "挂载与磁盘管理脚本，不自动分区或格式化",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "kmod-usb-storage",
+          "description": "USB 存储设备内核模块",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "kmod-fs-ext4",
+          "description": "ext4 文件系统内核模块",
+          "license": "GPL-2.0-only",
+          "source": "official",
+          "kernelLines": [
+            "6.6",
+            "6.12",
+            "6.18"
+          ]
+        },
+        {
+          "name": "kmod-fs-vfat",
+          "description": "FAT 文件系统内核模块",
+          "license": "GPL-2.0-only",
+          "source": "official",
+          "kernelLines": [
+            "6.6",
+            "6.12",
+            "6.18"
+          ]
+        },
+        {
+          "name": "kmod-fs-exfat",
+          "description": "exFAT 文件系统内核模块",
+          "license": "GPL-2.0-only",
+          "source": "official",
+          "kernelLines": [
+            "6.6",
+            "6.12",
+            "6.18"
+          ]
+        },
+        {
+          "name": "kmod-fs-btrfs",
+          "description": "Btrfs 文件系统内核模块",
+          "license": "GPL-2.0-only",
+          "source": "official",
+          "kernelLines": [
+            "6.6",
+            "6.12",
+            "6.18"
+          ]
+        },
+        {
+          "name": "e2fsprogs",
+          "description": "ext 系列文件系统检查与修复工具",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "ntfs-3g",
+          "description": "NTFS 读写驱动",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-diskman",
+          "description": "磁盘分区与格式化面板，操作前需人工确认",
+          "license": "Apache-2.0",
+          "source": "supplement"
+        },
+        {
+          "name": "smartmontools",
+          "description": "硬盘 SMART 健康状态监测",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "hdparm",
+          "description": "查看和调整硬盘参数",
+          "license": "BSD-2-Clause",
+          "source": "official"
+        },
+        {
+          "name": "rsync",
+          "description": "增量文件同步工具",
+          "license": "GPL-3.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "minidlna",
+          "description": "DLNA 媒体服务器",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-minidlna",
+          "description": "DLNA 媒体服务器面板",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "samba4-server",
+          "description": "SMB 文件共享服务",
+          "license": "GPL-3.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-samba4",
+          "description": "Samba 文件共享的网页配置",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        }
+      ]
+    },
+    {
+      "id": "monitor",
+      "title": "监控与诊断",
+      "description": "资源、流量与系统状态的观测工具",
+      "packages": [
+        {
+          "name": "luci-app-statistics",
+          "description": "系统统计图表面板",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "collectd",
+          "description": "指标采集守护进程",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "collectd-mod-cpu",
+          "description": "采集 CPU 使用率",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "collectd-mod-interface",
+          "description": "采集网卡流量",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "collectd-mod-load",
+          "description": "采集系统负载",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "collectd-mod-memory",
+          "description": "采集内存使用情况",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "vnstat2",
+          "description": "网卡流量统计服务",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-vnstat2",
+          "description": "流量统计图表面板",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "netdata",
+          "description": "实时性能监控服务",
+          "license": "GPL-3.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-netdata",
+          "description": "Netdata 监控面板入口",
+          "license": "GPL-3.0-only",
+          "source": "official"
+        },
+        {
+          "name": "htop",
+          "description": "交互式进程与资源查看",
+          "license": "GPL-2.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "iftop",
+          "description": "实时查看连接带宽占用",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "iperf3",
+          "description": "网络吞吐测试工具",
+          "license": "BSD-3-Clause",
+          "source": "official"
+        }
+      ]
+    },
+    {
+      "id": "dev",
+      "title": "开发工具",
+      "description": "在设备上构建、调试与编辑需要的软件包",
+      "packages": [
+        {
+          "name": "git",
+          "description": "分布式版本控制工具",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "git-http",
+          "description": "Git 的 HTTP 传输支持",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "python3",
+          "description": "Python 解释器",
+          "license": "PSF-2.0",
+          "source": "official"
+        },
+        {
+          "name": "python3-pip",
+          "description": "Python 包管理器",
+          "license": "MIT",
+          "source": "official"
+        },
+        {
+          "name": "node",
+          "description": "Node.js 运行时",
+          "license": "MIT",
+          "source": "official",
+          "targets": [
+            "x86/64"
+          ]
+        },
+        {
+          "name": "node-npm",
+          "description": "Node.js 包管理器",
+          "license": "Artistic-2.0",
+          "source": "official",
+          "targets": [
+            "x86/64"
+          ]
+        },
+        {
+          "name": "gcc",
+          "description": "C 编译器",
+          "license": "GPL-3.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "make",
+          "description": "构建工具",
+          "license": "GPL-3.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "gdb",
+          "description": "程序调试器",
+          "license": "GPL-3.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "strace",
+          "description": "跟踪进程的系统调用",
+          "license": "LGPL-2.1-or-later",
+          "source": "official"
+        },
+        {
+          "name": "vim-full",
+          "description": "完整版 Vim 编辑器",
+          "license": "Vim",
+          "source": "official"
+        },
+        {
+          "name": "nano",
+          "description": "轻量文本编辑器",
+          "license": "GPL-3.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "tmux",
+          "description": "终端复用器",
+          "license": "ISC",
+          "source": "official"
+        },
+        {
+          "name": "jq",
+          "description": "命令行 JSON 处理工具",
+          "license": "MIT",
+          "source": "official"
+        },
+        {
+          "name": "unzip",
+          "description": "ZIP 解压工具",
+          "license": "Info-ZIP",
+          "source": "official"
+        },
+        {
+          "name": "docker",
+          "description": "Docker 容器引擎命令行工具（与 podman 互斥）",
+          "license": "Apache-2.0",
+          "source": "official",
+          "conflicts": [
+            "podman"
+          ]
+        },
+        {
+          "name": "podman",
+          "description": "无守护进程的容器运行时（与 Docker 互斥）",
+          "license": "Apache-2.0",
+          "source": "official",
+          "conflicts": [
+            "docker"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "system",
+      "title": "系统管理",
+      "description": "升级、日志、硬件信息与电源管理",
+      "packages": [
+        {
+          "name": "luci-app-advanced-reboot",
+          "description": "在多个系统分区之间切换重启",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-attendedsysupgrade",
+          "description": "在线生成并升级固件",
+          "license": "Apache-2.0",
+          "source": "official"
+        },
+        {
+          "name": "attendedsysupgrade-common",
+          "description": "在线升级的公共组件",
+          "license": "Apache-2.0",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-filetransfer",
+          "description": "网页上传与下载文件",
+          "license": "Apache-2.0",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-uhttpd",
+          "description": "uHTTPd 网页服务配置面板",
+          "license": "Apache-2.0",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-cpufreq",
+          "description": "CPU 调频策略面板",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "cpufrequtils",
+          "description": "CPU 调频命令行工具",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "irqbalance",
+          "description": "中断负载均衡服务",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "usbutils",
+          "description": "查看 USB 设备信息",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "pciutils",
+          "description": "查看 PCI 设备信息",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "logrotate",
+          "description": "日志轮转工具",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-log",
+          "description": "系统日志查看面板",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        }
+      ]
+    },
+    {
+      "id": "apps",
+      "title": "应用服务",
+      "description": "下载、共享与内网应用",
+      "packages": [
+        {
+          "name": "aria2",
+          "description": "多协议下载器",
+          "license": "GPL-2.0-or-later",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-aria2",
+          "description": "Aria2 下载面板",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "transmission-daemon",
+          "description": "BitTorrent 下载守护进程",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-transmission",
+          "description": "Transmission 下载面板",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "mwan3",
+          "description": "多 WAN 负载均衡与策略路由",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-mwan3",
+          "description": "多 WAN 负载均衡面板",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "openvpn-openssl",
+          "description": "OpenVPN 服务端与客户端",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-openvpn",
+          "description": "OpenVPN 网页配置",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-simple-adblock",
+          "description": "基于域名列表的广告过滤",
+          "license": "GPL-3.0-only",
+          "source": "official"
+        },
+        {
+          "name": "ttyd",
+          "description": "网页终端服务",
+          "license": "MIT",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-ttyd",
+          "description": "网页终端入口",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-commands",
+          "description": "自定义命令面板",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        }
+      ]
+    }
+  ]
+}

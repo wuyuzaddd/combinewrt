@@ -58,3 +58,13 @@ describe("validateBuildFormV2", () => {
     expect(zero.ok).toBe(true);
   });
 });
+
+  it("accepts the negative package list, normalises it and rejects malformed names", () => {
+    const normalised = validateBuildFormV2({ ...base, removePackages: [" luci ", "luci"] });
+    expect(normalised.ok).toBe(true);
+    if (normalised.ok) expect(normalised.value.removePackages).toEqual(["luci"]);
+
+    const malformed = validateBuildFormV2({ ...base, removePackages: ["bad name; rm -rf /"] });
+    expect(malformed.ok).toBe(false);
+    if (!malformed.ok) expect(malformed.issues.join("\n")).toMatch(/removePackages/);
+  });

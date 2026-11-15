@@ -3,6 +3,8 @@ import { readBuildPlan } from "../domain/build-plan";
 import type { SourcePins } from "../catalog/types";
 import { createSourceRegistry } from "../sources/registry";
 import { createBuildPlan } from "./plan";
+import { parseCommonPreset } from "../presets/common";
+import { DOCKER_UCI_PATH } from "./modes";
 import { createBuildPlanV2, type PlanV2Context, type PlanV2Success } from "./plan-v2";
 import type { BuildFormInput, BuildFormInputV2, PackageLookup, PackageLookupEntry } from "./types";
 
@@ -28,6 +30,19 @@ const official: Record<string, PackageLookupEntry> = {
   libc: entry("libc"),
   "luci-app-demo": entry("luci-app-demo"),
   "vendor-app": entry("vendor-app", { license: "Proprietary", proprietary: true }),
+  // Docker mode package set (ticket 08) and one curated-package fixture.
+  docker: entry("docker"),
+  dockerd: entry("dockerd"),
+  containerd: entry("containerd"),
+  runc: entry("runc"),
+  tini: entry("tini"),
+  "ca-bundle": entry("ca-bundle"),
+  "kmod-veth": entry("kmod-veth"),
+  "kmod-br-netfilter": entry("kmod-br-netfilter"),
+  "kmod-ipt-nat": entry("kmod-ipt-nat"),
+  "iptables-nft": entry("iptables-nft"),
+  "demo-restricted": entry("demo-restricted"),
+  podman: entry("podman"),
 };
 const lookup: PackageLookup = (name) => official[name] ?? null;
 
@@ -328,17 +343,17 @@ describe("createBuildPlanV2", () => {
     expect(outcome.issues.join("\n")).toMatch(/pool runs past/);
   });
 
-  it("rejects a mode the kernel line cannot run", async () => {
-    const outcome = await createBuildPlanV2(
-      formV2({ modes: [{ id: "docker", layer: "package/kernel" }] }),
-      contextV2(),
+  it("reports a mode the kernel line cannot run as a 409-grade conflict naming the requirement", async () => {
+    const outcome = planned(
+      await createBuildPlanV2(
+        formV2({ modes: [{ id: "docker", layer: "kernel/config" }] }),
+        contextV2(),
+      ),
     );
+    const message = outcome.conflicts.map((conflict) => conflict.message).join("\n");
 
-    expect(outcome.ok).toBe(false);
-    if (outcome.ok) return;
-    expect(outcome.status).toBe(400);
-    expect(outcome.issues.join("\n")).toMatch(/docker/);
-    expect(outcome.issues.join("\n")).toMatch(/source/);
+    expect(message).toMatch(/docker/);
+    expect(message).toMatch(/source engine/);
   });
 
   it("rejects a mode the profile does not offer", async () => {
@@ -478,5 +493,167 @@ describe("createBuildPlanV2", () => {
 
     expect(resolved(outcome.plan, "vendor-app").effectiveStrategy).toBe("blocked");
     expect(outcome.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/blocked/);
+  });
+});
+
+describe("packages, removals and curated common packages (ticket 08)", () => {
+  const commonPreset = parseCommonPreset({
+    schemaVersion: 1,
+    groups: [
+      {
+        id: "apps",
+        title: "应用",
+        packages: [
+          { name: "luci-app-demo", source: "official", license: "MIT", description: "演示应用" },
+          {
+            name: "demo-restricted",
+            source: "official",
+            license: "MIT",
+            description: "仅限联发科目标的演示包",
+            targets: ["mediatek/filogic"],
+          },
+        ],
+      },
+    ],
+  });
+
+  it("carries the docker package set, kernel fragment, data root and writable file into a source plan", async () => {
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2({
+          kernelLine: "6.6",
+          modes: [{ id: "docker", layer: "kernel/config" }],
+        }),
+        contextV2(),
+      ),
+    );
+
+    expect(plan.engine).toBe("source");
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.packages).toEqual(expect.arrayContaining(["docker", "dockerd", "containerd", "runc"]));
+    expect(plan.kernelConfig).toEqual(expect.arrayContaining(["CONFIG_OVERLAY_FS=y"]));
+    expect(plan.docker).toEqual({ dataRoot: "/var/lib/docker" });
+    const file = plan.files.find((item) => item.path === `files${DOCKER_UCI_PATH}`);
+    expect(file?.content).toContain("mkdir -p /var/lib/docker");
+  });
+
+  it("names the filesystem requirement docker needs when the plan is squashfs", async () => {
+    const outcome = planned(
+      await createBuildPlanV2(
+        formV2({
+          kernelLine: "6.6",
+          imageVariant: { boot: "efi", filesystem: "squashfs", artifact: "combined" },
+          modes: [{ id: "docker", layer: "kernel/config" }],
+        }),
+        contextV2(),
+      ),
+    );
+    const message = outcome.conflicts.map((conflict) => conflict.message).join("\n");
+
+    expect(message).toMatch(/docker/);
+    expect(message).toMatch(/ext4/);
+  });
+
+  it("names the source engine requirement when an ImageBuilder plan asks for docker", async () => {
+    const outcome = planned(
+      await createBuildPlanV2(
+        formV2({ modes: [{ id: "docker", layer: "kernel/config" }] }),
+        contextV2(),
+      ),
+    );
+    const message = outcome.conflicts.map((conflict) => conflict.message).join("\n");
+
+    expect(message).toMatch(/docker/);
+    expect(message).toMatch(/source engine/);
+  });
+
+  it("removes a selected package through the negative list", async () => {
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2({ packages: ["luci-app-demo", "luci"], removePackages: ["luci-app-demo"] }),
+        contextV2(),
+      ),
+    );
+
+    expect(plan.packages).not.toContain("luci-app-demo");
+    expect(plan.packages).toContain("luci");
+    expect(plan.conflicts).toEqual([]);
+  });
+
+  it("refuses to remove an essential package and names it", async () => {
+    const outcome = planned(
+      await createBuildPlanV2(formV2({ removePackages: ["libc"] }), contextV2()),
+    );
+
+    expect(outcome.conflicts.some((conflict) => conflict.names.includes("libc"))).toBe(true);
+    expect(outcome.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/基础包|essentials/);
+  });
+
+  it("warns instead of failing when the removed package is absent", async () => {
+    const plan = planOf(await createBuildPlanV2(formV2({ removePackages: ["ghost"] }), contextV2()));
+
+    expect(plan.conflicts).toEqual([]);
+    expect((plan.warnings ?? []).join("\n")).toMatch(/ghost/);
+  });
+
+  it("names a curated package that is out of range for the selected target", async () => {
+    const outcome = planned(
+      await createBuildPlanV2(
+        formV2({ packages: ["demo-restricted"] }),
+        contextV2({ commonPreset }),
+      ),
+    );
+    const conflict = outcome.conflicts.find((item) => item.names.includes("demo-restricted"));
+
+    expect(conflict).toBeDefined();
+    expect(conflict?.message).toMatch(/mediatek\/filogic/);
+    expect(conflict?.message).toMatch(/official/);
+  });
+
+  it("names a curated package whose catalog source disagrees with the curated source", async () => {
+    const preset = parseCommonPreset({
+      schemaVersion: 1,
+      groups: [
+        {
+          id: "apps",
+          title: "应用",
+          packages: [
+            {
+              name: "demo-restricted",
+              source: "dllkids",
+              license: "MIT",
+              description: "来源与目录不一致的演示包",
+            },
+          ],
+        },
+      ],
+    });
+    const outcome = planned(
+      await createBuildPlanV2(
+        formV2({ packages: ["demo-restricted"] }),
+        contextV2({ commonPreset: preset }),
+      ),
+    );
+    const message = outcome.conflicts.map((conflict) => conflict.message).join("\n");
+
+    expect(message).toMatch(/official/);
+    expect(message).toMatch(/dllkids/);
+  });
+
+  it("names a mode and a selected package when the mode conflicts with it", async () => {
+    const outcome = planned(
+      await createBuildPlanV2(
+        formV2({
+          kernelLine: "6.6",
+          packages: ["podman"],
+          modes: [{ id: "docker", layer: "kernel/config" }],
+        }),
+        contextV2(),
+      ),
+    );
+    const message = outcome.conflicts.map((conflict) => conflict.message).join("\n");
+
+    expect(message).toMatch(/docker/);
+    expect(message).toMatch(/podman/);
   });
 });
