@@ -23,6 +23,15 @@ export const DEFAULT_DLLKIDS_FEED_URL = "https://down.dllkids.xyz/openwrt-feed/2
 export const DEFAULT_DLLKIDS_INDEX_SHA256 =
   "04a549ed7028b126218002b126cbc60eb3a4bdc3463f15425bce3ba6b91a04ba";
 
+/**
+ * GeneratedFile paths are relative to the ImageBuilder tree (the workflow runs
+ * from `ib/` and hands `FILES=files` to make), so image paths get a `files/`
+ * prefix here.
+ */
+export function feedPlanPath(imagePath: string): string {
+  return `files${imagePath}`;
+}
+
 export type ImageFeedId = "official" | "supplement" | "extension" | "dllkids";
 
 export interface ImageFeedRepository {
@@ -267,7 +276,7 @@ export function buildImageFeedSet(
 
   const files: GeneratedFile[] = [
     {
-      path: IMAGE_FEED_LIST_PATH,
+      path: feedPlanPath(IMAGE_FEED_LIST_PATH),
       content: `${listLines.join("\n")}\n`,
       mode: 0o644,
     },
@@ -276,7 +285,7 @@ export function buildImageFeedSet(
   if (isPrivate && resolvedOptions.dllkidsFeedUrl) {
     const dllkidsUrl = `${trimBase(resolvedOptions.dllkidsFeedUrl)}/packages.adb`;
     files.push({
-      path: DLLKIDS_WRAPPER_PATH,
+      path: feedPlanPath(DLLKIDS_WRAPPER_PATH),
       content: [
         "#!/bin/sh",
         "# combinewrt private-image helper: install from the unsigned dllkids feed",

@@ -3,7 +3,7 @@ import { readBuildPlan } from "../domain/build-plan";
 import type { SourcePins } from "../catalog/types";
 import { createSourceRegistry } from "../sources/registry";
 import { createBuildPlan } from "./plan";
-import { DLLKIDS_WRAPPER_PATH, IMAGE_FEED_LIST_PATH } from "./feeds";
+import { DLLKIDS_WRAPPER_PATH, IMAGE_FEED_LIST_PATH, feedPlanPath } from "./feeds";
 import { parseCommonPreset } from "../presets/common";
 import { DOCKER_UCI_PATH } from "./modes";
 import { createBuildPlanV2, type PlanV2Context, type PlanV2Success } from "./plan-v2";
@@ -305,8 +305,8 @@ describe("createBuildPlanV2", () => {
     const plain = planOf(await createBuildPlanV2(formV2(), contextV2()));
     expect(plain.files.map((file) => file.path)).toEqual([
       "files/etc/uci-defaults/99-combinewrt",
-      IMAGE_FEED_LIST_PATH,
-      DLLKIDS_WRAPPER_PATH,
+      feedPlanPath(IMAGE_FEED_LIST_PATH),
+      feedPlanPath(DLLKIDS_WRAPPER_PATH),
     ]);
 
     const routed = planOf(
@@ -329,7 +329,7 @@ describe("createBuildPlanV2", () => {
       "official",
       "supplement",
     ]);
-    expect(plan.files.map((file) => file.path)).not.toContain(DLLKIDS_WRAPPER_PATH);
+    expect(plan.files.map((file) => file.path)).not.toContain(feedPlanPath(DLLKIDS_WRAPPER_PATH));
     expect(JSON.stringify(plan.feedSet)).not.toContain("dllkids.xyz");
     expect(plan.preflight?.packages).toEqual(plan.packages);
     expect(plan.preflight?.allowUntrusted).toBe(false);
@@ -344,7 +344,7 @@ describe("createBuildPlanV2", () => {
       "supplement",
       "dllkids",
     ]);
-    const wrapper = plan.files.find((file) => file.path === DLLKIDS_WRAPPER_PATH);
+    const wrapper = plan.files.find((file) => file.path === feedPlanPath(DLLKIDS_WRAPPER_PATH));
     expect(wrapper?.mode).toBe(0o755);
     expect(wrapper?.content).toContain("apk --allow-untrusted");
     expect(plan.preflight?.repositories.join("\n")).not.toContain("dllkids.xyz");
@@ -361,7 +361,7 @@ describe("createBuildPlanV2", () => {
 
     expect(plan.feedSet?.officialMirror).toBe(mirror);
     expect(plan.feedSet?.officialBaseUrl).toBe(mirror);
-    const list = plan.files.find((file) => file.path === IMAGE_FEED_LIST_PATH);
+    const list = plan.files.find((file) => file.path === feedPlanPath(IMAGE_FEED_LIST_PATH));
     expect(list?.content).toContain(mirror);
   });
 

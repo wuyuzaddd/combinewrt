@@ -9,6 +9,7 @@ import {
   OFFICIAL_FEED_BASE,
   buildImageFeedSet,
   createImagePreflight,
+  feedPlanPath,
   type ImageFeedPlanInput,
 } from "./feeds";
 
@@ -39,7 +40,7 @@ describe("buildImageFeedSet", () => {
   it("keeps distfeeds.list and writes a version-frozen project feed list", () => {
     const feedSet = buildImageFeedSet(input());
 
-    expect(feedSet.files.map((file) => file.path)).toEqual([IMAGE_FEED_LIST_PATH]);
+    expect(feedSet.files.map((file) => file.path)).toEqual([feedPlanPath(IMAGE_FEED_LIST_PATH)]);
     const list = feedSet.files[0]!;
     expect(list.mode).toBe(0o644);
     expect(list.content).toContain("distfeeds.list");
@@ -85,24 +86,24 @@ describe("buildImageFeedSet", () => {
       url: DLLKIDS_URL,
     });
     expect(privateSet.files.map((file) => file.path)).toEqual([
-      IMAGE_FEED_LIST_PATH,
-      DLLKIDS_WRAPPER_PATH,
+      feedPlanPath(IMAGE_FEED_LIST_PATH),
+      feedPlanPath(DLLKIDS_WRAPPER_PATH),
     ]);
     // The public image never carries the unsigned feed or the wrapper.
-    expect(publicSet.files.map((file) => file.path)).not.toContain(DLLKIDS_WRAPPER_PATH);
+    expect(publicSet.files.map((file) => file.path)).not.toContain(feedPlanPath(DLLKIDS_WRAPPER_PATH));
     expect(JSON.stringify(publicSet)).not.toContain("dllkids.xyz");
   });
 
   it("only lets the explicit wrapper use --allow-untrusted", () => {
     const feedSet = buildImageFeedSet(input({ visibility: "private" }));
-    const wrapper = feedSet.files.find((file) => file.path === DLLKIDS_WRAPPER_PATH)!;
+    const wrapper = feedSet.files.find((file) => file.path === feedPlanPath(DLLKIDS_WRAPPER_PATH))!;
 
     expect(wrapper.mode).toBe(0o755);
     expect(wrapper.content).toContain("exec apk --allow-untrusted --repository");
     expect(wrapper.content).toContain(DLLKIDS_URL);
     expect(wrapper.content).toContain("default `apk` command keeps signature verification");
     // The wrapper is not a repository line, so a plain `apk add` cannot reach it.
-    const list = feedSet.files.find((file) => file.path === IMAGE_FEED_LIST_PATH)!;
+    const list = feedSet.files.find((file) => file.path === feedPlanPath(IMAGE_FEED_LIST_PATH))!;
     expect(list.content).not.toContain("dllkids");
   });
 
@@ -144,7 +145,7 @@ describe("buildImageFeedSet", () => {
       "https://mirror.example.test/immortalwrt/releases/25.12.2/targets/x86/64/packages/packages.adb",
     );
     // A mirror needs a repository line; the canonical setup relies on distfeeds.list.
-    const list = feedSet.files.find((file) => file.path === IMAGE_FEED_LIST_PATH)!;
+    const list = feedSet.files.find((file) => file.path === feedPlanPath(IMAGE_FEED_LIST_PATH))!;
     expect(list.content).toContain(
       "https://mirror.example.test/immortalwrt/releases/25.12.2/targets/x86/64/packages/packages.adb",
     );

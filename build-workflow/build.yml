@@ -141,6 +141,80 @@ jobs:
           find files -type f | sort
           echo 'uci-defaults written (contents not printed: they contain the root password hash)'
 
+      - name: Install feed key and preflight packages
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd ib
+          if ! jq -e '.composition.feedSet' ../plan.json >/dev/null 2>&1; then
+            echo "plan has no image feed set (V1 payload); skipping installability preflight"
+            exit 0
+          fi
+          if ! jq -e '.composition.preflight' ../plan.json >/dev/null 2>&1; then
+            fail preflight "" "" "" "plan has a feed set but no installability preflight"
+          fi
+          KEY_URL=$(jq -r '.composition.feedSet.key.url' ../plan.json)
+          KEY_SHA=$(jq -r '.composition.feedSet.key.fingerprint' ../plan.json)
+          if [ -z "$KEY_URL" ] || [ "$KEY_URL" = "null" ] || [ -z "$KEY_SHA" ] || [ "$KEY_SHA" = "null" ]; then
+            fail preflight "" "" "" "image feed set is missing the project key URL or fingerprint"
+          fi
+          # The image trusts the project key for the supplement/extension feeds;
+          # the same key is trusted by the preflight apk invocation below.
+          mkdir -p files/etc/apk/keys keys
+          KEY_FILE=files/etc/apk/keys/combinewrt-feed.pub.pem
+          if ! curl -fL --retry 3 --retry-delay 5 -o "$KEY_FILE" "$KEY_URL"; then
+            fail preflight "" "" "" "failed to download the project feed key: $KEY_URL"
+          fi
+          # The fingerprint is the sha256 of the key file bytes (same value the
+          # catalog source checks), not an openssl key id.
+          ACTUAL_SHA=$(sha256sum "$KEY_FILE" | cut -d' ' -f1)
+          if [ "$ACTUAL_SHA" != "$KEY_SHA" ]; then
+            fail preflight "" "" "" "project feed key sha256 does not match the pinned fingerprint: expected=$KEY_SHA actual=$ACTUAL_SHA"
+          fi
+          cp "$KEY_FILE" keys/combinewrt-feed.pub.pem
+          jq -r '.composition.preflight.repositories[]' ../plan.json > preflight.repositories
+          if [ ! -s preflight.repositories ]; then
+            fail preflight "" "" "" "installability preflight has no repositories"
+          fi
+          PACKAGES=$(jq -r '.composition.preflight.packages | join(" ")' ../plan.json)
+          if [ -z "$PACKAGES" ]; then
+            fail preflight "" "" "" "installability preflight has no packages"
+          fi
+          FEED_TARGET=$(jq -r '.composition.feedSet.feedTarget' ../plan.json)
+          APK=staging_dir/host/bin/apk
+          ROOT=$(mktemp -d)
+          trap 'rm -rf "$ROOT"' EXIT
+          REPO_ARGS=(--keys-dir "$PWD/keys")
+          # The pinned third-party packages were re-indexed and signed above;
+          # trust it through keys/ and never by disabling signature checks.
+          if [ -f packages/packages.adb ]; then
+            REPO_ARGS+=(--repository "$PWD/packages")
+          fi
+          echo "COMBINEWRT_PREFLIGHT_PACKAGES=$(jq -r '.composition.preflight.packages | length' ../plan.json)"
+          if ! "$APK" add --simulate --no-progress --initdb --root "$ROOT" \
+            --arch "$FEED_TARGET" --cache-dir "$PWD/preflight-cache" \
+            --repositories-file "$PWD/preflight.repositories" \
+            "${REPO_ARGS[@]}" $PACKAGES 2>&1 | tee preflight.log; then
+            # apk prints the unresolved world entries as
+            # "  name (reason):" lines under "unable to select packages".
+            MISSING=$(awk '
+              /^ERROR: unable to select packages:/ { in_block = 1; next }
+              in_block && /^  [A-Za-z0-9]/ { print $1; next }
+              in_block && /^[[:space:]]*$/ { in_block = 0 }
+            ' preflight.log | sed -E 's/-[0-9][^-]*$//' | sort -u)
+            DETAIL=$(grep -m1 -E 'no such package|missing dependency|conflict' preflight.log | sed -E 's/^[[:space:]]+//' || true)
+            MISSING_LIST=$(echo "$MISSING" | paste -sd ',' -)
+            if [ -n "$MISSING" ]; then
+              while IFS= read -r pkg; do
+                [ -z "$pkg" ] && continue
+                source=$(jq -r --arg pkg "$pkg" '[.composition.downloads[]? | select(.name == $pkg) | .source] | first // "official"' ../plan.json)
+                fail preflight "$pkg" "$source" "" "installability preflight failed for ${MISSING_LIST}: ${DETAIL:-see preflight.log}"
+              done <<< "$MISSING"
+            fi
+            fail preflight "" "" "" "installability preflight failed for ${MISSING_LIST:-the requested packages}: ${DETAIL:-see preflight.log}"
+          fi
+          echo "installability preflight passed for $(jq -r '.composition.preflight.packages | length' ../plan.json) packages"
+
       - name: Build image
         run: |
           set -euo pipefail
