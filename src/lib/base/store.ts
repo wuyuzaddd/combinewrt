@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { createCatalogStore } from "@/lib/catalog/store";
+import type { BaseChannel } from "@/lib/domain/types";
 import type { BaseCheckState, BaseVersion, SmokeState, SupplementBuildState } from "./types";
 
 const ACTIVE_KEY = "base.active";
@@ -13,7 +14,12 @@ interface BaseVersionRow {
   release_date: string | null;
   image_builder_url: string;
   image_builder_sha256: string;
+  channel: string;
   created_at: string;
+}
+
+function toChannel(raw: string | null | undefined): BaseChannel {
+  return raw === "snapshot" ? "snapshot" : "release";
 }
 
 function toBaseVersion(row: BaseVersionRow): BaseVersion {
@@ -22,9 +28,12 @@ function toBaseVersion(row: BaseVersionRow): BaseVersion {
     releaseDate: row.release_date,
     imageBuilderUrl: row.image_builder_url,
     imageBuilderSha256: row.image_builder_sha256,
+    channel: toChannel(row.channel),
     createdAt: row.created_at,
   };
 }
+
+export type BaseVersionUpsertInput = Omit<BaseVersion, "createdAt" | "channel"> & { channel?: BaseChannel };
 
 function readMeta(db: DatabaseSync, key: string): string | null {
   const row = db.prepare("SELECT value FROM app_meta WHERE key = ?").get(key) as { value: string } | undefined;
@@ -54,7 +63,7 @@ export interface BaseVersionStore {
   previous(): BaseVersion | null;
   setActive(version: string): void;
   setPrevious(version: string | null): void;
-  upsert(input: Omit<BaseVersion, "createdAt">): BaseVersion;
+  upsert(input: BaseVersionUpsertInput): BaseVersion;
   check(): BaseCheckState | null;
   setCheck(state: BaseCheckState): void;
   smoke(): SmokeState | null;
@@ -96,15 +105,22 @@ export function createBaseVersionStore(db: DatabaseSync): BaseVersionStore {
     writeMeta(db, PREVIOUS_KEY, version);
   }
 
-  function upsert(input: Omit<BaseVersion, "createdAt">): BaseVersion {
+  function upsert(input: BaseVersionUpsertInput): BaseVersion {
     db.prepare(
-      `INSERT INTO base_versions (version, release_date, image_builder_url, image_builder_sha256)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO base_versions (version, release_date, image_builder_url, image_builder_sha256, channel)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (version) DO UPDATE SET
          release_date = excluded.release_date,
          image_builder_url = excluded.image_builder_url,
-         image_builder_sha256 = excluded.image_builder_sha256`,
-    ).run(input.version, input.releaseDate, input.imageBuilderUrl, input.imageBuilderSha256);
+         image_builder_sha256 = excluded.image_builder_sha256,
+         channel = excluded.channel`,
+    ).run(
+      input.version,
+      input.releaseDate,
+      input.imageBuilderUrl,
+      input.imageBuilderSha256,
+      input.channel ?? "release",
+    );
     const saved = get(input.version);
     if (!saved) throw new Error(`base version ${input.version} was not persisted`);
     return saved;

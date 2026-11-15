@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { DEFAULT_TARGET_ID } from "../domain/types";
 import type {
   CatalogPackage,
   CatalogProfile,
@@ -15,6 +16,7 @@ import { EMPTY_SOURCE_PINS, PACKAGE_SOURCES } from "./types";
 interface SnapshotRow {
   id: number;
   base_version: string;
+  target: string;
   feed_commit: string;
   source_note: string;
   source_pins: string | null;
@@ -65,6 +67,7 @@ function toMeta(row: SnapshotRow): SnapshotMeta {
   return {
     id: row.id,
     baseVersion: row.base_version,
+    target: row.target,
     feedCommit: row.feed_commit,
     sourceNote: row.source_note,
     sourcePins: parsePins(row.source_pins),
@@ -98,9 +101,9 @@ function toPackage(row: PackageRow): CatalogPackage {
 }
 
 export interface CatalogStore {
-  findSnapshot(baseVersion: string, feedCommit: string): SnapshotMeta | null;
+  findSnapshot(baseVersion: string, feedCommit: string, target?: string): SnapshotMeta | null;
   getActiveSnapshot(): SnapshotMeta | null;
-  latestForBaseVersion(baseVersion: string): number | null;
+  latestForBaseVersion(baseVersion: string, target?: string): number | null;
   activateSnapshot(snapshotId: number): boolean;
   saveSnapshot(input: SnapshotInput): SnapshotMeta;
   listProfiles(snapshotId: number): CatalogProfile[];
@@ -112,10 +115,14 @@ export interface CatalogStore {
 }
 
 export function createCatalogStore(db: DatabaseSync): CatalogStore {
-  function findSnapshot(baseVersion: string, feedCommit: string): SnapshotMeta | null {
+  function findSnapshot(
+    baseVersion: string,
+    feedCommit: string,
+    target: string = DEFAULT_TARGET_ID,
+  ): SnapshotMeta | null {
     const row = db
-      .prepare("SELECT * FROM catalog_snapshots WHERE base_version = ? AND feed_commit = ?")
-      .get(baseVersion, feedCommit) as SnapshotRow | undefined;
+      .prepare("SELECT * FROM catalog_snapshots WHERE base_version = ? AND target = ? AND feed_commit = ?")
+      .get(baseVersion, target, feedCommit) as SnapshotRow | undefined;
     return row ? toMeta(row) : null;
   }
 
@@ -130,10 +137,12 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
     return row ? toMeta(row) : null;
   }
 
-  function latestForBaseVersion(baseVersion: string): number | null {
+  function latestForBaseVersion(baseVersion: string, target: string = DEFAULT_TARGET_ID): number | null {
     const row = db
-      .prepare("SELECT id FROM catalog_snapshots WHERE base_version = ? ORDER BY created_at DESC, id DESC LIMIT 1")
-      .get(baseVersion) as { id: number } | undefined;
+      .prepare(
+        "SELECT id FROM catalog_snapshots WHERE base_version = ? AND target = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+      )
+      .get(baseVersion, target) as { id: number } | undefined;
     return row ? Number(row.id) : null;
   }
 
@@ -150,7 +159,8 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
   }
 
   function saveSnapshot(input: SnapshotInput): SnapshotMeta {
-    const existing = findSnapshot(input.baseVersion, input.feedCommit);
+    const target = input.target ?? DEFAULT_TARGET_ID;
+    const existing = findSnapshot(input.baseVersion, input.feedCommit, target);
     if (existing) return existing;
 
     db.exec("BEGIN");
@@ -158,11 +168,12 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
       const result = db
         .prepare(
           `INSERT INTO catalog_snapshots
-             (base_version, feed_commit, source_note, source_pins, profile_count, package_count)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+             (base_version, target, feed_commit, source_note, source_pins, profile_count, package_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.baseVersion,
+          target,
           input.feedCommit,
           input.sourceNote,
           JSON.stringify(input.sourcePins),
@@ -215,7 +226,7 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
       ).run(String(snapshotId));
 
       db.exec("COMMIT");
-      const saved = findSnapshot(input.baseVersion, input.feedCommit);
+      const saved = findSnapshot(input.baseVersion, input.feedCommit, target);
       if (!saved) throw new Error("snapshot was not persisted");
       return saved;
     } catch (error) {

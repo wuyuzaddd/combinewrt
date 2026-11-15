@@ -1,5 +1,4 @@
-import type { ImageFormatId, PackageSource, SourcePins } from "../catalog/types";
-import type { ComplianceReport } from "../compliance";
+import type { ImageFormatId, PackageSource } from "../catalog/types";
 
 export interface RequestedPackage {
   name: string;
@@ -95,26 +94,4 @@ export interface GeneratedFile {
   mode: number;
 }
 
-export interface BuildPlan {
-  baseVersion: string;
-  feedCommit: string;
-  sourceNote: string;
-  sourcePins: SourcePins;
-  config?: BuildConfig;
-  profileId: string;
-  profileTitle: string;
-  imageType: ImageFormatId;
-  visibility?: BuildVisibility;
-  packages: string[];
-  topLevelPackages: string[];
-  resolved: ResolvedEntry[];
-  downloads: DownloadEntry[];
-  missingDependencies: string[];
-  conflicts: BuildConflict[];
-  compliance?: ComplianceReport;
-  patches?: AppliedPatch[];
-  files: GeneratedFile[];
-  artifactName: string;
-  imageBuilderCommand: string;
-  createdAt: string;
-}
+export type { BuildPlan, BuildPlanV1, BuildPlanV2 } from "../domain/build-plan";

@@ -83,6 +83,25 @@ describe("catalog store", () => {
     expect(store.searchPackages(first.id, {}).total).toBe(3);
   });
 
+  it("persists the snapshot target and scopes the unique key to it", () => {
+    const { store } = freshStore();
+    const x86 = store.saveSnapshot(input());
+    expect(x86.target).toBe("x86/64");
+
+    const arm = store.saveSnapshot(input({ feedCommit: "r38135-arm", target: "armsr/armv8" }));
+    expect(arm.id).not.toBe(x86.id);
+    expect(arm.target).toBe("armsr/armv8");
+
+    expect(store.findSnapshot("25.12.2", "r38135-test")?.id).toBe(x86.id);
+    expect(store.findSnapshot("25.12.2", "r38135-test", "armsr/armv8")).toBeNull();
+    expect(store.findSnapshot("25.12.2", "r38135-arm", "armsr/armv8")?.id).toBe(arm.id);
+    expect(store.saveSnapshot(input({ target: "x86/64" })).id).toBe(x86.id);
+
+    expect(store.latestForBaseVersion("25.12.2")).toBe(x86.id);
+    expect(store.latestForBaseVersion("25.12.2", "x86/64")).toBe(x86.id);
+    expect(store.latestForBaseVersion("25.12.2", "armsr/armv8")).toBe(arm.id);
+  });
+
   it("searches by name or description and filters by category", () => {
     const { store } = freshStore();
     const snapshot = store.saveSnapshot(input());

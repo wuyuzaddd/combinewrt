@@ -15,6 +15,8 @@ export interface CatalogDump {
 
 export interface CatalogSource {
   baseVersion: string;
+  /** OpenWrt target id; V1 sources omit it and get the x86/64 default. */
+  target?: string;
   loadMeta(): Promise<{ profilesJson: unknown; feedCommit: string; sourceNote: string; sourcePins?: SourcePins }>;
   loadDumps(): Promise<CatalogDump[]>;
 }
@@ -29,7 +31,7 @@ export async function refreshCatalog({ source, db }: { source: CatalogSource; db
   const profiles = parseProfiles(meta.profilesJson);
   const store = createCatalogStore(db);
 
-  const existing = store.findSnapshot(source.baseVersion, meta.feedCommit);
+  const existing = store.findSnapshot(source.baseVersion, meta.feedCommit, source.target);
   if (existing) {
     return { snapshot: existing, created: false };
   }
@@ -50,6 +52,7 @@ export async function refreshCatalog({ source, db }: { source: CatalogSource; db
 
   const snapshot = store.saveSnapshot({
     baseVersion: source.baseVersion,
+    target: source.target,
     feedCommit: meta.feedCommit,
     sourceNote: meta.sourceNote,
     sourcePins: meta.sourcePins ?? EMPTY_SOURCE_PINS,

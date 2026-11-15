@@ -1,6 +1,12 @@
 export interface Migration {
   version: string;
   sql: string;
+  /**
+   * Some migrations have to rebuild a table that other tables reference.
+   * Turning foreign keys off during that migration keeps ON DELETE CASCADE
+   * from silently deleting child rows when the old table is dropped.
+   */
+  disableForeignKeys?: boolean;
 }
 
 export const MIGRATIONS: Migration[] = [
@@ -174,5 +180,35 @@ export const MIGRATIONS: Migration[] = [
       created_at TEXT NOT NULL
     );
     CREATE INDEX build_events_build_id ON build_events(build_id, id);`,
+  },
+  {
+    version: "010_v2_domain",
+    // Rebuilding catalog_snapshots drops the old table; foreign keys must be
+    // off or catalog_profiles / catalog_packages would cascade-delete.
+    disableForeignKeys: true,
+    sql: `
+      ALTER TABLE base_versions ADD COLUMN channel TEXT NOT NULL DEFAULT 'release';
+
+      CREATE TABLE catalog_snapshots_next (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        base_version TEXT NOT NULL,
+        target TEXT NOT NULL DEFAULT 'x86/64',
+        feed_commit TEXT NOT NULL,
+        source_note TEXT NOT NULL,
+        source_pins TEXT NOT NULL DEFAULT '{"official":{},"dllkids":null,"supplement":null,"kernel":null}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        profile_count INTEGER NOT NULL,
+        package_count INTEGER NOT NULL,
+        UNIQUE (base_version, target, feed_commit)
+      );
+
+      INSERT INTO catalog_snapshots_next
+        (id, base_version, target, feed_commit, source_note, source_pins, created_at, profile_count, package_count)
+      SELECT id, base_version, 'x86/64', feed_commit, source_note, source_pins, created_at, profile_count, package_count
+      FROM catalog_snapshots;
+
+      DROP TABLE catalog_snapshots;
+      ALTER TABLE catalog_snapshots_next RENAME TO catalog_snapshots;
+    `,
   },
 ];
