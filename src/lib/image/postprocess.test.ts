@@ -3,6 +3,7 @@ import {
   ARTIFACT_SIZE_LIMIT_BYTES,
   ArtifactSizeLimitError,
   assertArtifactSize,
+  assertManifestArtifactSizes,
   checkArtifactSize,
   exceedsArtifactSizeLimit,
   formatBytes,
@@ -228,5 +229,23 @@ describe("artifact size guard", () => {
     expect(formatBytes(2 * 1024 ** 2)).toBe("2 MiB");
     expect(formatBytes(3 * GIB)).toBe("3 GiB");
     expect(formatBytes(1.5 * 1024)).toBe("1.5 KiB");
+  });
+});
+
+describe("manifest artifact sizes", () => {
+  it("accepts a manifest whose raw and converted artifacts fit the cap", () => {
+    expect(() =>
+      assertManifestArtifactSizes({ size: 1024, raw: { size: 2048 }, converted: { size: 512 } }),
+    ).not.toThrow();
+  });
+
+  it("rejects an oversized top-level size", () => {
+    expect(() => assertManifestArtifactSizes({ size: 3 * GIB })).toThrow(ArtifactSizeLimitError);
+  });
+
+  it("rejects an oversized converted artifact even when the raw size fits", () => {
+    expect(() => assertManifestArtifactSizes({ size: 100, converted: { size: GIB * 3 } })).toThrow(
+      ArtifactSizeLimitError,
+    );
   });
 });

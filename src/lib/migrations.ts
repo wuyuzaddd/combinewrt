@@ -302,4 +302,26 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX supplement_publish_events_publish ON supplement_publish_events (publish_id, id);
     `,
   },
+  {
+    version: "130_artifact_cache",
+    // Site artifact cache index (ticket 14). Files on disk stay authoritative:
+    // the index is reconciled against them on startup and after every cleanup,
+    // so a crash between rename and upsert is repaired rather than served.
+    sql: `
+      CREATE TABLE IF NOT EXISTS artifact_cache_entries (
+        build_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        size INTEGER NOT NULL CHECK (size >= 0),
+        sha256 TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (build_id, filename)
+      );
+
+      CREATE INDEX IF NOT EXISTS artifact_cache_entries_updated
+        ON artifact_cache_entries (updated_at);
+    `,
+  },
 ];

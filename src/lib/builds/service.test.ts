@@ -1,9 +1,12 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { BuildPlan } from "../build/types";
 import { migrate, openDatabase } from "../db";
+import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError } from "../image/postprocess";
+import { createArtifactCache } from "./artifact-cache";
+import { createArtifactCacheStore } from "./artifact-store";
 import { createFakeAdapter } from "./fake";
 import { createBuildService } from "./service";
 import { createBuildStore } from "./store";
@@ -274,4 +277,92 @@ describe("build service resilience", () => {
     expect(result?.artifactName).toBe("new.zip");
   });
 
+});
+
+describe("artifact cache integration", () => {
+  function cacheDb() {
+    const db = database();
+    const dir = mkdtempSync(join(tmpdir(), "cw-artifacts-"));
+    dirs.push(dir);
+    return { db, dir, cache: createArtifactCache({ dir, store: createArtifactCacheStore(db) }) };
+  }
+
+  it("archives a download in the site cache and exposes it as a ranged file", async () => {
+    const { db, dir, cache } = cacheDb();
+    const service = createBuildService({
+      store: createBuildStore(db),
+      adapter: createFakeAdapter(),
+      cacheDir: dir,
+      cache,
+    });
+    const submitted = await service.submit(plan());
+    await service.refresh(submitted.id);
+    await service.refresh(submitted.id);
+    expect((await service.refresh(submitted.id))?.status).toBe("succeeded");
+
+    const file = await service.artifactFile(submitted.id);
+    expect(file?.size).toBe(20);
+    expect(file?.kind).toBe("combined");
+    expect(file?.path.startsWith(dir)).toBe(true);
+    // The second call is served from the index, not by downloading again.
+    expect((await service.artifactFile(submitted.id))?.path).toBe(file?.path);
+
+    const download = await service.artifact(submitted.id);
+    expect(download?.contentType).toBe("application/zip");
+  });
+
+  it("keeps a V1 legacy <id>.zip cache file downloadable", async () => {
+    const { db, dir, cache } = cacheDb();
+    const service = createBuildService({
+      store: createBuildStore(db),
+      adapter: createFakeAdapter(),
+      cacheDir: dir,
+      cache,
+    });
+    const submitted = await service.submit(plan());
+    await service.refresh(submitted.id);
+    await service.refresh(submitted.id);
+    await service.refresh(submitted.id);
+
+    // Simulate the pre-ticket-14 cache layout, written before this build ran.
+    writeFileSync(join(dir, `${submitted.id}.zip`), "legacy-zip");
+
+    const restarted = createBuildService({
+      store: createBuildStore(db),
+      adapter: createFakeAdapter(),
+      cacheDir: dir,
+      cache: createArtifactCache({ dir, store: createArtifactCacheStore(db) }),
+    });
+    const file = await restarted.artifactFile(submitted.id);
+    expect(file?.path).toBe(join(dir, `${submitted.id}.zip`));
+    expect(file?.size).toBe("legacy-zip".length);
+  });
+
+  it("rejects an over-cap artifact before caching it", async () => {
+    const { db, dir, cache } = cacheDb();
+    const oversized: BuildAdapter = {
+      name: "fake",
+      findRun: async () => null,
+      dispatch: async () => ({ runId: "run-big" }),
+      getRun: async () => ({ status: "succeeded", artifactName: "big.img.gz", logTail: "ok" }),
+      downloadArtifact: async () => ({
+        name: "big.img.gz",
+        contentType: "application/gzip",
+        size: ARTIFACT_SIZE_LIMIT_BYTES + 1,
+        body: new Uint8Array([1]),
+      }),
+    };
+    const service = createBuildService({
+      store: createBuildStore(db),
+      adapter: oversized,
+      cacheDir: dir,
+      cache,
+    });
+    const submitted = await service.submit(plan());
+    await service.refresh(submitted.id);
+
+    await expect(service.artifactFile(submitted.id)).rejects.toBeInstanceOf(ArtifactSizeLimitError);
+    expect(cache.stats().entries).toBe(0);
+    expect(existsSync(join(dir, submitted.id))).toBe(false);
+  });
 });

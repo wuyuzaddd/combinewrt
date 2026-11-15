@@ -8,8 +8,11 @@ import { createBaseVersionStore } from "@/lib/base/store";
 import { listWorkflowRuns, type WorkflowRunSummary } from "@/lib/builds/github";
 import { readCatalogRefreshState } from "@/lib/catalog/refresh-control";
 import { readRetentionSummary } from "@/lib/builds/retention";
+import { createArtifactCache } from "@/lib/builds/artifact-cache";
+import { createArtifactCacheStore } from "@/lib/builds/artifact-store";
 import { getSourceWatchService } from "@/lib/source-watch";
 import { BaseVersionPanel } from "./base-version-panel";
+import { ArtifactCachePanel } from "./artifact-cache-panel";
 import { LogoutButton } from "./logout-button";
 import { RecentRunsPanel } from "./recent-runs-panel";
 import { SourceWatchPanel } from "./source-watch-panel";
@@ -56,6 +59,11 @@ export default async function AdminPage() {
   const session = await getSession();
   if (!session) redirect("/login?next=/admin");
   const retention = readRetentionSummary(getDatabase());
+  const config = getConfig();
+  const artifactStats = createArtifactCache({
+    dir: config.artifactCacheDir,
+    store: createArtifactCacheStore(getDatabase()),
+  }).stats();
   const baseVersion = readBaseVersionState();
   const baseVersions = createBaseVersionStore(getDatabase()).list();
   const catalogRefresh = readCatalogRefreshState(getDatabase());
@@ -117,23 +125,12 @@ export default async function AdminPage() {
         <p className="mt-2 text-xs text-slate-500">成功后 24 小时内自动跳过；失败会按小时重试；手动刷新不受限制。</p>
       </section>
 
-      <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
-        <h2 className="font-medium">产物清理</h2>
-        {retention ? (
-          <p className="mt-1 text-slate-400">
-            上次清理 {new Date(retention.at).toLocaleString("zh-CN")} · 删除 {retention.removed} 个文件
-            {retention.failed.length > 0 && (
-              <span className="text-amber-300"> · {retention.failed.length} 个文件清理失败</span>
-            )}
-            {retention.error && <span className="text-rose-300"> · 清理运行失败：{retention.error}</span>}
-          </p>
-        ) : (
-          <p className="mt-1 text-slate-500">尚未运行清理。</p>
-        )}
-        <p className="mt-2 text-xs text-slate-500">
-          保留天数由 <code className="font-mono">ARTIFACT_RETENTION_DAYS</code> 控制；清理只删站点缓存，不删构建历史。
-        </p>
-      </section>
+      <ArtifactCachePanel
+        maxBytes={config.artifactCacheMaxBytes}
+        retention={retention}
+        retentionDays={config.artifactRetentionDays}
+        stats={artifactStats}
+      />
     </main>
   );
 }

@@ -50,6 +50,8 @@ export interface AppConfig {
   buildRef: string;
   artifactCacheDir: string;
   artifactRetentionDays: number;
+  /** Site cache size ceiling in bytes; 0 disables size-based eviction. */
+  artifactCacheMaxBytes: number;
   sourceWatchIntervalHours: number;
   sourceCacheDir: string;
 }
@@ -196,6 +198,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     issues.push("ARTIFACT_RETENTION_DAYS must be an integer between 0 and 365");
   }
   const artifactCacheDir = env.ARTIFACT_CACHE_DIR?.trim() || join(dirname(databasePath), "artifacts");
+  // 20 GiB default: large enough for dozens of images, small enough that a
+  // broken build loop cannot fill the disk. 0 means unlimited.
+  const artifactCacheMaxBytes = Number(env.ARTIFACT_CACHE_MAX_BYTES?.trim() || String(20 * 1024 * 1024 * 1024));
+  if (
+    !Number.isInteger(artifactCacheMaxBytes) ||
+    artifactCacheMaxBytes < 0 ||
+    artifactCacheMaxBytes > 10 * 1024 * 1024 * 1024 * 1024
+  ) {
+    issues.push("ARTIFACT_CACHE_MAX_BYTES must be an integer between 0 and 10995116277760 (0 = unlimited)");
+  }
   const sourceWatchIntervalHours = Number(env.SOURCE_WATCH_INTERVAL_HOURS?.trim() || "6");
   if (
     !Number.isInteger(sourceWatchIntervalHours) ||
@@ -298,6 +310,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     buildRef,
     artifactCacheDir,
     artifactRetentionDays,
+    artifactCacheMaxBytes,
     sourceWatchIntervalHours,
     sourceCacheDir,
   };
