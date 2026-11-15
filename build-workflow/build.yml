@@ -17,13 +17,8 @@ jobs:
       - name: Prepare plan
         run: |
           set -euo pipefail
+          source .github/scripts/fail.sh
           jq '.client_payload' "$GITHUB_EVENT_PATH" > plan.json
-          fail() {
-            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
-              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
-              | sed 's/^/COMBINEWRT_FAILURE=/'
-            exit 1
-          }
           for field in artifactName imageType profileId baseVersion; do
             jq -e --arg field "$field" 'has($field) and (.[$field] | type == "string") and (.[$field] | length > 0)' plan.json >/dev/null \
               || fail prepare-plan "" "" "" "client_payload is missing $field"
@@ -33,12 +28,7 @@ jobs:
       - name: Install tools
         run: |
           set -euo pipefail
-          fail() {
-            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
-              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
-              | sed 's/^/COMBINEWRT_FAILURE=/'
-            exit 1
-          }
+          source .github/scripts/fail.sh
           if ! sudo apt-get update -qq || ! sudo apt-get install -y -qq zstd jq qemu-utils genisoimage e2fsprogs squashfs-tools; then
             fail install-tools "" "" "" "failed to install ImageBuilder dependencies"
           fi
@@ -46,35 +36,25 @@ jobs:
       - name: Download ImageBuilder
         run: |
           set -euo pipefail
+          source .github/scripts/fail.sh
           BASE=$(jq -r .baseVersion plan.json)
           URL="https://downloads.immortalwrt.org/releases/${BASE}/targets/x86/64/immortalwrt-imagebuilder-${BASE}-x86-64.Linux-x86_64.tar.zst"
           echo "Downloading $URL"
-          fail() {
-            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
-              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
-              | sed 's/^/COMBINEWRT_FAILURE=/'
-            exit 1
-          }
           if ! curl -fL --retry 3 --retry-delay 5 -o ib.tar.zst "$URL"; then
-            fail download-imagebuilder "" "" "$BASE" "failed to download $URL"
+            fail download-imagebuilder "" "" "" "failed to download $URL"
           fi
           ls -l ib.tar.zst
           mkdir ib
           if ! tar --zstd -xf ib.tar.zst -C ib --strip-components=1; then
-            fail download-imagebuilder "" "" "$BASE" "failed to extract the ImageBuilder archive"
+            fail download-imagebuilder "" "" "" "failed to extract the ImageBuilder archive"
           fi
 
       - name: Download pinned third-party packages
         run: |
           set -euo pipefail
+          source .github/scripts/fail.sh
           cd ib
           mkdir -p packages
-          fail() {
-            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
-              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
-              | sed 's/^/COMBINEWRT_FAILURE=/'
-            exit 1
-          }
           APK_BIN="$PWD/staging_dir/host/bin/apk"
           COUNT=$(jq '.composition.downloads // [] | length' ../plan.json)
           echo "COMBINEWRT_DOWNLOADS=$COUNT"
@@ -145,55 +125,42 @@ jobs:
       - name: Write files
         run: |
           set -euo pipefail
+          source .github/scripts/fail.sh
           cd ib
-          fail() {
-            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
-              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
-              | sed 's/^/COMBINEWRT_FAILURE=/'
-            exit 1
-          }
-          jq -c '.files[]' ../plan.json | while IFS= read -r file; do
+          if ! jq -c '.files[]' ../plan.json | while IFS= read -r file; do
             path=$(echo "$file" | jq -r .path)
             mode=$(echo "$file" | jq -r '.mode // 420')
             mkdir -p "$(dirname "$path")"
             echo "$file" | jq -r .content > "$path"
             chmod "$(printf '%o' "$mode")" "$path"
-          done
+          done; then
+            fail write-files "" "" "" "failed to write generated files"
+          fi
           find files -type f | sort
           echo 'uci-defaults written (contents not printed: they contain the root password hash)'
 
       - name: Build image
         run: |
           set -euo pipefail
+          source .github/scripts/fail.sh
           cd ib
           PROFILE=$(jq -r .profileId ../plan.json)
           PACKAGES=$(jq -r '.packages | join(" ")' ../plan.json)
           echo "COMBINEWRT_PROFILE=$PROFILE"
           echo "COMBINEWRT_PACKAGES=$PACKAGES"
           echo "COMBINEWRT_MAKE=make -j$(nproc) image PROFILE=\"$PROFILE\" PACKAGES=\"$PACKAGES\" FILES=files"
-                    fail() {
-            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
-              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
-              | sed 's/^/COMBINEWRT_FAILURE=/'
-            exit 1
-          }
           if ! make -j"$(nproc)" image PROFILE="$PROFILE" PACKAGES="$PACKAGES" FILES=files \
             CONFIG_ISO_IMAGES= CONFIG_QCOW2_IMAGES= CONFIG_VDI_IMAGES= CONFIG_VMDK_IMAGES= CONFIG_VHDX_IMAGES= 2>&1 | tee build.log; then
-            fail build-image "" "" "$(jq -r .baseVersion ../plan.json)" "make image failed; see the workflow log"
+            fail build-image "" "" "" "make image failed; see the workflow log"
           fi
 
       - name: Assert top-level packages
         run: |
           set -euo pipefail
+          source .github/scripts/fail.sh
           cd ib
           IMAGE_TYPE=$(jq -r .imageType ../plan.json)
           ARTIFACT=$(jq -r .artifactName ../plan.json)
-          fail() {
-            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
-              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
-              | sed 's/^/COMBINEWRT_FAILURE=/'
-            exit 1
-          }
           IMG=$(find bin/targets -type f -name "$ARTIFACT" | head -1)
           if [ -z "$IMG" ]; then
             fail package-artifact "" "" "" "expected artifact $ARTIFACT was not produced"
@@ -259,14 +226,9 @@ jobs:
       - name: Package artifact
         run: |
           set -euo pipefail
+          source .github/scripts/fail.sh
           cd ib
           ARTIFACT=$(jq -r .artifactName ../plan.json)
-                    fail() {
-            jq -cn --arg step "$1" --arg pkg "${2:-}" --arg src "${3:-}" --arg ver "${4:-}" --arg msg "$5" \
-              '{step:$step,package:(if $pkg=="" then null else $pkg end),source:(if $src=="" then null else $src end),version:(if $ver=="" then null else $ver end),message:$msg}' \
-              | sed 's/^/COMBINEWRT_FAILURE=/'
-            exit 1
-          }
           IMG=$(find bin/targets -type f -name "$ARTIFACT" | head -1)
           if [ -z "$IMG" ]; then
             find bin/targets -type f | sort >&2

@@ -91,7 +91,7 @@ export function createBuildService(options: {
           version: null,
           message: `build did not finish within ${minutes} minutes`,
         },
-      });
+      }, record.updatedAt);
     }
     if (!record.runId) {
       const age = now().getTime() - Date.parse(record.createdAt);

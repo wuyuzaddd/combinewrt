@@ -4,8 +4,6 @@ const password = "ticket09-test-pass";
 
 async function login(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(1_500);
   await page.getByLabel("管理员密码").fill(password);
   await page.getByRole("button", { name: "登录" }).click();
   await expect(page).toHaveURL(/\/admin/);
@@ -22,19 +20,24 @@ async function addPackage(page: Page, name: string) {
   await page.getByRole("button", { name: new RegExp(`^${name}`) }).first().click();
 }
 
+async function addFreeText(page: Page, name: string) {
+  await page.getByPlaceholder("自由文本包名（目录中不存在也可添加），回车确认").fill(name);
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+}
+
+async function openPlan(page: Page, packages: string[] = []) {
+  await login(page);
+  await openBuild(page);
+  for (const name of packages) await addPackage(page, name);
+}
+
 async function plan(page: Page) {
   await page.getByRole("button", { name: "生成构建计划" }).click();
   await expect(page.getByText("预计产物")).toBeVisible();
 }
 
 test("login, compose a three-source plan, build and download", async ({ page }) => {
-  await login(page);
-  await openBuild(page);
-
-  await addPackage(page, "lucky");
-  await addPackage(page, "luci-app-lucky");
-  await addPackage(page, "luci-app-store");
-  await addPackage(page, "luci");
+  await openPlan(page, ["lucky", "luci-app-lucky", "luci-app-store", "luci"]);
 
   await plan(page);
   await expect(page.getByText(/lucky \[dllkids\]/)).toBeVisible();
@@ -51,38 +54,28 @@ test("login, compose a three-source plan, build and download", async ({ page }) 
 });
 
 test("same package name from two sources is rejected", async ({ page }) => {
-  await login(page);
-  await openBuild(page);
-  await addPackage(page, "dual-package");
-  await page.getByPlaceholder("自由文本包名（目录中不存在也可添加），回车确认").fill("dllkids/dual-package");
-  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await openPlan(page, ["dual-package"]);
+  await addFreeText(page, "dllkids/dual-package");
   await plan(page);
   await expect(page.getByText(/同时来自多个来源|更高优先级/).first()).toBeVisible();
 });
 
 test("a non-official kmod is rejected", async ({ page }) => {
-  await login(page);
-  await openBuild(page);
-  await page.getByPlaceholder("自由文本包名（目录中不存在也可添加），回车确认").fill("dllkids/kmod-demo");
-  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await openPlan(page);
+  await addFreeText(page, "dllkids/kmod-demo");
   await plan(page);
   await expect(page.getByText(/kmod 只允许来自官方来源/)).toBeVisible();
 });
 
 test("a version that does not match the pinned source is rejected", async ({ page }) => {
-  await login(page);
-  await openBuild(page);
-  await page.getByPlaceholder("自由文本包名（目录中不存在也可添加），回车确认").fill("lucky@9.9.9");
-  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await openPlan(page);
+  await addFreeText(page, "lucky@9.9.9");
   await plan(page);
   await expect(page.getByText(/请求版本 9.9.9/)).toBeVisible();
 });
 
 test("a dependency conflict is shown before dispatch", async ({ page }) => {
-  await login(page);
-  await openBuild(page);
-  await addPackage(page, "dnsmasq");
-  await addPackage(page, "dnsmasq-full");
+  await openPlan(page, ["dnsmasq", "dnsmasq-full"]);
   await plan(page);
   await expect(page.getByText(/dnsmasq 与 dnsmasq-full 不能同时安装/)).toBeVisible();
 });
@@ -94,12 +87,10 @@ test("a succeeded build without an artifact warns instead of claiming success", 
 });
 
 test("an unavailable package is reported without a catalog match", async ({ page }) => {
-  await login(page);
-  await openBuild(page);
+  await openPlan(page);
   await page.getByPlaceholder("搜索软件包，至少 2 个字符").fill("zzzz-not-in-catalog");
   await expect(page.getByRole("button", { name: /zzzz-not-in-catalog/ })).toHaveCount(0);
-  await page.getByPlaceholder("自由文本包名（目录中不存在也可添加），回车确认").fill("zzzz-not-in-catalog");
-  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await addFreeText(page, "zzzz-not-in-catalog");
   await plan(page);
   await expect(page.getByText(/目录中未找到：.*zzzz-not-in-catalog/)).toBeVisible();
 });

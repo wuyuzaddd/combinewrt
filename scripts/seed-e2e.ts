@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import { migrate, openDatabase } from "../src/lib/db";
 import { createCatalogStore } from "../src/lib/catalog/store";
+import { createBaseVersionStore } from "../src/lib/base/store";
 import { createBuildStore } from "../src/lib/builds/store";
 import type { CatalogPackage, CatalogProfile, PackageSource, SourcePins } from "../src/lib/catalog/types";
 
@@ -81,7 +82,7 @@ createCatalogStore(db).saveSnapshot({
   packages,
 });
 
-db.prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('base.active', '25.12.2')").run();
+createBaseVersionStore(db).setActive("25.12.2");
 
 createBuildStore(db).create({
   id: "missing-artifact",

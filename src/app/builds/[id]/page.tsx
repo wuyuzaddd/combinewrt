@@ -3,13 +3,15 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
+import type { BuildStep } from "@/lib/builds/types";
 import { createComplianceReport } from "@/lib/compliance";
 import { ComplianceIssueList } from "@/components/compliance";
 import { BuildPoller } from "./build-poller";
 import { CancelButton } from "../cancel-button";
 
-const STEP_LABELS: Record<string, string> = {
+const STEP_LABELS: Record<BuildStep, string> = {
   "prepare-plan": "生成构建计划",
+  "install-tools": "安装构建工具",
   "download-imagebuilder": "下载 ImageBuilder",
   "download-packages": "下载并校验软件包",
   "write-files": "写入构建配置",
@@ -78,6 +80,12 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
           )}
           <p className="mt-2 text-xs text-rose-200/90">{build.failure.message}</p>
         </section>
+      )}
+
+      {build.error && build.failure && build.error !== build.failure.message && (
+        <p className="rounded-xl border border-rose-900/60 bg-rose-950/20 p-4 text-xs text-rose-200">
+          {build.error}
+        </p>
       )}
 
       {build.error && !build.failure && (

@@ -127,7 +127,7 @@ npm run test:e2e:only   # 复用已有 .next 构建，只跑 e2e
 COMBINEWRT_FAILURE={"step":"download-packages","package":"lucky","source":"dllkids","version":"3.5.0-r1","message":"..."}
 ```
 
-站点解析最后一个标记，在构建详情页显示步骤、包名、来源、版本与原因；旧工作流仍兼容 `COMBINEWRT_FAILED_PACKAGE=<name>`。步骤标识：`prepare-plan`、`download-imagebuilder`、`download-packages`、`write-files`、`build-image`、`assert-packages`、`package-artifact`、`dispatch`、`timeout`、`workflow`。成功结束但没有产物的构建只显示警告，不会被误判为失败。
+站点解析最后一个标记，在构建详情页显示步骤、包名、来源、版本与原因；旧工作流仍兼容 `COMBINEWRT_FAILED_PACKAGE=<name>`。步骤标识：`prepare-plan`、`install-tools`、`download-imagebuilder`、`download-packages`、`write-files`、`build-image`、`assert-packages`、`package-artifact`、`dispatch`、`timeout`、`workflow`。成功结束但没有产物的构建只显示警告，不会被误判为失败。
 
 ## 首次部署清单
 

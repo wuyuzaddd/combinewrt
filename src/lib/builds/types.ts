@@ -3,8 +3,24 @@ import type { PackageSource } from "../catalog/types";
 
 export type BuildStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
+export const BUILD_STEPS = [
+  "prepare-plan",
+  "install-tools",
+  "download-imagebuilder",
+  "download-packages",
+  "write-files",
+  "build-image",
+  "assert-packages",
+  "package-artifact",
+  "dispatch",
+  "timeout",
+  "workflow",
+] as const;
+
+export type BuildStep = (typeof BUILD_STEPS)[number];
+
 export interface BuildFailure {
-  step: string;
+  step: BuildStep;
   package: string | null;
   source: PackageSource | null;
   version: string | null;

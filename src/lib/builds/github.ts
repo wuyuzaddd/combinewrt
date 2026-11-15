@@ -1,5 +1,7 @@
 import { unzipSync } from "fflate";
 import type { BuildPlan } from "../build/types";
+import { PACKAGE_SOURCES } from "../catalog/types";
+import { BUILD_STEPS } from "./types";
 import type { ArtifactDownload, BuildAdapter, BuildFailure, RunUpdate } from "./types";
 
 const API = "https://api.github.com";
@@ -262,12 +264,12 @@ export function parseFailure(log: string): BuildFailure | null {
   for (const marker of markers.reverse()) {
     try {
       const parsed = JSON.parse(marker[1]) as Record<string, unknown>;
-      if (typeof parsed.step !== "string" || !parsed.step) continue;
-      const source = parsed.source === "official" || parsed.source === "dllkids" || parsed.source === "supplement"
-        ? parsed.source
+      if (typeof parsed.step !== "string" || !(BUILD_STEPS as readonly string[]).includes(parsed.step)) continue;
+      const source = typeof parsed.source === "string" && (PACKAGE_SOURCES as readonly string[]).includes(parsed.source)
+        ? (parsed.source as (typeof PACKAGE_SOURCES)[number])
         : null;
       return {
-        step: parsed.step,
+        step: parsed.step as (typeof BUILD_STEPS)[number],
         package: typeof parsed.package === "string" && parsed.package ? parsed.package : null,
         source,
         version: typeof parsed.version === "string" && parsed.version ? parsed.version : null,
