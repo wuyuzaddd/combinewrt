@@ -109,6 +109,28 @@ describe("github adapter", () => {
     expect(parseManifest("COMBINEWRT_MANIFEST={\"sha256\":\"bad\",\"size\":1}")).toBeNull();
   });
 
+  it("parses the V2 manifest with target, variant and both artifact digests", () => {
+    const manifest = {
+      schemaVersion: 2,
+      artifactName: "immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.qcow2",
+      path: "/work/bin/targets/x86/64/immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.qcow2",
+      sha256: "b".repeat(64),
+      size: 4096,
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "64" },
+      kernelLine: { id: "linux-6.6", version: "6.6", engine: "imagebuilder" },
+      variant: { boot: "efi", filesystem: "ext4", artifact: "qcow2", overlaySizeMb: 512 },
+      engine: "imagebuilder",
+      raw: { name: "immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img", sha256: "a".repeat(64), size: 8192 },
+      converted: { name: "immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.qcow2", sha256: "b".repeat(64), size: 4096 },
+    };
+    const parsed = parseManifest(`build log\nCOMBINEWRT_MANIFEST=${JSON.stringify(manifest)}\n`);
+    expect(parsed?.schemaVersion).toBe(2);
+    expect(parsed?.target).toEqual(manifest.target);
+    expect(parsed?.variant).toEqual(manifest.variant);
+    expect(parsed?.raw?.sha256).toBe("a".repeat(64));
+    expect(parsed?.converted?.size).toBe(4096);
+  });
+
   it("reads logs and artifacts for a completed run", async () => {
     const logs = zipSync({ "build.txt": strToU8("step one\nstep two\n") });
     const fetchImpl = vi
@@ -293,5 +315,28 @@ describe("parseFailure", () => {
 
   it("returns null without a marker", () => {
     expect(parseFailure("plain failure")).toBeNull();
+  });
+
+  it("keeps the V2 target/variant context from the marker", () => {
+    const log = [
+      "step output",
+      'COMBINEWRT_FAILURE={"step":"postprocess","package":null,"source":null,"version":null,"message":"qemu-img convert failed","context":{"target":"x86/64","variant":"efi-ext4-qcow2","engine":"imagebuilder"}}',
+    ].join("\n");
+    expect(parseFailure(log)).toEqual({
+      step: "postprocess",
+      package: null,
+      source: null,
+      version: null,
+      message: "qemu-img convert failed",
+      context: { target: "x86/64", variant: "efi-ext4-qcow2", engine: "imagebuilder" },
+    });
+  });
+
+  it("drops an unknown failure context but keeps the failure", () => {
+    const log =
+      'COMBINEWRT_FAILURE={"step":"build-image","message":"make failed","context":{"target":"x86/64","engine":"watchtower"}}';
+    const failure = parseFailure(log);
+    expect(failure?.step).toBe("build-image");
+    expect(failure?.context).toEqual({ target: "x86/64" });
   });
 });
