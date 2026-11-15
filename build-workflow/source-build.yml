@@ -98,7 +98,7 @@ jobs:
             echo "IMAGE_GLOB=$(jq -r .imageGlob plan.json)"
             echo "CONFIG_HASH=$config_hash"
             echo "DL_CACHE_KEY=source-build-dl-${source_key}-${source_ref:0:12}"
-            echo "STAGING_CACHE_KEY=source-build-staging-${source_key}-${source_ref:0:12}-${config_hash}"
+            echo "STAGING_CACHE_KEY=source-build-staging-v2-${source_key}-${source_ref:0:12}-${config_hash}"
           } >> "$GITHUB_ENV"
 
       - name: Free runner disk space
@@ -175,6 +175,8 @@ jobs:
           path: |
             source/staging_dir/host
             source/staging_dir/toolchain-*
+            source/build_dir/host
+            source/build_dir/toolchain-*
           key: ${{ env.STAGING_CACHE_KEY }}
           restore-keys: |
             source-build-staging-${{ env.SOURCE_KEY }}-
@@ -183,7 +185,7 @@ jobs:
         id: ccache-cache
         uses: actions/cache/restore@v6
         with:
-          path: ~/.ccache
+          path: source/.ccache
           key: source-build-ccache-${{ env.SOURCE_KEY }}-${{ env.CONFIG_HASH }}
           restore-keys: |
             source-build-ccache-${{ env.SOURCE_KEY }}-
@@ -269,12 +271,14 @@ jobs:
           path: |
             source/staging_dir/host
             source/staging_dir/toolchain-*
+            source/build_dir/host
+            source/build_dir/toolchain-*
           key: ${{ env.STAGING_CACHE_KEY }}
       - name: Save compiler cache
         if: success() && steps.ccache-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: ~/.ccache
+          path: source/.ccache
           key: source-build-ccache-${{ env.SOURCE_KEY }}-${{ env.CONFIG_HASH }}
 
       - name: Package image and manifest
