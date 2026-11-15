@@ -118,7 +118,7 @@ jobs:
             fail tools "" "" "" "apt-get update failed."
           fi
           if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            build-essential autoconf automake bc bison cpio file flex gawk genisoimage gettext git \
+            build-essential autoconf automake bc bison ccache cpio file flex gawk genisoimage gettext git \
             jq libelf-dev libncurses-dev libssl-dev libtool patch pkg-config python3 python3-setuptools \
             rsync squashfs-tools subversion swig time unzip wget xsltproc zlib1g-dev zstd e2fsprogs qemu-utils; then
             fail tools "" "" "" "Installing source-build dependencies failed."
@@ -178,6 +178,15 @@ jobs:
           key: ${{ env.STAGING_CACHE_KEY }}
           restore-keys: |
             source-build-staging-${{ env.SOURCE_KEY }}-
+
+      - name: Restore compiler cache
+        id: ccache-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.ccache
+          key: source-build-ccache-${{ env.SOURCE_KEY }}-${{ env.CONFIG_HASH }}
+          restore-keys: |
+            source-build-ccache-${{ env.SOURCE_KEY }}-
 
       - name: Install pinned feeds
         run: |
@@ -250,6 +259,7 @@ jobs:
         env:
           DL_HIT: ${{ steps.dl-cache.outputs.cache-hit }}
           STAGING_HIT: ${{ steps.staging-cache.outputs.cache-hit }}
+          CCACHE_HIT: ${{ steps.ccache-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           source .github/scripts/fail.sh
@@ -290,8 +300,9 @@ jobs:
             --arg runUrl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --argjson downloadCache "${DL_HIT:-false}" \
             --argjson stagingCache "${STAGING_HIT:-false}" \
+            --argjson ccacheCache "${CCACHE_HIT:-false}" \
             --arg buildSeconds "${COMBINEWRT_BUILD_SECONDS:-0}" \
-            '{artifact:$artifact,sha256:$sha256,sizeBytes:$sizeBytes,kernelLine:$kernelLine,kernelVersion:$kernelVersion,source:{repo:$sourceRepo,ref:$sourceRef,branch:$sourceBranch},run:{id:$runId,url:$runUrl},cache:{download:$downloadCache,staging:$stagingCache},buildSeconds:($buildSeconds|tonumber)}' \
+            '{artifact:$artifact,sha256:$sha256,sizeBytes:$sizeBytes,kernelLine:$kernelLine,kernelVersion:$kernelVersion,source:{repo:$sourceRepo,ref:$sourceRef,branch:$sourceBranch},run:{id:$runId,url:$runUrl},cache:{download:$downloadCache,staging:$stagingCache,ccache:$ccacheCache},buildSeconds:($buildSeconds|tonumber)}' \
             > "$GITHUB_WORKSPACE/out/manifest.json"
           cat "$GITHUB_WORKSPACE/out/manifest.json"
           echo "COMBINEWRT_MANIFEST=$(cat "$GITHUB_WORKSPACE/out/manifest.json")"

@@ -463,7 +463,13 @@ export function generateSourceRecipe(input: SourceRecipeInput): SourceRecipe {
     `# Source: ${line.source.repo}@${line.source.ref} (${line.source.branch})`,
     `# Expected kernel: ${line.source.expectedKernel}. Regenerate from the build plan; do not edit by hand.`,
   ];
-  const targetBlock = [`CONFIG_TARGET_${boardSymbol}=y`, `CONFIG_TARGET_${targetSymbol}=y`];
+  const targetBlock = [
+    `CONFIG_TARGET_${boardSymbol}=y`,
+    `CONFIG_TARGET_${targetSymbol}=y`,
+    // The workflow persists ~/.ccache between runs; without this option the
+    // compiler cache stays unused.
+    "CONFIG_CCACHE=y",
+  ];
   const fragmentBlock = fragment.split("\n");
   const modeBlocks: string[][] = [];
   for (const mode of plan.overlays) {
