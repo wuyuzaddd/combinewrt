@@ -41,7 +41,9 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-400">build</p>
           <h1 className="mt-2 break-all font-mono text-lg font-semibold">{build.plan.artifactName}</h1>
           <p className="mt-1 text-xs text-slate-500">
-            {build.plan.profileTitle} · {build.plan.imageType} · {build.adapter} · run {build.runId ?? "—"}
+            {build.plan.profileTitle} · {build.plan.imageType} ·{" "}
+            {(build.plan.visibility ?? "private") === "public" ? "公开分发" : "自用"} · {build.adapter} · run{" "}
+            {build.runId ?? "—"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">

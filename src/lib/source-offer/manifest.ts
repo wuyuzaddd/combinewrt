@@ -1,5 +1,5 @@
 import type { BaseVersion } from "../base/types";
-import type { BuildConfig, BuildPlan, AppliedPatch } from "../build/types";
+import type { BuildConfig, BuildPlan, AppliedPatch, BuildVisibility } from "../build/types";
 import type { BuildRecord, BuildStatus } from "../builds/types";
 import {
   EMPTY_SOURCE_PINS,
@@ -41,6 +41,8 @@ export interface SourceOfferManifest {
   config: BuildConfig | null;
   generatedFiles: string[];
   compliance: ComplianceReport;
+  visibility: BuildVisibility;
+  publicDistribution: boolean;
   notes: string[];
 }
 
@@ -53,11 +55,18 @@ export function createSourceOffer(
     ? { url: options.imageBuilder.imageBuilderUrl, sha256: options.imageBuilder.imageBuilderSha256 }
     : null;
   const compliance = plan.compliance ?? createComplianceReport(plan.resolved);
+  const visibility = plan.visibility ?? "private";
+  const publicDistribution = visibility === "public" && compliance.publicEligible;
   const notes = [
     "This manifest is the GPL source offer for the pinned package sources used by this image.",
     "No firmware or third-party source code is published by this repository; dllkids is referenced by URL and sha256 only.",
     "Root password hashes and generated file contents are deliberately omitted.",
   ];
+  notes.push(
+    publicDistribution
+      ? "Distribution conclusion: this image is marked public and every package passed the license gate."
+      : "Distribution conclusion: this image is for private use and must not be published as a public build.",
+  );
   if (!plan.sourcePins) {
     notes.push("Legacy build: source pins were not captured in this plan; treat the pin list as incomplete.");
   }
@@ -100,6 +109,8 @@ export function createSourceOffer(
     config: build.config ?? plan.config ?? null,
     generatedFiles: plan.files.map((file) => file.path),
     compliance,
+    visibility,
+    publicDistribution,
     notes,
   };
 }

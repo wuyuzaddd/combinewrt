@@ -14,6 +14,8 @@ export interface PackagePin {
   sha256?: string;
 }
 
+export type BuildVisibility = "private" | "public";
+
 export interface BuildFormInput {
   profile: string;
   imageType: ImageFormatId;
@@ -24,6 +26,7 @@ export interface BuildFormInput {
   rootPassword: string;
   packages: string[];
   packagePins?: PackagePin[];
+  visibility?: BuildVisibility;
 }
 
 export interface PackageLookupEntry {
@@ -50,6 +53,7 @@ export interface BuildConfig {
   lanIp: string;
   netmask: string;
   packages: string[];
+  visibility?: BuildVisibility;
 }
 
 export interface ResolvedEntry {
@@ -100,6 +104,7 @@ export interface BuildPlan {
   profileId: string;
   profileTitle: string;
   imageType: ImageFormatId;
+  visibility?: BuildVisibility;
   packages: string[];
   topLevelPackages: string[];
   resolved: ResolvedEntry[];

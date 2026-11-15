@@ -11,6 +11,7 @@ const plan: BuildPlan = {
   profileId: "generic",
   profileTitle: "Generic x86/64",
   imageType: "ext4-efi",
+  visibility: "public",
   packages: ["lucky", "luci-app-lucky", "mosdns"],
   resolved: [
     {
@@ -110,6 +111,9 @@ describe("createSourceOffer", () => {
     expect(offer.config?.hostname).toBe("combinewrt");
     expect(offer.generatedFiles).toEqual(["files/etc/uci-defaults/99-combinewrt"]);
     expect(offer.patches).toEqual([]);
+    expect(offer.visibility).toBe("public");
+    expect(offer.publicDistribution).toBe(true);
+    expect(offer.notes.join("\n")).toContain("Distribution conclusion: this image is marked public");
   });
 
   it("does not publish root password hashes or generated file contents", () => {

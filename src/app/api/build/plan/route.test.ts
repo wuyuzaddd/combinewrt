@@ -113,6 +113,26 @@ beforeAll(() => {
         downloadUrl: null,
         kmod: false,
       },
+      {
+        name: "vendor-app",
+        version: "1",
+        arch: "x86_64",
+        description: "closed vendor app",
+        license: "Proprietary",
+        origin: "feeds/vendor/vendor-app",
+        category: "vendor",
+        installedSize: 1024,
+        depends: [],
+        feed: "packages",
+        proprietary: true,
+        source: "official",
+        sourcePin: "",
+        sha256: null,
+        fileSize: 0,
+        filename: "vendor-app-1.apk",
+        downloadUrl: null,
+        kmod: false,
+      },
     ],
   });
   state.db = db;
@@ -143,6 +163,23 @@ describe("POST /api/build/plan", () => {
     expect(response.status).toBe(409);
     const body = (await response.json()) as { conflicts: { message: string }[] };
     expect(body.conflicts[0].message).toContain("dnsmasq");
+  });
+
+  it("rejects a public plan with non-public packages", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({ ...validForm, packages: ["vendor-app"], visibility: "public" }),
+    );
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { message: string }[] };
+    expect(body.conflicts[0].message).toContain("vendor-app");
+    expect(body.conflicts[0].message).toContain("official");
+  });
+
+  it("accepts the same package for a private build", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(request({ ...validForm, packages: ["vendor-app"] }));
+    expect(response.status).toBe(200);
   });
 
   it("rejects a request that forces an unavailable source", async () => {

@@ -26,6 +26,7 @@ const official: Record<string, PackageLookupEntry> = {
   "luci-app-demo": entry("luci-app-demo", { version: "2", depends: ["luci"] }),
   "dnsmasq-full": entry("dnsmasq-full"),
   dnsmasq: entry("dnsmasq"),
+  "proprietary-app": entry("proprietary-app", { license: "Proprietary", proprietary: true }),
 };
 const lookup: PackageLookup = (name) => official[name] ?? null;
 
@@ -133,6 +134,28 @@ describe("createBuildPlan", () => {
       },
     ]);
     expect(plan.missingDependencies).toEqual([]);
+  });
+
+  it("rejects a public image that contains non-public packages", async () => {
+    const plan = await createBuildPlan(
+      form({ packages: ["proprietary-app"], visibility: "public" }),
+      context(),
+    );
+    expect(plan.visibility).toBe("public");
+    expect(plan.compliance?.publicEligible).toBe(false);
+    expect(plan.conflicts).toEqual([
+      {
+        names: ["proprietary-app"],
+        message: "公开镜像不能包含不可公开分发的软件包：proprietary-app (official)",
+      },
+    ]);
+  });
+
+  it("keeps proprietary packages for a private image", async () => {
+    const plan = await createBuildPlan(form({ packages: ["proprietary-app"] }), context());
+    expect(plan.visibility).toBe("private");
+    expect(plan.compliance?.publicEligible).toBe(false);
+    expect(plan.conflicts).toEqual([]);
   });
 
   it("records the actual source and download manifest for third-party packages", async () => {

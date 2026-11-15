@@ -58,6 +58,7 @@ const schema = z.object({
   packages: z
     .array(z.string().trim().regex(PACKAGE_NAME, "package name is invalid"))
     .max(300, "too many packages"),
+  visibility: z.enum(["private", "public"]).optional(),
   packagePins: z
     .array(
       z.object({
@@ -89,5 +90,5 @@ export function validateBuildForm(input: unknown): ValidationResult {
   }
 
   const packages = [...new Set(parsed.data.packages.map((name) => name.trim()).filter(Boolean))];
-  return { ok: true, value: { ...parsed.data, packages } };
+  return { ok: true, value: { ...parsed.data, packages, visibility: parsed.data.visibility ?? "private" } };
 }
