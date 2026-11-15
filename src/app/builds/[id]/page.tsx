@@ -20,6 +20,7 @@ const STEP_LABELS: Record<BuildStep, string> = {
   "write-files": "写入构建配置",
   "build-image": "构建镜像",
   "assert-packages": "校验镜像内软件包",
+  postprocess: "转换镜像格式",
   "package-artifact": "打包产物",
   dispatch: "派发构建",
   timeout: "构建超时",

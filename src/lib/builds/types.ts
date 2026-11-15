@@ -1,5 +1,6 @@
 import type { BuildConfig, BuildPlan } from "../build/types";
 import type { PackageSource } from "../catalog/types";
+import type { BuildEngine } from "../domain/types";
 
 export type BuildStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -22,6 +23,7 @@ export const BUILD_STEPS = [
   "write-files",
   "build-image",
   "assert-packages",
+  "postprocess",
   "package-artifact",
   "dispatch",
   "timeout",
@@ -30,12 +32,23 @@ export const BUILD_STEPS = [
 
 export type BuildStep = (typeof BUILD_STEPS)[number];
 
+/**
+ * V2 plan context the workflow attaches to a failure marker so the UI can say
+ * which target, variant and engine failed without re-reading the plan.
+ */
+export interface BuildFailureContext {
+  target?: string;
+  variant?: string;
+  engine?: BuildEngine;
+}
+
 export interface BuildFailure {
   step: BuildStep;
   package: string | null;
   source: PackageSource | null;
   version: string | null;
   message: string;
+  context?: BuildFailureContext;
 }
 
 export interface BuildRecord {
