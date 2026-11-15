@@ -1,5 +1,5 @@
 import type { ImageFormatId, SourcePins } from "../catalog/types";
-import type { DownloadEntry, GeneratedFile } from "../build/types";
+import type { DownloadEntry, GeneratedFile, ModeState } from "../build/types";
 import type { BuildPlan, BuildPlanV2 } from "../domain/build-plan";
 import { isBuildPlanV2 } from "../domain/build-plan";
 import type { BuildEngine, ImageVariant, KernelLine, Target } from "../domain/types";
@@ -39,6 +39,11 @@ export interface DispatchPayload {
     topLevelPackages: string[];
     sourcePins: SourcePins;
     downloads: DownloadEntry[];
+    /**
+     * The already-accepted mode/network state (ticket 11). The route answers
+     * 409 on form-level conflicts, so anything that reaches dispatch is final.
+     */
+    modes?: ModeState;
     v2?: DispatchPayloadV2;
   };
   files: GeneratedFile[];
@@ -110,6 +115,11 @@ export function buildDispatchPayload(plan: BuildPlan, meta: DispatchMeta): Dispa
     ...payload,
     // V2 builds must run the variant-derived command, not the V1 formula.
     imageBuilderCommand: imageBuilderCommandForVariant(mapping, plan.profileId, plan.packages),
-    composition: { ...payload.composition, v2: planV2Payload(plan, mapping) },
+    composition: {
+      ...payload.composition,
+      // The workflow never re-derives the mode stack; it receives the final one.
+      ...(plan.modes ? { modes: plan.modes } : {}),
+      v2: planV2Payload(plan, mapping),
+    },
   };
 }

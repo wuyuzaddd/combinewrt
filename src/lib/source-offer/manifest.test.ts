@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createSourceOffer, distributionLabel, sourceOfferJson } from "./manifest";
 import type { BuildRecord } from "../builds/types";
 import type { BuildPlan } from "../build/types";
+import type { ModeState } from "../build/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
 
 const PIN = "e".repeat(64);
@@ -136,6 +137,33 @@ describe("createSourceOffer", () => {
     const legacy = { ...build, plan: { ...plan, sourcePins: undefined } } as unknown as BuildRecord;
     const offer = createSourceOffer(legacy);
     expect(offer.sourcePins).toEqual(EMPTY_SOURCE_PINS);
+  });
+
+  it("summarizes the selected modes without network settings or secrets", () => {
+    const modes = {
+      basePreset: { id: "router-default", layer: "file/board", title: "Router default", experimental: false },
+      overlays: [{ id: "pppoe", layer: "file/board", title: "PPPoE", experimental: false }],
+      experimental: [],
+      secrets: [
+        { kind: "https-selfsigned", commonName: "router", certPath: "/etc/uhttpd.crt", keyPath: "/etc/uhttpd.key" },
+      ],
+      generatedFiles: ["/etc/uci-defaults/90-combinewrt-modes"],
+      network: { wan: { protocol: "pppoe", username: "user", password: "supersecret" } },
+    } as unknown as ModeState;
+    const v2plan = { ...plan, schemaVersion: 2 as const, modes } as BuildPlan;
+
+    const offer = createSourceOffer({ ...build, plan: v2plan });
+    expect(offer.schemaVersion).toBe(1);
+    expect(offer.modes).toEqual({
+      basePreset: { id: "router-default", layer: "file/board", title: "Router default", experimental: false },
+      overlays: [{ id: "pppoe", layer: "file/board", title: "PPPoE", experimental: false }],
+      experimental: [],
+      generatedFiles: ["/etc/uci-defaults/90-combinewrt-modes"],
+    });
+    const json = sourceOfferJson(offer);
+    expect(json).not.toContain("supersecret");
+    expect(json).not.toContain("PRIVATE KEY");
+    expect(json).toContain("PPPoE credentials and the HTTPS private key are deliberately omitted");
   });
 
   it("carries the adopted dllkids pin from a V2 build plan", () => {

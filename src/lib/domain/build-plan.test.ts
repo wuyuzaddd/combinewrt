@@ -36,6 +36,8 @@ function v2Plan(): BuildPlanV2 {
     basePreset: { id: "base-preset", layer: "file/board" },
     overlays: [],
     engine: "imagebuilder",
+    warnings: [],
+    kernelConfig: [],
   };
 }
 

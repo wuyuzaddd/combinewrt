@@ -31,6 +31,7 @@ describe("database bootstrap", () => {
       "009_build_events",
       "010_v2_domain",
       "011_source_watch",
+      "050_supplement_publish",
     ]);
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -82,7 +83,7 @@ describe("database bootstrap", () => {
        VALUES ('build-legacy', ?, 'succeeded', 'fake', '', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')`,
     ).run(legacyPlan);
 
-    expect(migrate(db)).toEqual(["010_v2_domain", "011_source_watch"]);
+    expect(migrate(db)).toEqual(["010_v2_domain", "011_source_watch", "050_supplement_publish"]);
 
     const snapshot = db.prepare("SELECT * FROM catalog_snapshots WHERE id = 7").get() as Record<string, unknown>;
     expect(snapshot).toMatchObject({

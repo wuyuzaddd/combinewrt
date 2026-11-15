@@ -250,4 +250,56 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: "050_supplement_publish",
+    // One row per (base_version, source_commit) so a watch tick, a webhook and
+    // a manual check can never dispatch the same candidate twice; retries and
+    // staging->live promotions append to supplement_publish_events instead of
+    // inserting a second row.
+    sql: `
+      CREATE TABLE supplement_publishes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        base_version TEXT NOT NULL,
+        target TEXT NOT NULL,
+        source_commit TEXT NOT NULL,
+        recipe_hash TEXT NOT NULL,
+        spdx TEXT NOT NULL,
+        public_allowed INTEGER NOT NULL,
+        package_set_shape TEXT NOT NULL,
+        metadata_fingerprint TEXT NOT NULL,
+        publish_mode TEXT NOT NULL CHECK (publish_mode IN ('live', 'staging')),
+        gate_reason TEXT NOT NULL,
+        trigger TEXT NOT NULL CHECK (trigger IN ('schedule', 'webhook', 'manual')),
+        build_run_id TEXT,
+        build_run_url TEXT,
+        status TEXT NOT NULL CHECK (status IN (
+          'dispatched', 'running', 'published', 'staged', 'failed', 'publish_pending'
+        )),
+        reason TEXT,
+        index_sha256 TEXT,
+        key_fingerprint TEXT,
+        frozen_path TEXT,
+        promoted_at TEXT,
+        promoted_by TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (base_version, source_commit)
+      );
+
+      CREATE INDEX supplement_publishes_status ON supplement_publishes (status, updated_at);
+
+      CREATE TABLE supplement_publish_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        publish_id INTEGER NOT NULL REFERENCES supplement_publishes(id) ON DELETE CASCADE,
+        from_status TEXT,
+        to_status TEXT NOT NULL,
+        reason TEXT,
+        detail_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX supplement_publish_events_publish ON supplement_publish_events (publish_id, id);
+    `,
+  },
 ];

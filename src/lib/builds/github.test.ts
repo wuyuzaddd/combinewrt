@@ -100,6 +100,71 @@ describe("github adapter", () => {
     expect(payload.composition.downloads).toEqual(plan.downloads);
   });
 
+  it("ships the resolved modes inside the composition for V2 plans", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(undefined, 204))
+      .mockResolvedValueOnce(
+        response({
+          workflow_runs: [
+            {
+              id: 43,
+              name: "CI",
+              display_title: "combinewrt-b2",
+              status: "queued",
+              conclusion: null,
+              created_at: new Date().toISOString(),
+            },
+          ],
+        }),
+      );
+    const adapter = createGitHubAdapter({
+      repo: "me/build",
+      token: "t",
+      workflow: "build.yml",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+    });
+    const modes = {
+      basePreset: { id: "minimal", layer: "file/board", title: "Minimal", experimental: false },
+      overlays: [],
+      experimental: [],
+      secrets: [],
+      generatedFiles: [],
+      network: { wan: { protocol: "dhcp", device: "default" } },
+    };
+    const v2plan = {
+      ...plan,
+      schemaVersion: 2,
+      baseVersion: "25.12.2",
+      feedCommit: "0".repeat(40),
+      packages: ["luci"],
+      topLevelPackages: ["luci"],
+      sourcePins: {},
+      downloads: [],
+      files: [],
+      imageBuilderCommand: "make -j$(nproc) image PROFILE=generic PACKAGES=\"luci\" FILES=files",
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "64", title: "x86/64" },
+      kernelLine: { id: "linux-6.6", version: "6.6", engine: "imagebuilder" },
+      imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" },
+      basePreset: { id: "minimal", layer: "file/board" },
+      overlays: [],
+      engine: "imagebuilder",
+      modes,
+    } as unknown as BuildPlan;
+
+    await adapter.dispatch(v2plan, { buildId: "b2", artifactName: "image.gz" });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(body.client_payload.composition.modes.basePreset.id).toBe("minimal");
+    expect(Object.keys(body.client_payload)).toHaveLength(10);
+    expect(body.client_payload.composition.v2.imageVariant).toEqual({
+      boot: "efi",
+      filesystem: "ext4",
+      artifact: "combined",
+    });
+  });
+
   it("parses the manifest marker emitted by the workflow", () => {
     const log = `make image\nCOMBINEWRT_MANIFEST=${JSON.stringify({ artifactName: "a.img.gz", sha256: "a".repeat(64), size: 123 })}\n`;
     const manifest = parseManifest(log);

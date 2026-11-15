@@ -1,0 +1,11 @@
+{
+  "id": "webserver-uhttpd",
+  "layer": "package/kernel",
+  "title": "uHTTPd web server",
+  "experimental": false,
+  "description": "Selects the uHTTPd web server; mutually exclusive with nginx and lighttpd.",
+  "exclusiveGroup": "webserver",
+  "packages": [],
+  "kernelConfig": [],
+  "generatedFiles": []
+}

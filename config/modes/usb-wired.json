@@ -1,0 +1,16 @@
+{
+  "id": "usb-wired",
+  "layer": "package/kernel",
+  "title": "USB wired networking",
+  "experimental": true,
+  "description": "USB wired networking packages and kmods; capability-gated with no hardware guarantee.",
+  "packages": [
+    "kmod-usb-core",
+    "kmod-usb-net",
+    "kmod-usb-net-cdc-ether",
+    "kmod-usb-net-asix",
+    "usb-modeswitch"
+  ],
+  "kernelConfig": [],
+  "generatedFiles": []
+}

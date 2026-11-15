@@ -6,9 +6,19 @@ import { resolveImageVariant } from "../image/variants";
 import { EMPTY_SOURCE_REGISTRY } from "../sources/registry";
 import { decideStrategy } from "../sources/strategy";
 import type { SourceRegistry } from "../sources/types";
+import { commonPackageSelectionConflicts, type CommonPreset } from "../presets/common";
 import { artifactNameV2, imageTypeForVariant } from "./artifact-name";
+import { resolveModes } from "./modes";
 import { createBuildPlan } from "./plan";
-import type { BuildConflict, BuildFormInputV2, PackageLookup, PackageLookupAll } from "./types";
+import { parsePackageRef } from "./refs";
+import { applyPackageRemovals, findRemovalDependencyConflicts } from "./removal";
+import type {
+  BuildConflict,
+  BuildFormInputV2,
+  PackageLookup,
+  PackageLookupAll,
+  RequestedPackage,
+} from "./types";
 
 /**
  * V2 planner context. The capability registry and the source registry are
@@ -29,6 +39,8 @@ export interface PlanV2Context {
   sources?: SourceRegistry;
   lookup: PackageLookup;
   lookupAll?: PackageLookupAll;
+  /** Curated common package registry (ticket 08); enables applicability checks. */
+  commonPreset?: CommonPreset;
   hashPassword: (password: string) => Promise<string>;
   now?: Date;
 }
@@ -89,15 +101,56 @@ export async function createBuildPlanV2(
   for (const mode of overlays) {
     const modeSupport = supportsMode({ targetId: target.id, id: profile.id }, mode.id, registry);
     if (!modeSupport.supported) return reject(modeSupport.reason.message);
-    if (modeSupport.mode.requiresEngine && modeSupport.mode.requiresEngine !== kernel.engine) {
-      return reject(
-        `Mode "${mode.id}" requires the ${modeSupport.mode.requiresEngine} engine, but kernel line "${kernel.id}" uses the ${kernel.engine} engine.`,
-      );
-    }
+    // Engine/filesystem/artifact requirements are declarative tokens: an
+    // unsatisfied one is a 409-grade conflict naming the requirement (ticket
+    // 08), not a 400 from the capability registry.
   }
 
   const imageVariant = resolveImageVariant(form.imageVariant, profile.overlay.defaultMb);
   const imageType = imageTypeForVariant(imageVariant);
+
+  // Modes are declarative input; resolving them may reject the form (400) or
+  // report an unsatisfied requirement / exclusivity violation (409 via the
+  // route's conflict handling).
+  const modeResolution = resolveModes({
+    basePreset: form.basePreset,
+    overlays: form.modes ?? [],
+    network: form.network,
+    hostname: form.hostname,
+    baseVersion: context.baseVersion,
+    feedCommit: context.feedCommit,
+    targetId: target.id,
+    architecture: target.architecture,
+    imageVariant,
+    engine: kernel.engine,
+    capabilities: profile.capabilities,
+    // Normalise source prefixes / pins so a `conflicts: ["package:podman"]`
+    // token matches `official/podman` too (ticket 08).
+    packages: form.packages.map((raw) => parsePackageRef(raw)?.name ?? raw),
+    lanIp: form.lanIp,
+    netmask: form.netmask,
+  });
+  if (modeResolution.issues.length > 0) {
+    return { ok: false, status: 400, issues: modeResolution.issues };
+  }
+
+  // Negative package list + mode package sets (ticket 08). The V1 composer
+  // receives the already-filtered positive list with `removePackages` cleared,
+  // so removal semantics live in exactly one place per planner.
+  const parsedRequested = form.packages
+    .map(parsePackageRef)
+    .filter((item): item is RequestedPackage => item !== null);
+  const removal = applyPackageRemovals({
+    requested: parsedRequested,
+    removals: form.removePackages ?? [],
+    modePackages: modeResolution.packageOwners,
+  });
+  const removedNames = new Set(removal.removed);
+  const selectedPackages = form.packages.filter((raw) => {
+    const reference = parsePackageRef(raw);
+    return !reference || !removedNames.has(reference.name);
+  });
+  const effectivePackages = [...new Set([...selectedPackages, ...modeResolution.packages])];
 
   const catalogProfile = context.catalogProfiles.find((item) => item.id === profile.id);
   const profileForPlan: CatalogProfile = catalogProfile
@@ -111,7 +164,7 @@ export async function createBuildPlanV2(
 
   // The V1 composer stays the single implementation of package resolution,
   // compliance, downloads and UCI output (ticket 03 keeps V1 intact).
-  const basePlan = (await createBuildPlan({ ...form, imageType }, {
+  const basePlan = (await createBuildPlan({ ...form, imageType, packages: effectivePackages, removePackages: [] }, {
     baseVersion: context.baseVersion,
     feedCommit: context.feedCommit,
     sourceNote: context.sourceNote,
@@ -155,7 +208,56 @@ export async function createBuildPlanV2(
     return { ...entry, ...decision };
   });
 
-  const conflicts = [...basePlan.conflicts, ...strategyConflicts];
+  // A mode package that is a kmod must resolve to official and match the ABI
+  // the source registry recorded for this kernel line (ticket 08).
+  const modePackageNames = new Set(modeResolution.packages);
+  const modePackageConflicts: BuildConflict[] = [];
+  for (const entry of resolved) {
+    if (!modePackageNames.has(entry.name) || !entry.name.startsWith("kmod-")) continue;
+    if (entry.packageSource !== "official") {
+      modePackageConflicts.push({
+        names: [entry.name],
+        message: `Mode package "${entry.name}" is a kmod and must come from the official source, but it resolved from ${entry.packageSource ?? "unknown"}.`,
+      });
+      continue;
+    }
+    const record = sources.lookup(entry.name, { ...request, source: entry.packageSource });
+    const abi = record?.abi ?? null;
+    if (abi && request.abi && abi !== request.abi) {
+      modePackageConflicts.push({
+        names: [entry.name],
+        message: `Mode package "${entry.name}" is built against kernel ABI ${abi}, but this build pins ${request.abi}.`,
+      });
+    }
+  }
+
+  const removalConflicts = findRemovalDependencyConflicts({
+    removals: removal.removed,
+    requests: parsedRequested.filter((item) => !removedNames.has(item.name)),
+    entries: resolved,
+    lookup: context.lookup,
+  });
+
+  const curatedConflicts: BuildConflict[] = context.commonPreset
+    ? commonPackageSelectionConflicts(context.commonPreset, {
+        targetId: target.id,
+        kernelLine: kernel.id,
+        packages: parsedRequested.filter((item) => !removedNames.has(item.name)).map((item) => item.name),
+        resolvedSources: new Map(
+          resolved.map((entry) => [entry.name, entry.packageSource ?? "unknown"]),
+        ),
+      })
+    : [];
+
+  const conflicts = [
+    ...basePlan.conflicts,
+    ...strategyConflicts,
+    ...modeResolution.conflicts,
+    ...removal.conflicts,
+    ...removalConflicts,
+    ...modePackageConflicts,
+    ...curatedConflicts,
+  ];
   const engine: BuildEngine = kernel.engine;
 
   const plan: BuildPlanV2 = {
@@ -183,7 +285,12 @@ export async function createBuildPlanV2(
     imageVariant,
     basePreset: { id: form.basePreset ?? "minimal", layer: "file/board" },
     overlays,
+    modes: modeResolution.state,
+    files: [...basePlan.files, ...modeResolution.files],
     engine,
+    warnings: [...(basePlan.warnings ?? []), ...removal.warnings],
+    kernelConfig: modeResolution.kernelConfig,
+    ...(modeResolution.docker ? { docker: modeResolution.docker } : {}),
     artifactName: artifactNameV2({
       baseVersion: context.baseVersion,
       targetId: target.id,

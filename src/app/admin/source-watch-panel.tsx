@@ -16,6 +16,7 @@ const REASON_LABELS: Record<PinEventReason, string> = {
   blocked_baseline_missing: "缺少基线缓存，已阻止",
   adoption_rolled_back: "刷新失败，已回滚",
   rolled_back: "手动回滚",
+  supplement_auto_published: "补充源自动发布",
 };
 
 const STATE_LABELS: Record<string, string> = {
@@ -24,6 +25,11 @@ const STATE_LABELS: Record<string, string> = {
   baseline_missing: "缺少基线缓存",
   adoption_failed: "采纳失败",
   unchanged: "无变化",
+  supplement_live_dispatched: "补充源：已派发自动发布构建",
+  supplement_staging_dispatched: "补充源：元数据变化，已派发 staging 构建",
+  supplement_staged: "补充源：已进入 staging，等待人工提升",
+  supplement_dispatch_failed: "补充源：派发失败",
+  supplement_skipped: "补充源：该 commit 已处理",
 };
 
 function shortPin(value: string | null): string {

@@ -8,6 +8,7 @@ import { createCatalogStore } from "../catalog/store";
 import { getDatabase } from "../db";
 import type { BuildPlanV2 } from "../domain/build-plan";
 import { loadSourceRegistry } from "../sources/registry";
+import { loadCommonPreset, CommonPresetError } from "../presets/common";
 
 export type PreparedPlan =
   | { ok: true; plan: Awaited<ReturnType<typeof createBuildPlan>> }
@@ -60,12 +61,23 @@ export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<Prep
     return { ok: false, status: 409, body: { ok: false, error: "no active catalog snapshot" } };
   }
 
+  let commonPreset;
+  try {
+    commonPreset = loadCommonPreset();
+  } catch (error) {
+    if (error instanceof CommonPresetError) {
+      return { ok: false, status: 500, body: { ok: false, error: error.message } };
+    }
+    throw error;
+  }
+
   const outcome = await createBuildPlanV2(form, {
     baseVersion: snapshot.baseVersion,
     feedCommit: snapshot.feedCommit,
     sourceNote: snapshot.sourceNote,
     sourcePins: snapshot.sourcePins,
     catalogProfiles: store.listProfiles(snapshot.id),
+    commonPreset,
     capabilities: loadCapabilities(),
     sources: loadSourceRegistry(),
     lookup: (name) => {
