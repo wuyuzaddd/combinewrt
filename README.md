@@ -2,7 +2,7 @@
 
 自用 OpenWrt 固件在线构建站。公开页面只读，管理员登录后可提交构建、查看历史与下载产物。
 
-当前进度：ticket 10（站点骨架、管理员会话、目录快照、三层来源组合、真实 ImageBuilder 构建、产物下载、历史/重建/取消/保留、端到端与失败诊断）。
+当前进度：v1 tickets 01–10 与加固 tickets 11–19 已完成（目录每日刷新、最近运行、按需 supplement 构建、公开镜像合规闸门、状态时间线、生产部署、手工基线、真实切换与失败标记复验）。
 
 ## 技术栈
 
@@ -42,6 +42,7 @@ npm run dev
 | `IMMORTALWRT_BASE_VERSION` | 否 | 首次启动时写入基线记录的 ImmortalWrt 版本，默认 `25.12.2`；之后以管理页的当前基线为准 |
 | `DLLKIDS_FEED_URL` | 否 | dllkids 包索引目录，默认 `https://down.dllkids.xyz/openwrt-feed/25.12/x86_64` |
 | `DLLKIDS_INDEX_SHA256` | 否 | dllkids `packages.adb` 的 sha256；默认值对应 25.12 索引 |
+| `SUPPLEMENT_WORKFLOW` | 否 | supplement 包构建工作流文件名，默认 `packages.yml` |
 | `SUPPLEMENT_FEED_URL` | 否 | 自建补充包的签名索引目录，默认指向 `combinewrt-packages` Pages |
 | `SUPPLEMENT_KEY_URL` | 否 | 补充包签名公钥地址 |
 | `SUPPLEMENT_KEY_FINGERPRINT` | 否 | 补充包公钥的 sha256；索引签名与 pin 对不上时刷新失败 |

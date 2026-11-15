@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getBuildService } from "@/lib/builds";
 import { ComplianceIssueList } from "@/components/compliance";
 import { loadSourceOffer } from "@/lib/source-offer/load";
+import { distributionLabel } from "@/lib/source-offer/manifest";
 import { CopyLinkButton } from "./copy-link";
 
 export default async function SourceOfferPage({ params }: { params: Promise<{ id: string }> }) {
@@ -56,8 +57,7 @@ export default async function SourceOfferPage({ params }: { params: Promise<{ id
               : "bg-amber-950/60 text-amber-200"
           }`}
         >
-          {offer.visibility === "public" ? "公开分发" : "自用"} ·{" "}
-          {offer.publicDistribution ? "允许公开分发" : "不得作为公开镜像发布"}
+          {distributionLabel(offer.visibility, offer.compliance.publicEligible)}
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">

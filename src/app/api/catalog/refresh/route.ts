@@ -12,6 +12,17 @@ export async function POST() {
     // Manual refresh bypasses the daily freshness check but shares single-flight
     // with the scheduler.
     const outcome = await getCatalogRefreshRunner().run();
+    if (outcome.reason) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: outcome.reason,
+        message:
+          outcome.reason === "in-flight"
+            ? "已有目录刷新正在进行，本次请求已合并等待"
+            : "目录刚刚刷新过，无需重复刷新",
+      });
+    }
     if (outcome.error || !outcome.result) {
       return NextResponse.json(
         { ok: false, error: outcome.error ?? "catalog refresh failed" },

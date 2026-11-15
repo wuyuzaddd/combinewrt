@@ -4,16 +4,20 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import type { WorkflowRunSummary } from "@/lib/builds/github";
 
-function stateLabel(run: WorkflowRunSummary): string {
-  if (run.status !== "completed") return run.status === "in_progress" ? "运行中" : "排队中";
-  if (run.conclusion === "success") return "成功";
-  if (run.conclusion === "cancelled") return "已取消";
-  return run.conclusion === "failure" ? "失败" : run.conclusion ?? "未知";
-}
-
-function stateClass(run: WorkflowRunSummary): string {
-  if (run.status !== "completed") return "text-sky-300";
-  return run.conclusion === "success" ? "text-emerald-300" : "text-rose-300";
+function presentation(run: WorkflowRunSummary): { label: string; className: string } {
+  if (run.status !== "completed") {
+    return { label: run.status === "in_progress" ? "运行中" : "排队中", className: "text-sky-300" };
+  }
+  switch (run.conclusion) {
+    case "success":
+      return { label: "成功", className: "text-emerald-300" };
+    case "cancelled":
+      return { label: "已取消", className: "text-slate-400" };
+    case "failure":
+      return { label: "失败", className: "text-rose-300" };
+    default:
+      return { label: run.conclusion ?? "未知", className: "text-slate-400" };
+  }
 }
 
 export function RecentRunsPanel({
@@ -60,7 +64,7 @@ export function RecentRunsPanel({
                 </p>
               </div>
               <div className="flex items-center gap-3 text-xs">
-                <span className={stateClass(run)}>{stateLabel(run)}</span>
+                <span className={presentation(run).className}>{presentation(run).label}</span>
                 <a
                   className="text-emerald-300 underline decoration-emerald-800"
                   href={run.url}

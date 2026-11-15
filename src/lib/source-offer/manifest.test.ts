@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSourceOffer, sourceOfferJson } from "./manifest";
+import { createSourceOffer, distributionLabel, sourceOfferJson } from "./manifest";
 import type { BuildRecord } from "../builds/types";
 import type { BuildPlan } from "../build/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
@@ -127,5 +127,15 @@ describe("createSourceOffer", () => {
     const legacy = { ...build, plan: { ...plan, sourcePins: undefined } } as unknown as BuildRecord;
     const offer = createSourceOffer(legacy);
     expect(offer.sourcePins).toEqual(EMPTY_SOURCE_PINS);
+  });
+});
+
+
+describe("distributionLabel", () => {
+  it("keeps private intent separate from license eligibility", () => {
+    expect(distributionLabel("private", true)).toBe("自用（未公开分发）");
+    expect(distributionLabel("private", false)).toBe("自用（未公开分发）");
+    expect(distributionLabel("public", true)).toBe("允许公开分发");
+    expect(distributionLabel("public", false)).toBe("不得作为公开镜像发布");
   });
 });

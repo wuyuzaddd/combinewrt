@@ -104,7 +104,7 @@ describe("base version service", () => {
     expect(service.readState().supplementBuild).toMatchObject({
       baseVersion: "25.12.3",
       runId: null,
-      error: null,
+      error: "已派发 supplement 构建，但未能定位运行 ID",
     });
     expect(service.readState().smoke).toMatchObject({ phase: "building", buildId: "build-1", snapshotId: 9 });
 
@@ -170,6 +170,24 @@ describe("base version service", () => {
     expect(trigger).toHaveBeenCalledWith("25.12.2");
     expect(state).toMatchObject({ baseVersion: "25.12.2", runId: "55", error: null });
     expect(service.readState().supplementBuild).toMatchObject({ runId: "55" });
+    db.close();
+  });
+
+  it("records a readable warning when the dispatched run cannot be located", async () => {
+    const db = database();
+    const service = createBaseVersionService({
+      store: createBaseVersionStore(db),
+      fetchImpl: fakeFetch(),
+      refresh: vi.fn(),
+      submitSmoke: vi.fn(),
+      triggerSupplementBuild: async () => ({ runId: null }),
+      now: () => new Date("2026-10-02T00:00:00.000Z"),
+    });
+    const state = await service.triggerSupplementBuildNow("25.12.2");
+    expect(state).toMatchObject({
+      runId: null,
+      error: "已派发 supplement 构建，但未能定位运行 ID",
+    });
     db.close();
   });
 

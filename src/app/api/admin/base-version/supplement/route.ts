@@ -35,19 +35,6 @@ export async function POST() {
       );
     }
 
-    const previous = state.supplementBuild;
-    if (
-      previous &&
-      !previous.error &&
-      previous.baseVersion === state.active.version &&
-      Date.now() - Date.parse(previous.triggeredAt) < 5 * 60 * 1000
-    ) {
-      return NextResponse.json(
-        { ok: false, error: "刚刚已触发 supplement 构建，请等待运行出现在列表中" },
-        { status: 409 },
-      );
-    }
-
     const supplementBuild = await getBaseVersionService().triggerSupplementBuildNow(state.active.version);
     return NextResponse.json({ ok: true, supplementBuild, state: readBaseVersionState() });
   } catch (error) {

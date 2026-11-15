@@ -146,7 +146,7 @@ describe("createBuildPlan", () => {
     expect(plan.conflicts).toEqual([
       {
         names: ["proprietary-app"],
-        message: "公开镜像不能包含不可公开分发的软件包：proprietary-app (official)",
+        message: "公开镜像不能包含不可公开分发的软件包：proprietary-app (official, proprietary)",
       },
     ]);
   });

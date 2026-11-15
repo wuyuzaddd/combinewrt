@@ -104,11 +104,12 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
         const triggeredAt = now().toISOString();
         try {
           const result = await triggerSupplementBuild(version);
+          const runId = result.runId ?? null;
           store.setSupplementBuild({
             baseVersion: version,
             triggeredAt,
-            runId: result.runId ?? null,
-            error: null,
+            runId,
+            error: runId ? null : "已派发 supplement 构建，但未能定位运行 ID",
           });
         } catch (error) {
           store.setSupplementBuild({
@@ -219,11 +220,12 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
       const triggeredAt = now().toISOString();
       try {
         const result = await triggerSupplementBuild(version);
+        const runId = result.runId ?? null;
         const state: SupplementBuildState = {
           baseVersion: version,
           triggeredAt,
-          runId: result.runId ?? null,
-          error: null,
+          runId,
+          error: runId ? null : "已派发 supplement 构建，但未能定位运行 ID",
         };
         store.setSupplementBuild(state);
         return state;

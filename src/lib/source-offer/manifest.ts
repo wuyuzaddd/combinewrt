@@ -46,6 +46,14 @@ export interface SourceOfferManifest {
   notes: string[];
 }
 
+export function distributionLabel(
+  visibility: BuildVisibility,
+  publicEligible: boolean,
+): string {
+  if (visibility === "private") return "自用（未公开分发）";
+  return publicEligible ? "允许公开分发" : "不得作为公开镜像发布";
+}
+
 export function createSourceOffer(
   build: BuildRecord,
   options: { imageBuilder?: BaseVersion | null } = {},
@@ -63,9 +71,11 @@ export function createSourceOffer(
     "Root password hashes and generated file contents are deliberately omitted.",
   ];
   notes.push(
-    publicDistribution
-      ? "Distribution conclusion: this image is marked public and every package passed the license gate."
-      : "Distribution conclusion: this image is for private use and must not be published as a public build.",
+    visibility === "private"
+      ? "Distribution conclusion: this image is marked private and is not offered for public distribution."
+      : publicDistribution
+        ? "Distribution conclusion: this image is marked public and every package passed the license gate."
+        : "Distribution conclusion: this image is marked public but contains packages that may not be publicly distributed.",
   );
   if (!plan.sourcePins) {
     notes.push("Legacy build: source pins were not captured in this plan; treat the pin list as incomplete.");

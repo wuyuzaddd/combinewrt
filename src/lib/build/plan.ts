@@ -47,7 +47,10 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
           {
             names: compliance.issues.map((issue) => issue.name),
             message: `公开镜像不能包含不可公开分发的软件包：${compliance.issues
-              .map((issue) => `${issue.name} (${issue.packageSource ?? "unknown"})`)
+              .map(
+                (issue) =>
+                  `${issue.name} (${issue.packageSource ?? "unknown"}, ${issue.reason === "proprietary" ? "proprietary" : "unknown-license"})`,
+              )
               .join("、")}`,
           },
         ]

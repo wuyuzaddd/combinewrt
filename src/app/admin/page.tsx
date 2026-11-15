@@ -29,11 +29,13 @@ async function loadRecentRuns(): Promise<{ runs: WorkflowRunSummary[]; error: st
         repo: config.buildRepo,
         token: config.buildRepoToken,
         workflow: config.buildWorkflow,
+        limit: 10,
       }),
       listWorkflowRuns({
         repo: config.buildRepo,
         token: config.buildRepoToken,
         workflow: config.supplementWorkflow,
+        limit: 10,
       }),
     ]);
     const runs = [...builds, ...packages]
@@ -107,7 +109,7 @@ export default async function AdminPage() {
         {catalogRefresh.lastError && (
           <p className="mt-2 break-words text-xs text-rose-300">刷新失败：{catalogRefresh.lastError}</p>
         )}
-        <p className="mt-2 text-xs text-slate-500">每天最多自动刷新一次；手动刷新不受此限制。</p>
+        <p className="mt-2 text-xs text-slate-500">成功后 24 小时内自动跳过；失败会按小时重试；手动刷新不受限制。</p>
       </section>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
