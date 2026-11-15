@@ -160,19 +160,19 @@ describe("createBuildPlanV2", () => {
     const cases: Array<[BuildFormInputV2["imageVariant"], string]> = [
       [
         { boot: "legacy", filesystem: "squashfs", artifact: "combined" },
-        "immortalwrt-25.12.2-x86-64-generic-squashfs-combined-legacy.img.gz",
+        "immortalwrt-25.12.2-x86-64-generic-squashfs-combined.img.gz",
       ],
       [
         { boot: "efi", filesystem: "squashfs", artifact: "rootfs" },
-        "immortalwrt-25.12.2-x86-64-generic-squashfs-rootfs.tar.gz",
+        "immortalwrt-25.12.2-x86-64-generic-targz-rootfs.tar.gz",
       ],
       [
         { boot: "efi", filesystem: "ext4", artifact: "vmdk" },
-        "immortalwrt-25.12.2-x86-64-generic-ext4-efi.vmdk",
+        "immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.vmdk",
       ],
       [
         { boot: "legacy", filesystem: "ext4", artifact: "qcow2" },
-        "immortalwrt-25.12.2-x86-64-generic-ext4-legacy.qcow2",
+        "immortalwrt-25.12.2-x86-64-generic-ext4-combined.qcow2",
       ],
     ];
 

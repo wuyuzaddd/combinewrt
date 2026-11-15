@@ -1,7 +1,8 @@
 import type { BuildPlanV1, BuildPlanV2 } from "../domain/build-plan";
 import { CapabilityError, getKernelLine, getProfile, getTarget, loadCapabilities, supportsMode, supportsVariant, type CapabilityRegistry } from "../catalog/capabilities";
 import type { CatalogProfile, SourcePins } from "../catalog/types";
-import type { BaseChannel, BuildEngine, ImageVariant } from "../domain/types";
+import type { BaseChannel, BuildEngine } from "../domain/types";
+import { resolveImageVariant } from "../image/variants";
 import { EMPTY_SOURCE_REGISTRY } from "../sources/registry";
 import { decideStrategy } from "../sources/strategy";
 import type { SourceRegistry } from "../sources/types";
@@ -51,18 +52,6 @@ function reject(issue: string): PlanV2Failure {
   return { ok: false, status: 400, issues: [issue] };
 }
 
-function resolveVariant(variant: ImageVariant, defaultOverlayMb: number): ImageVariant {
-  if (variant.artifact === "rootfs") {
-    return { boot: variant.boot, filesystem: variant.filesystem, artifact: variant.artifact };
-  }
-  return {
-    boot: variant.boot,
-    filesystem: variant.filesystem,
-    artifact: variant.artifact,
-    overlaySizeMb: variant.overlaySizeMb ?? defaultOverlayMb,
-  };
-}
-
 /**
  * V2 plan composer.
  *
@@ -107,7 +96,7 @@ export async function createBuildPlanV2(
     }
   }
 
-  const imageVariant = resolveVariant(form.imageVariant, profile.overlay.defaultMb);
+  const imageVariant = resolveImageVariant(form.imageVariant, profile.overlay.defaultMb);
   const imageType = imageTypeForVariant(imageVariant);
 
   const catalogProfile = context.catalogProfiles.find((item) => item.id === profile.id);
