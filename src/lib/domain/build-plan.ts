@@ -40,6 +40,8 @@ export interface BuildPlanBase {
   downloads: DownloadEntry[];
   missingDependencies: string[];
   conflicts: BuildConflict[];
+  /** Non-fatal planner notes (e.g. a removal that matched nothing); V1 plans may omit it. */
+  warnings?: string[];
   compliance?: ComplianceReport;
   patches?: AppliedPatch[];
   files: GeneratedFile[];
@@ -58,6 +60,11 @@ export interface BuildPlanV1 extends BuildPlanBase {
 
 export interface BuildPlanV2 extends BuildPlanBase {
   schemaVersion: 2;
+  /**
+   * Planner warnings (ticket 08). Optional so plans written before ticket 08
+   * still read back; readers treat an absent list as "no warnings".
+   */
+  warnings?: string[];
   channel: BaseChannel;
   target: Target;
   deviceProfile: DeviceProfile;
@@ -72,6 +79,13 @@ export interface BuildPlanV2 extends BuildPlanBase {
    */
   modes?: ModeState;
   engine: BuildEngine;
+  /**
+   * Source-build kernel fragment contributed by kernel/config modes (ticket
+   * 08). Optional for the same reason as `warnings`.
+   */
+  kernelConfig?: string[];
+  /** Docker data root when the docker mode is selected (ticket 08). */
+  docker?: { dataRoot: string };
 }
 
 export type BuildPlan = BuildPlanV1 | BuildPlanV2;

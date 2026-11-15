@@ -95,6 +95,8 @@ describe("build store", () => {
       basePreset: { id: "base", layer: "file/board" },
       overlays: [{ id: "overlay", layer: "package/kernel" }],
       engine: "source",
+      warnings: [],
+      kernelConfig: [],
     };
     store.create({ ...legacy, plan });
 

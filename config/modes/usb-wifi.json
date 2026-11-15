@@ -4,7 +4,15 @@
   "title": "USB WiFi",
   "experimental": true,
   "description": "USB WiFi packages and kmods; capability-gated with no hardware guarantee.",
-  "packages": [],
+  "packages": [
+    "kmod-cfg80211",
+    "kmod-mac80211",
+    "kmod-usb-core",
+    "kmod-ath9k-htc",
+    "kmod-rt2800-usb",
+    "kmod-mt7601u",
+    "wireless-regdb"
+  ],
   "kernelConfig": [],
   "generatedFiles": []
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadCapabilities } from "../catalog/capabilities";
 import {
+  DOCKER_UCI_PATH,
   MODE_FILE_WHITELIST,
   MODE_UCI_PATH,
   OPENWRT_RELEASE_PATH,
@@ -201,7 +202,9 @@ describe("mode resolution", () => {
       overlays: [{ id: "docker", layer: "kernel/config" }],
     });
     expect(ext4.conflicts).toEqual([]);
-    expect(ext4.files).toEqual([]);
+    // Ticket 08: the docker preset owns the data root, so it contributes a
+    // first-boot uci-defaults file rather than only a package list.
+    expect(ext4.files.map((file) => file.path)).toEqual([`files${DOCKER_UCI_PATH}`]);
   });
 
   it("requires the ext4/combined variant of docker to be named in the conflict", () => {
@@ -389,5 +392,135 @@ describe("generated files", () => {
     expect(result.state.secrets).toHaveLength(1);
     expect(JSON.stringify(result)).not.toMatch(/BEGIN (RSA |EC )?PRIVATE KEY/);
     expect(JSON.stringify(result)).not.toContain("-----BEGIN");
+  });
+});
+
+describe("package and kernel presets (ticket 08)", () => {
+  const byId = new Map(declarations.map((declaration) => [declaration.id, declaration]));
+
+  it("declares package sets for the package/kernel modes and the NAS disk tools", () => {
+    for (const id of ["usb-wired", "usb-wifi", "wwan", "nas", "docker"]) {
+      const declaration = byId.get(id);
+      expect(declaration, id).toBeDefined();
+      expect(declaration!.packages?.length ?? 0, id).toBeGreaterThan(0);
+      for (const name of declaration!.packages ?? []) {
+        expect(name, `${id}: ${name}`).toMatch(/^[A-Za-z0-9][A-Za-z0-9+._-]*$/);
+      }
+    }
+
+    expect(byId.get("usb-wired")!.experimental).toBe(true);
+    expect(byId.get("usb-wifi")!.experimental).toBe(true);
+    expect(byId.get("wwan")!.experimental).toBe(true);
+    expect(byId.get("usb-wired")!.packages).toEqual(
+      expect.arrayContaining(["kmod-usb-net-cdc-ether", "kmod-usb-net", "usb-modeswitch"]),
+    );
+    expect(byId.get("usb-wifi")!.packages).toEqual(expect.arrayContaining(["kmod-mac80211", "kmod-cfg80211"]));
+    expect(byId.get("wwan")!.packages).toEqual(
+      expect.arrayContaining(["kmod-usb-net-qmi-wwan", "uqmi", "umbim"]),
+    );
+    expect(byId.get("nas")!.packages).toEqual(
+      expect.arrayContaining(["samba4-server", "luci-app-samba4", "kmod-usb-storage", "block-mount"]),
+    );
+  });
+
+  it("declares the docker package set, kernel fragment and writable data root", () => {
+    const docker = byId.get("docker")!;
+
+    expect(docker.layer).toBe("kernel/config");
+    expect(docker.packages).toEqual(expect.arrayContaining(["docker", "dockerd", "containerd", "runc"]));
+    expect(docker.kernelConfig).toEqual(
+      expect.arrayContaining(["CONFIG_OVERLAY_FS=y", "CONFIG_CGROUPS=y", "CONFIG_NAMESPACES=y"]),
+    );
+    for (const line of docker.kernelConfig ?? []) {
+      expect(line).toMatch(/^CONFIG_[A-Z0-9_]+=(y|m)$/);
+    }
+    expect(docker.docker?.dataRoot).toBe("/var/lib/docker");
+    expect(docker.requires).toEqual(
+      expect.arrayContaining(["engine:source", "filesystem:ext4", "artifact:combined"]),
+    );
+    expect(docker.conflicts).toEqual(expect.arrayContaining(["package:podman"]));
+  });
+
+  it("only allows a kernel config fragment on the kernel/config layer", () => {
+    const wrongLayer = modeDeclarationSchema.safeParse({
+      id: "bad-kernel-config",
+      layer: "package/kernel",
+      title: "Bad",
+      experimental: false,
+      kernelConfig: ["CONFIG_X=y"],
+    });
+    const rightLayer = modeDeclarationSchema.safeParse({
+      id: "good-kernel-config",
+      layer: "kernel/config",
+      title: "Good",
+      experimental: false,
+      kernelConfig: ["CONFIG_X=y"],
+    });
+
+    expect(wrongLayer.success).toBe(false);
+    expect(rightLayer.success).toBe(true);
+  });
+
+  it("rejects a malformed package name in a mode package set", () => {
+    const parsed = modeDeclarationSchema.safeParse({
+      id: "bad-package",
+      layer: "package/kernel",
+      title: "Bad",
+      experimental: false,
+      packages: ["not a package"],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("resolves docker into packages, the kernel fragment, the data root and a uci-defaults file", () => {
+    const result = resolve({
+      overlays: [{ id: "docker", layer: "kernel/config" }],
+      engine: "source",
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.conflicts).toEqual([]);
+    expect(result.packages).toEqual(expect.arrayContaining(["docker", "dockerd"]));
+    expect(result.kernelConfig).toEqual(expect.arrayContaining(["CONFIG_OVERLAY_FS=y"]));
+    expect(result.docker).toEqual({ dataRoot: "/var/lib/docker" });
+
+    const file = result.files.find((item) => item.path === `files${DOCKER_UCI_PATH}`);
+    expect(file?.mode).toBe(0o755);
+    expect(file?.content).toContain("mkdir -p /var/lib/docker");
+    expect(file?.content).not.toMatch(/docker run|curl|wget/);
+    expect(result.state.generatedFiles).toContain(DOCKER_UCI_PATH);
+  });
+
+  it("keeps the docker file, fragment and data root out of plans without the mode", () => {
+    const result = resolve({ engine: "source" });
+
+    expect(result.files.find((item) => item.path === `files${DOCKER_UCI_PATH}`)).toBeUndefined();
+    expect(result.packages).toEqual([]);
+    expect(result.kernelConfig).toEqual([]);
+    expect(result.docker).toBeUndefined();
+  });
+
+  it("names a selected package that a mode package set conflicts with", () => {
+    const result = resolve({
+      overlays: [{ id: "docker", layer: "kernel/config" }],
+      engine: "source",
+      packages: ["podman"],
+    });
+
+    expect(result.issues).toEqual([]);
+    const message = result.conflicts.map((conflict) => conflict.message).join("\n");
+    expect(message).toMatch(/docker/);
+    expect(message).toMatch(/podman/);
+  });
+
+  it("keeps the NAS package set free of disk operations", () => {
+    const result = resolve({ overlays: [{ id: "nas", layer: "package/kernel" }] });
+
+    expect(result.issues).toEqual([]);
+    expect(result.conflicts).toEqual([]);
+    expect(result.packages).toEqual(expect.arrayContaining(["samba4-server"]));
+    for (const file of result.files) {
+      expect(file.content).not.toMatch(/mkfs|fdisk|parted|mount\b|blkid/);
+    }
   });
 });

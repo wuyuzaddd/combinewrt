@@ -60,6 +60,11 @@ const configFields = {
   packages: z
     .array(z.string().trim().regex(PACKAGE_NAME, "package name is invalid"))
     .max(300, "too many packages"),
+  /** Negative package list: essentials are rejected at plan time, not here. */
+  removePackages: z
+    .array(z.string().trim().regex(PACKAGE_NAME, "package name is invalid"))
+    .max(300, "too many removals")
+    .optional(),
   visibility: z.enum(["private", "public"]).optional(),
   packagePins: z
     .array(
@@ -246,7 +251,18 @@ export function validateBuildForm(input: unknown): ValidationResult {
   }
 
   const packages = [...new Set(parsed.data.packages.map((name) => name.trim()).filter(Boolean))];
-  return { ok: true, value: { ...parsed.data, packages, visibility: parsed.data.visibility ?? "private" } };
+  const removePackages = parsed.data.removePackages
+    ? [...new Set(parsed.data.removePackages.map((name) => name.trim()).filter(Boolean))]
+    : undefined;
+  return {
+    ok: true,
+    value: {
+      ...parsed.data,
+      packages,
+      ...(removePackages ? { removePackages } : {}),
+      visibility: parsed.data.visibility ?? "private",
+    },
+  };
 }
 
 export function validateBuildFormV2(input: unknown): ValidationResultV2 {
@@ -261,6 +277,9 @@ export function validateBuildFormV2(input: unknown): ValidationResultV2 {
   }
 
   const packages = [...new Set(parsed.data.packages.map((name) => name.trim()).filter(Boolean))];
+  const removePackages = parsed.data.removePackages
+    ? [...new Set(parsed.data.removePackages.map((name) => name.trim()).filter(Boolean))]
+    : undefined;
   const imageVariant = parsed.data.imageVariant as ImageVariant;
   return {
     ok: true,
@@ -269,6 +288,7 @@ export function validateBuildFormV2(input: unknown): ValidationResultV2 {
       imageVariant,
       imageType: imageTypeForVariant(imageVariant),
       packages,
+      ...(removePackages ? { removePackages } : {}),
       visibility: parsed.data.visibility ?? "private",
       modes: parsed.data.modes ?? [],
     },

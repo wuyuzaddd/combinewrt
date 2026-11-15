@@ -28,13 +28,20 @@ import { ipv4ToInt, isContiguousNetmask, isValidIpv4 } from "./validate";
  */
 
 export const MODE_UCI_PATH = "/etc/uci-defaults/90-combinewrt-modes";
+/** Docker mode: only creates the data root; it never pulls or runs images. */
+export const DOCKER_UCI_PATH = "/etc/uci-defaults/91-combinewrt-docker";
 export const OPENWRT_RELEASE_PATH = "/etc/openwrt_release";
 export const SAMBA4_CONFIG_PATH = "/etc/config/samba4";
 export const HTTPS_CERT_PATH = "/etc/uhttpd.crt";
 export const HTTPS_KEY_PATH = "/etc/uhttpd.key";
 
 /** The complete set of image paths any mode may write. */
-export const MODE_FILE_WHITELIST = [MODE_UCI_PATH, OPENWRT_RELEASE_PATH, SAMBA4_CONFIG_PATH] as const;
+export const MODE_FILE_WHITELIST = [
+  MODE_UCI_PATH,
+  DOCKER_UCI_PATH,
+  OPENWRT_RELEASE_PATH,
+  SAMBA4_CONFIG_PATH,
+] as const;
 
 export type ModeGeneratedPath = (typeof MODE_FILE_WHITELIST)[number];
 
@@ -44,7 +51,7 @@ export function modePlanPath(imagePath: ModeGeneratedPath): string {
 }
 
 const REQUIREMENT_TOKEN =
-  /^(?:mode|capability|engine|filesystem|artifact|feature):[a-z0-9][a-z0-9._/-]{0,63}$/;
+  /^(?:mode|capability|engine|filesystem|artifact|feature|package):[a-z0-9][a-z0-9+._/-]{0,63}$/;
 
 const requirementToken = z
   .string()
@@ -123,7 +130,7 @@ export type ModeNetworkPatch = z.infer<typeof networkPatchSchema>;
  * One `config/modes/*.json` file. The schema is strict: an unknown key is a
  * config error, not a silently ignored extension point.
  */
-export const modeDeclarationSchema = z
+const modeDeclarationBase = z
   .object({
     id: z.string().trim().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "mode id is invalid"),
     layer: z.enum(["file/board", "package/kernel", "kernel/config"]),
@@ -140,10 +147,25 @@ export const modeDeclarationSchema = z
     /** Each inner array is an OR group: at least one token must hold. */
     requiresAny: z.array(z.array(requirementToken).min(1).max(8)).max(8).optional(),
     conflicts: z.array(requirementToken).max(16).optional(),
-    /** Filled by ticket 08; the V2 planner does not resolve mode packages yet. */
-    packages: z.array(z.string().trim().min(1)).max(100).optional(),
-    /** Filled by ticket 08; source builds only. */
-    kernelConfig: z.array(z.string().trim().min(1)).max(200).optional(),
+    /**
+     * Package set of a package/kernel mode (ticket 08). Names are plain
+     * package names: the mode never picks a source, the package source
+     * registry does. kmod packages must resolve to the official source.
+     */
+    packages: z
+      .array(z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9+._-]*$/, "package name is invalid"))
+      .max(100)
+      .optional(),
+    /** Kernel config fragment of a kernel/config mode (ticket 08); source builds only. */
+    kernelConfig: z
+      .array(z.string().trim().regex(/^CONFIG_[A-Z0-9_]+=(y|m)$/, "kernel config line is invalid"))
+      .max(200)
+      .optional(),
+    /** Docker data root the mode makes writable (ticket 08). */
+    docker: z
+      .object({ dataRoot: z.string().trim().regex(/^\/[A-Za-z0-9._/-]+$/) })
+      .strict()
+      .optional(),
     generatedFiles: z.array(z.enum(MODE_FILE_WHITELIST)).max(8).optional(),
     network: networkPatchSchema.optional(),
     branding: z
@@ -172,6 +194,32 @@ export const modeDeclarationSchema = z
       .optional(),
   })
   .strict();
+
+/**
+ * Layer rules ride on the same schema (rather than a looser one): a kernel
+ * fragment is only meaningful for a kernel/config mode, and a package set is
+ * not a file/board change.
+ */
+export const modeDeclarationSchema = modeDeclarationBase.superRefine((declaration, ctx) => {
+  const add = (path: string, message: string) => {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+  };
+
+  if (declaration.kernelConfig && declaration.kernelConfig.length > 0) {
+    if (declaration.layer !== "kernel/config") {
+      add("kernelConfig", "kernelConfig is only allowed on the kernel/config layer");
+    }
+    if (new Set(declaration.kernelConfig).size !== declaration.kernelConfig.length) {
+      add("kernelConfig", "kernelConfig lines must be unique");
+    }
+  }
+  if (declaration.docker && declaration.layer !== "kernel/config") {
+    add("docker", "docker is only allowed on the kernel/config layer");
+  }
+  if (declaration.packages && new Set(declaration.packages).size !== declaration.packages.length) {
+    add("packages", "package names must be unique");
+  }
+});
 
 export type ModeDeclaration = z.infer<typeof modeDeclarationSchema>;
 
@@ -337,6 +385,8 @@ export interface ModeResolutionInput {
   imageVariant: ImageVariant;
   engine: BuildEngine;
   capabilities: readonly string[];
+  /** Top-level package selection, used for `package:` conflict tokens. */
+  packages?: readonly string[];
   lanIp: string;
   netmask: string;
 }
@@ -346,6 +396,14 @@ export interface ModeResolution {
   files: GeneratedFile[];
   conflicts: BuildConflict[];
   issues: string[];
+  /** Deduplicated package set of the selected package/kernel modes. */
+  packages: string[];
+  /** Which mode owns each package (removal protection names the mode). */
+  packageOwners: Array<{ name: string; mode: string }>;
+  /** Deduplicated kernel config fragment of the selected kernel/config modes. */
+  kernelConfig: string[];
+  /** Set when a selected mode declares a Docker data root. */
+  docker?: { dataRoot: string };
 }
 
 export interface ResolveModesOptions {
@@ -785,6 +843,9 @@ export function resolveModes(
       files: [],
       conflicts: [],
       issues: [error instanceof Error ? error.message : String(error)],
+      packages: [],
+      packageOwners: [],
+      kernelConfig: [],
     };
   }
 
@@ -809,7 +870,15 @@ export function resolveModes(
   }
 
   if (issues.length > 0) {
-    return { state: empty(), files: [], conflicts, issues };
+    return {
+      state: empty(),
+      files: [],
+      conflicts,
+      issues,
+      packages: [],
+      packageOwners: [],
+      kernelConfig: [],
+    };
   }
 
   // Requirement/conflict resolution runs before any content is produced.
@@ -839,6 +908,16 @@ export function resolveModes(
       }
     }
     for (const token of declaration.conflicts ?? []) {
+      if (token.startsWith("package:")) {
+        const name = token.slice("package:".length);
+        if (input.packages?.includes(name)) {
+          conflicts.push({
+            names: [declaration.id, name],
+            message: `Mode "${declaration.id}" conflicts with package "${name}", which this build selects.`,
+          });
+        }
+        continue;
+      }
       if (features.has(token)) {
         conflicts.push({
           names: [declaration.id],
@@ -883,7 +962,7 @@ export function resolveModes(
   };
 
   if (issues.length > 0) {
-    return { state, files: [], conflicts, issues };
+    return { state, files: [], conflicts, issues, packages: [], packageOwners: [], kernelConfig: [] };
   }
 
   const files: GeneratedFile[] = [];
@@ -931,7 +1010,32 @@ export function resolveModes(
     }
   }
 
+  const docker = selected.find((declaration) => declaration.docker)?.docker;
+  if (docker) {
+    files.push({
+      path: modePlanPath(DOCKER_UCI_PATH),
+      content: `#!/bin/sh\n# Docker data root (ticket 08): created on first boot, never pulls images.\nmkdir -p ${docker.dataRoot}\n`,
+      mode: 0o755,
+    });
+    generatedPaths.push(DOCKER_UCI_PATH);
+  }
+
   state.generatedFiles = [...new Set(generatedPaths)];
 
-  return { state, files, conflicts, issues };
+  const packages: string[] = [];
+  const packageOwners: Array<{ name: string; mode: string }> = [];
+  const kernelConfig: string[] = [];
+  for (const declaration of selected) {
+    for (const name of declaration.packages ?? []) {
+      if (!packages.includes(name)) {
+        packages.push(name);
+        packageOwners.push({ name, mode: declaration.id });
+      }
+    }
+    for (const line of declaration.kernelConfig ?? []) {
+      if (!kernelConfig.includes(line)) kernelConfig.push(line);
+    }
+  }
+
+  return { state, files, conflicts, issues, packages, packageOwners, kernelConfig, docker };
 }
