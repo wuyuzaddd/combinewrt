@@ -4,6 +4,8 @@ import type { BuildRecord } from "../builds/types";
 import type { BuildPlan } from "../build/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
 
+const PIN = "e".repeat(64);
+
 const plan: BuildPlan = {
   baseVersion: "25.12.2",
   feedCommit: "abc123",
@@ -134,6 +136,17 @@ describe("createSourceOffer", () => {
     const legacy = { ...build, plan: { ...plan, sourcePins: undefined } } as unknown as BuildRecord;
     const offer = createSourceOffer(legacy);
     expect(offer.sourcePins).toEqual(EMPTY_SOURCE_PINS);
+  });
+
+  it("carries the adopted dllkids pin from a V2 build plan", () => {
+    const adopted = { ...plan, schemaVersion: 2, sourcePins: { ...plan.sourcePins, dllkids: PIN } };
+    const offer = createSourceOffer({ ...build, plan: adopted } as BuildRecord);
+    // The source-offer schema stays 1 so V1 consumers keep working; only the
+    // pin value changes, and it names the pin the build actually used.
+    expect(offer.schemaVersion).toBe(1);
+    expect(offer.sourcePins.dllkids).toBe(PIN);
+    expect(JSON.parse(sourceOfferJson(offer)).sourcePins.dllkids).toBe(PIN);
+    expect(offer.notes.join("\n")).not.toContain("source pins were not captured");
   });
 });
 

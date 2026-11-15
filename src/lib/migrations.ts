@@ -211,4 +211,43 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE catalog_snapshots_next RENAME TO catalog_snapshots;
     `,
   },
+  {
+    version: "011_source_watch",
+    sql: `
+      CREATE TABLE source_pins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active', 'candidate')),
+        value TEXT NOT NULL,
+        observed_at TEXT,
+        adopted_at TEXT,
+        adopted_by TEXT,
+        cache_path TEXT,
+        cache_sha256 TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE (source, status)
+      );
+
+      CREATE TABLE source_pin_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        from_pin TEXT,
+        to_pin TEXT,
+        reason TEXT NOT NULL,
+        snapshot_id INTEGER REFERENCES catalog_snapshots(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX source_pin_events_source ON source_pin_events (source, id);
+
+      CREATE TABLE source_watch_state (
+        source TEXT PRIMARY KEY,
+        last_check_at TEXT,
+        last_success_at TEXT,
+        last_error TEXT,
+        candidate_reason TEXT,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];

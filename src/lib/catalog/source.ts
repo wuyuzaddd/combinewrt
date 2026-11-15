@@ -11,6 +11,12 @@ const RELEASE_ROOT = "https://downloads.immortalwrt.org/releases";
 export interface DllkidsSourceOptions {
   baseUrl: string;
   indexSha256: string;
+  /**
+   * Index bytes already cached by the source watch. When present the feed is
+   * not downloaded again; the sha256 is still verified so a corrupted cache
+   * can never become a build input.
+   */
+  indexBytes?: Uint8Array;
 }
 
 export interface SupplementFeedOptions {
@@ -127,8 +133,13 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
     if (!dllkids) return undefined;
     const url = `${dllkids.baseUrl.replace(/\/$/, "")}/packages.adb`;
     dllkidsUrl = url;
-    const response = await get(url);
-    const buffer = Buffer.from(await response.arrayBuffer());
+    let buffer: Buffer;
+    if (dllkids.indexBytes) {
+      buffer = Buffer.from(dllkids.indexBytes);
+    } else {
+      const response = await get(url);
+      buffer = Buffer.from(await response.arrayBuffer());
+    }
     const actual = sha256(buffer);
     if (actual !== dllkids.indexSha256) {
       throw new Error(
