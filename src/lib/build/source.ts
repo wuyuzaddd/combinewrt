@@ -1,4 +1,6 @@
 import type { BuildPlanV2 } from "../domain/build-plan";
+import type { ImageFeedSet } from "./feeds";
+import type { GeneratedFile } from "./types";
 import type { KernelVersion } from "../domain/types";
 import { KERNEL_LINE_VERSIONS } from "../domain/types";
 import type { ImageVariant } from "../domain/types";
@@ -61,6 +63,9 @@ const CACHE_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const FEED_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const PACKAGE_RE = /^[A-Za-z0-9][A-Za-z0-9+._-]*$/;
 const ARTIFACT_NAME_RE = /^immortalwrt-[A-Za-z0-9._-]+\.(?:img\.gz|tar\.gz|vmdk|qcow2)$/;
+// Generated file paths are relative to the build tree and already carry the
+// `files/` overlay prefix, exactly like the ImageBuilder plan files.
+const GENERATED_FILE_PATH_RE = /^files\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -274,6 +279,8 @@ export interface SourceRecipe {
   profileId: string;
   baseVersion: string;
   imageVariant: ImageVariant;
+  /** Declared overlay mode ids; the workflow uses this to verify docker. */
+  modes: string[];
   artifactName: string;
   imageGlob: string;
   config: string;
@@ -281,6 +288,19 @@ export interface SourceRecipe {
   packages: string[];
   configChecks: string[];
   profileChecks: string[];
+  /**
+   * The plan's controlled `files/` overlay (mode uci-defaults, NAS/samba
+   * config, the version-frozen feed list). Paths already start with `files/`,
+   * so the workflow writes them straight into the source tree, which OpenWrt
+   * applies from `$(TOPDIR)/files` when it builds the rootfs.
+   */
+  files: GeneratedFile[];
+  /**
+   * The image feed set (ticket 09) without the duplicated generated files. The
+   * workflow only needs the project key URL/fingerprint from it to install
+   * `/etc/apk/keys/combinewrt-feed.pub.pem` into the image.
+   */
+  feedSet: Omit<ImageFeedSet, "files"> | null;
   metadata: SourceRecipeMetadata;
 }
 
@@ -329,6 +349,11 @@ function mergeConfigLines(blocks: readonly string[][]): string[] {
 
 function variantLines(variant: ImageVariant): string[] {
   const lines: string[] = ["CONFIG_TARGET_IMAGES_GZIP=y"];
+  // The `rootfs` artifact is a tar.gz (see artifact-name.ts); OpenWrt only
+  // writes `*-rootfs.tar.gz` when CONFIG_TARGET_ROOTFS_TARGZ is enabled.
+  lines.push(
+    variant.artifact === "rootfs" ? "CONFIG_TARGET_ROOTFS_TARGZ=y" : "# CONFIG_TARGET_ROOTFS_TARGZ is not set",
+  );
   if (variant.filesystem === "squashfs") {
     lines.push("CONFIG_TARGET_ROOTFS_SQUASHFS=y", "# CONFIG_TARGET_ROOTFS_EXT4FS is not set");
   } else {
@@ -361,7 +386,9 @@ function imageGlob(variant: ImageVariant): string {
     case "combined":
       return `*-${filesystem}-combined${bootSuffix}.img.gz`;
     case "rootfs":
-      return "*-rootfs.img.gz";
+      // CONFIG_TARGET_ROOTFS_TARGZ makes OpenWrt write <prefix>-rootfs.tar.gz;
+      // the artifact name in artifact-name.ts uses the same .tar.gz suffix.
+      return "*-rootfs.tar.gz";
     case "vmdk":
       return `*-${filesystem}-combined${bootSuffix}.vmdk`;
     case "qcow2":
@@ -388,6 +415,13 @@ function profileChecksFor(targetId: string, profileId: string): string[] {
     checks.push("CONFIG_TARGET_x86_64_Generic=y");
   }
   return checks;
+}
+
+/** The recipe carries the feed list files through `files`; drop the duplicate copy. */
+function stripFeedFiles(feedSet: ImageFeedSet): Omit<ImageFeedSet, "files"> {
+  const rest: Omit<ImageFeedSet, "files"> & { files?: ImageFeedSet["files"] } = { ...feedSet };
+  delete rest.files;
+  return rest;
 }
 
 /**
@@ -443,6 +477,22 @@ export function generateSourceRecipe(input: SourceRecipeInput): SourceRecipe {
     assertInput(PACKAGE_RE.test(name), `${context}: package "${name}" is not a safe package name.`);
   }
 
+  const files: GeneratedFile[] = (plan.files ?? []).map((file) => ({
+    path: file.path,
+    content: file.content,
+    mode: file.mode,
+  }));
+  for (const file of files) {
+    assertInput(
+      GENERATED_FILE_PATH_RE.test(file.path) && !file.path.split("/").includes(".."),
+      `${context}: generated file path "${file.path}" is not a safe files/ overlay path.`,
+    );
+    assertInput(
+      Number.isInteger(file.mode) && file.mode >= 0 && file.mode <= 0o777,
+      `${context}: generated file "${file.path}" has an invalid mode.`,
+    );
+  }
+
   const fragmentsById = new Map<string, string>();
   for (const modeFragment of input.modeFragments ?? []) {
     fragmentsById.set(modeFragment.id, modeFragment.content);
@@ -490,6 +540,7 @@ export function generateSourceRecipe(input: SourceRecipeInput): SourceRecipe {
     `CONFIG_TARGET_${boardSymbol}=y`,
     `CONFIG_TARGET_${targetSymbol}=y`,
     plan.imageVariant.filesystem === "squashfs" ? "CONFIG_TARGET_ROOTFS_SQUASHFS=y" : "CONFIG_TARGET_ROOTFS_EXT4FS=y",
+    ...(plan.imageVariant.artifact === "rootfs" ? ["CONFIG_TARGET_ROOTFS_TARGZ=y"] : []),
     ...(plan.imageVariant.artifact === "vmdk" ? ["CONFIG_VMDK_IMAGES=y"] : []),
     ...(plan.imageVariant.artifact === "qcow2" ? ["CONFIG_QCOW2_IMAGES=y"] : []),
     ...(plan.imageVariant.artifact === "combined" && plan.imageVariant.boot === "efi" ? ["CONFIG_GRUB_EFI_IMAGES=y"] : []),
@@ -513,6 +564,7 @@ export function generateSourceRecipe(input: SourceRecipeInput): SourceRecipe {
     profileId: plan.profileId,
     baseVersion: plan.baseVersion,
     imageVariant: plan.imageVariant,
+    modes: plan.overlays.map((mode) => mode.id),
     artifactName: plan.artifactName,
     imageGlob: glob,
     config,
@@ -520,6 +572,8 @@ export function generateSourceRecipe(input: SourceRecipeInput): SourceRecipe {
     packages,
     configChecks,
     profileChecks: profileChecksFor(plan.target.id, plan.profileId),
+    files,
+    feedSet: plan.feedSet ? stripFeedFiles(plan.feedSet) : null,
     metadata: {
       schemaVersion: 1,
       generatedAt,

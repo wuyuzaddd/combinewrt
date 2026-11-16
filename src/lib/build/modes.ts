@@ -1028,7 +1028,20 @@ export function resolveModes(
   if (docker) {
     files.push({
       path: modePlanPath(DOCKER_UCI_PATH),
-      content: `#!/bin/sh\n# Docker data root (ticket 08): created on first boot, never pulls images.\nmkdir -p ${docker.dataRoot}\n`,
+      content: [
+        "#!/bin/sh",
+        "# Docker data root (ticket 08, spec:42): the data root must exist and be",
+        "# writable after boot. /var is a tmpfs on the x86 image, so the directory",
+        "# is created here at first boot, and dockerd's own data_root is pointed at",
+        "# it explicitly instead of the stock /opt/docker default.",
+        `mkdir -p ${docker.dataRoot}`,
+        "chmod 0711 " + docker.dataRoot,
+        "if [ -f /etc/config/dockerd ] && command -v uci >/dev/null 2>&1; then",
+        `	uci -q set dockerd.globals.data_root='${docker.dataRoot}'`,
+        "	uci -q commit dockerd",
+        "fi",
+        "",
+      ].join("\n"),
       mode: 0o755,
     });
     generatedPaths.push(DOCKER_UCI_PATH);

@@ -25,13 +25,6 @@ on:
         type: string
   repository_dispatch:
     types: [combinewrt-source-build]
-  # Before this workflow lands on the default branch GitHub cannot dispatch it
-  # by file name, so the ticket branch uses a pushed plan file as its payload.
-  push:
-    branches: [v2/ticket-06]
-    paths:
-      - ".github/workflows/source-build.yml"
-      - ".github/source-build-plan.json"
 
 permissions:
   contents: read
@@ -71,6 +64,15 @@ jobs:
             fail prepare "" "" "" "No source-build recipe in the dispatch payload or .github/source-build-plan.json."
           fi
 
+          # A repository_dispatch payload nests the whole recipe under
+          # `composition` (client_payload has a ten top-level property limit,
+          # spec:108); a workflow_dispatch input or the checked-in plan file
+          # carries it flat. Normalise both to the flat recipe we build from.
+          if jq -e '.composition | type == "object"' plan.json > /dev/null; then
+            jq -c '.composition + {buildId: (.buildId // "")}' plan.json > plan.normalised.json
+            mv plan.normalised.json plan.json
+          fi
+
           if ! jq -e '
             .schemaVersion == 1 and
             .engine == "source" and
@@ -85,7 +87,12 @@ jobs:
             (.kernelVersion | type == "string" and length > 0) and
             (.expectedKernel | type == "string" and length > 0) and
             (.artifactName | type == "string" and test("^immortalwrt-[A-Za-z0-9._-]+\\.(img\\.gz|tar\\.gz|vmdk|qcow2)$")) and
-            (.imageGlob | type == "string" and length > 0)
+            (.imageGlob | type == "string" and length > 0) and
+            (.modes | type == "array") and
+            (.files | type == "array") and
+            ([.files[] | (.path | type == "string" and startswith("files/") and (contains("..") | not)) and
+              (.content | type == "string") and
+              (.mode | type == "number")] | all)
           ' plan.json > /dev/null; then
             fail prepare "" "" "" "Invalid source-build recipe payload."
           fi
@@ -167,6 +174,49 @@ jobs:
           if ! grep -Eq "LINUX_VERSION-${expected_prefix//./\\.} = \\.${expected_patch}$" "$KERNEL_VERSION_FILE"; then
             fail source "" "$SOURCE_REF" "$EXPECTED_KERNEL" "${KERNEL_VERSION_FILE} does not pin kernel ${EXPECTED_KERNEL}."
           fi
+
+      - name: Write generated files overlay
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd source
+          rm -rf files
+          count=$(jq '.files | length' "$GITHUB_WORKSPACE/plan.json")
+          echo "generated files in plan: $count"
+          jq -c '.files[]' "$GITHUB_WORKSPACE/plan.json" | while IFS= read -r file; do
+            path=$(echo "$file" | jq -r .path)
+            mode=$(echo "$file" | jq -r '.mode // 420')
+            case "$path" in
+              files/*) ;;
+              *) fail write-files "" "$SOURCE_REF" "" "unsafe generated file path: $path" ;;
+            esac
+            case "$path" in
+              *..*) fail write-files "" "$SOURCE_REF" "" "unsafe generated file path: $path" ;;
+            esac
+            mkdir -p "$(dirname "$path")"
+            echo "$file" | jq -r .content > "$path"
+            chmod "$(printf '%o' "$mode")" "$path"
+          done
+          # The project feed key is fetched, not carried in the plan (the plan
+          # only pins its URL and sha256 fingerprint).
+          if jq -e '.feedSet.key.url' "$GITHUB_WORKSPACE/plan.json" > /dev/null 2>&1; then
+            key_url=$(jq -r '.feedSet.key.url' "$GITHUB_WORKSPACE/plan.json")
+            key_sha=$(jq -r '.feedSet.key.fingerprint' "$GITHUB_WORKSPACE/plan.json")
+            if [ -n "$key_url" ] && [ "$key_url" != "null" ] && [ -n "$key_sha" ] && [ "$key_sha" != "null" ]; then
+              key_file=files/etc/apk/keys/combinewrt-feed.pub.pem
+              mkdir -p files/etc/apk/keys
+              if ! curl -fL --retry 3 --retry-delay 5 -o "$key_file" "$key_url"; then
+                fail write-files "" "$SOURCE_REF" "" "failed to download the project feed key: $key_url"
+              fi
+              actual=$(sha256sum "$key_file" | cut -d' ' -f1)
+              if [ "$actual" != "$key_sha" ]; then
+                fail write-files "" "$SOURCE_REF" "" "project feed key sha256 does not match the plan: expected=$key_sha actual=$actual"
+              fi
+              echo "installed project feed key at files/etc/apk/keys/combinewrt-feed.pub.pem"
+            fi
+          fi
+          find files -type f | sort
+          echo "generated file contents are not printed (they carry the root password hash)"
 
       - name: Restore download cache
         id: dl-cache
@@ -351,6 +401,86 @@ jobs:
           echo "COMBINEWRT_MANIFEST=$(cat "$GITHUB_WORKSPACE/out/manifest.json")"
           echo "COMBINEWRT_ARTIFACT_SHA256=$sha"
           echo "COMBINEWRT_ARTIFACT_SIZE=$size"
+
+      - name: Verify generated files overlay in the image
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd source
+          expected=$(jq -r '.files[] | .path | sub("^files/"; "")' "$GITHUB_WORKSPACE/plan.json")
+          if [ -z "$expected" ]; then
+            echo "plan carries no generated files; nothing to verify"
+            exit 0
+          fi
+          image=$(find bin/targets -type f -name "$IMAGE_GLOB" | head -1)
+          if [ -z "$image" ]; then
+            fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "No image matched ${IMAGE_GLOB} for the files overlay check."
+          fi
+          ROOT=$(mktemp -d)
+          LOOP=""
+          cleanup() {
+            set +e
+            if mountpoint -q "$ROOT"; then sudo umount "$ROOT"; fi
+            if [ -n "$LOOP" ]; then sudo losetup -d "$LOOP"; fi
+            rm -rf "$ROOT"
+          }
+          trap cleanup EXIT
+          case "$image" in
+            *.tar.gz)
+              tar -xzf "$image" -C "$ROOT"
+              ;;
+            *)
+              RAW=$(mktemp --suffix=.img)
+              gzip -dc "$image" > "$RAW"
+              LOOP=$(sudo losetup -Pf --show "$RAW")
+              MOUNTED=""
+              for part in "$LOOP"p*; do
+                if sudo mount -o rw "$part" "$ROOT" 2>/dev/null; then
+                  if [ -d "$ROOT/etc" ]; then MOUNTED="$part"; break; fi
+                  sudo umount "$ROOT"
+                fi
+                if sudo mount -t squashfs -o rw "$part" "$ROOT" 2>/dev/null; then
+                  if [ -d "$ROOT/etc" ]; then MOUNTED="$part"; break; fi
+                  sudo umount "$ROOT"
+                fi
+              done
+              if [ -z "$MOUNTED" ]; then
+                fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "could not mount any rootfs partition of ${ARTIFACT_NAME}"
+              fi
+              echo "rootfs partition: $MOUNTED"
+              ;;
+          esac
+          missing=0
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            if [ ! -e "$ROOT/$path" ]; then
+              echo "MISSING from the image: /$path"
+              missing=$((missing + 1))
+            else
+              echo "present in the image: /$path"
+            fi
+          done <<< "$expected"
+          if [ "$missing" -gt 0 ]; then
+            fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "${missing} generated file(s) from the plan are missing from the image"
+          fi
+          # spec:42 Docker row: /var/lib/docker must exist and be writable after
+          # boot. /var is a tmpfs, so first-boot uci-defaults create it; run the
+          # same script inside a chroot of the image to prove the assertion.
+          if jq -e '.modes | index("docker")' "$GITHUB_WORKSPACE/plan.json" > /dev/null; then
+            if [ ! -f "$ROOT/etc/uci-defaults/91-combinewrt-docker" ]; then
+              fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "docker mode is selected but its uci-defaults file is not in the image"
+            fi
+            sudo chroot "$ROOT" /bin/sh /etc/uci-defaults/91-combinewrt-docker
+            if [ ! -d "$ROOT/var/lib/docker" ] || [ ! -w "$ROOT/var/lib/docker" ]; then
+              fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "/var/lib/docker is missing or not writable after the docker uci-defaults ran"
+            fi
+            data_root=$(sudo chroot "$ROOT" /bin/sh -c '. /lib/functions.sh; config_load dockerd; config_get root globals data_root ""; echo "$root"')
+            if [ "$data_root" != "/var/lib/docker" ]; then
+              fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "dockerd data_root is '${data_root}', expected /var/lib/docker"
+            fi
+            echo "docker data root verified: /var/lib/docker (writable, data_root matches)"
+          fi
+          echo "generated files overlay verified in the image"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
