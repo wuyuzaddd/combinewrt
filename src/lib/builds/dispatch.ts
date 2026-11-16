@@ -7,7 +7,7 @@ import { isBuildPlanV2 } from "../domain/build-plan";
 import type { BuildEngine, ImageVariant, KernelLine, Target } from "../domain/types";
 import type { ImageVariantMapping } from "../image/variants";
 import { mapImageVariant } from "../image/variants";
-import { loadSourceRecipe, type SourceDispatchPayload } from "./source-dispatch";
+import { buildSourceDispatchPayload, loadSourceRecipe, type SourceDispatchPayload } from "./source-dispatch";
 
 /**
  * The `client_payload` of a `combinewrt-build` repository_dispatch event.
@@ -170,7 +170,7 @@ export function buildDispatchRequest(
       : loadSourceRecipe(plan, { now: options.now });
     return {
       eventType: "combinewrt-source-build",
-      payload: { ...recipe, buildId: meta.buildId },
+      payload: buildSourceDispatchPayload(recipe, meta.buildId),
     };
   }
   return { eventType: "combinewrt-build", payload: buildDispatchPayload(plan, meta) };
