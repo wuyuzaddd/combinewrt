@@ -142,4 +142,43 @@ describe("build store", () => {
     expect(store.listEvents("a")).toHaveLength(1);
     db.close();
   });
+
+  it("claims the oldest queued build atomically and respects the running cap", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"));
+    store.create(record("b", "2026-11-11T00:01:00Z"));
+    store.create(record("c", "2026-11-11T00:02:00Z"));
+
+    const claimed = store.claimNextQueued(2, "2026-11-11T02:00:00.000Z");
+    expect(claimed?.id).toBe("a");
+    expect(claimed?.status).toBe("running");
+    expect(claimed?.dispatchedAt).toBe("2026-11-11T02:00:00.000Z");
+
+    expect(store.claimNextQueued(2, "2026-11-11T02:00:01.000Z")?.id).toBe("b");
+    expect(store.claimNextQueued(2, "2026-11-11T02:00:02.000Z")).toBeNull();
+    expect(store.countRunning()).toBe(2);
+    // A claim is a dispatch attempt: queued -> running is on the timeline.
+    expect(store.listEvents("a").at(-1)).toMatchObject({ fromStatus: "queued", toStatus: "running", source: "dispatch" });
+
+    store.update("a", { status: "succeeded" });
+    expect(store.claimNextQueued(2, "2026-11-11T02:00:03.000Z")?.id).toBe("c");
+    expect(store.countRunning()).toBe(2);
+    db.close();
+  });
+
+  it("leaves legacy rows readable when the queue columns are null", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("old", "2026-11-11T00:00:00Z"));
+
+    const saved = store.get("old");
+    expect(saved?.engine).toBeNull();
+    expect(saved?.target).toBeNull();
+    expect(saved?.dispatchedAt).toBeNull();
+    expect(saved?.status).toBe("queued");
+    db.close();
+  });
 });

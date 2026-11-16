@@ -18,6 +18,11 @@ on:
         description: "SourceRecipe JSON produced by src/lib/build/source.ts"
         required: true
         type: string
+      build_id:
+        description: "Build id used for the run name and the concurrency group (optional)"
+        required: false
+        default: ""
+        type: string
   repository_dispatch:
     types: [combinewrt-source-build]
   # Before this workflow lands on the default branch GitHub cannot dispatch it
@@ -31,11 +36,15 @@ on:
 permissions:
   contents: read
 
+# Ticket 13: one live source-build run per build id. The site's queue already
+# caps concurrency; this group makes a duplicate dispatch of the same build wait
+# rather than run the recipe twice. cancel-in-progress stays false so a retry
+# cannot kill a source tree that has been compiling for hours.
 concurrency:
-  group: source-build-${{ github.ref }}
+  group: source-build-${{ github.event.client_payload.buildId || inputs.build_id || github.run_id }}
   cancel-in-progress: false
 
-run-name: source-build-${{ github.ref_name }}-${{ github.run_id }}
+run-name: source-build-${{ github.event.client_payload.buildId || inputs.build_id || github.run_id }}
 
 jobs:
   build:

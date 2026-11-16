@@ -19,6 +19,14 @@ on:
 
 run-name: combinewrt-${{ github.event.client_payload.buildId || inputs.build_id }}
 
+# Ticket 13: at most one live run per build id. The site already caps how many
+# builds dispatch at once; this group is what makes "the same build cannot run
+# twice" true even if a dispatch is retried. cancel-in-progress stays false so a
+# duplicate dispatch waits instead of killing the run that is already building.
+concurrency:
+  group: combinewrt-${{ github.event.client_payload.buildId || inputs.build_id || github.run_id }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

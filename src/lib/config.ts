@@ -43,7 +43,14 @@ export interface AppConfig {
   supplementWatchEnabled: boolean;
   buildAdapter: "github" | "fake";
   buildWorkflow: string;
+  /** Workflow file that runs source builds (`combinewrt-source-build`). */
+  buildSourceWorkflow: string;
   supplementWorkflow: string;
+  /**
+   * How many builds may be dispatched and running at once (ticket 13). Queued
+   * builds beyond this wait in SQLite; no GitHub call is made for them.
+   */
+  maxConcurrentBuilds: number;
   buildRepo: string;
   buildRepoToken: string;
   /** Branch or tag the build workflows run on (default: main). */
@@ -193,6 +200,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (!/^[A-Za-z0-9._-]+$/.test(supplementWorkflow)) {
     issues.push("SUPPLEMENT_WORKFLOW must be a workflow file name such as packages.yml");
   }
+  const buildSourceWorkflow = env.SOURCE_BUILD_WORKFLOW?.trim() || "source-build.yml";
+  if (!/^[A-Za-z0-9._-]+$/.test(buildSourceWorkflow)) {
+    issues.push("SOURCE_BUILD_WORKFLOW must be a workflow file name such as source-build.yml");
+  }
+  const maxConcurrentBuilds = Number(env.MAX_CONCURRENT_BUILDS?.trim() || "2");
+  if (!Number.isInteger(maxConcurrentBuilds) || maxConcurrentBuilds < 1 || maxConcurrentBuilds > 16) {
+    issues.push("MAX_CONCURRENT_BUILDS must be an integer between 1 and 16");
+  }
   const artifactRetentionDays = Number(env.ARTIFACT_RETENTION_DAYS?.trim() || "7");
   if (!Number.isInteger(artifactRetentionDays) || artifactRetentionDays < 0 || artifactRetentionDays > 365) {
     issues.push("ARTIFACT_RETENTION_DAYS must be an integer between 0 and 365");
@@ -304,6 +319,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     supplementWatchEnabled,
     buildAdapter: buildAdapter as "github" | "fake",
     buildWorkflow,
+    buildSourceWorkflow,
+    maxConcurrentBuilds,
     supplementWorkflow,
     buildRepo,
     buildRepoToken,
