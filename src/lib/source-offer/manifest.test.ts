@@ -235,6 +235,73 @@ describe("createSourceOffer", () => {
     expect(json).not.toContain("BEGIN");
     expect(json).toContain("Image feed set");
   });
+
+  it("renders the V2 composition and acquisition strategies without network secrets", () => {
+    const v2plan = {
+      ...plan,
+      schemaVersion: 2 as const,
+      channel: "release" as const,
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "generic", title: "x86/64 (generic)" },
+      deviceProfile: { targetId: "x86/64", id: "generic", title: "Generic x86/64", capabilities: ["efi"] },
+      kernelLine: { id: "6.12", version: "6.12", engine: "imagebuilder" as const },
+      imageVariant: { boot: "efi" as const, filesystem: "ext4" as const, artifact: "combined" as const, overlaySizeMb: 1024 },
+      basePreset: { id: "minimal", layer: "file/board" as const },
+      overlays: [],
+      engine: "imagebuilder" as const,
+      modes: {
+        basePreset: { id: "minimal", layer: "file/board" as const, title: "Minimal", experimental: false },
+        overlays: [],
+        experimental: [],
+        secrets: [],
+        generatedFiles: [],
+        network: { wan: { protocol: "pppoe", username: "user", password: "supersecret" } },
+      },
+      resolved: [
+        {
+          name: "lucky",
+          version: "3.5.0-r1",
+          source: "selected" as const,
+          packageSource: "dllkids" as const,
+          sourcePin: "dllkids-pin",
+          sha256: null,
+          feed: "dllkids",
+          requestedStrategy: "prebuilt" as const,
+          effectiveStrategy: "rebuild" as const,
+          fallbackReason: "prebuilt unavailable; rebuilding",
+        },
+      ],
+    } as unknown as BuildPlan;
+
+    const offer = createSourceOffer({ ...build, plan: v2plan } as BuildRecord);
+    expect(offer.v2?.engine).toBe("imagebuilder");
+    expect(offer.v2?.target.id).toBe("x86/64");
+    expect(offer.v2?.kernelLine.id).toBe("6.12");
+    expect(offer.v2?.imageVariant.artifact).toBe("combined");
+    expect(offer.v2?.strategies).toEqual([
+      {
+        name: "lucky",
+        source: "dllkids",
+        requested: "prebuilt",
+        effective: "rebuild",
+        fallbackReason: "prebuilt unavailable; rebuilding",
+      },
+    ]);
+    expect(offer.packages[0].strategy).toEqual({
+      requested: "prebuilt",
+      effective: "rebuild",
+      fallbackReason: "prebuilt unavailable; rebuilding",
+    });
+    const json = sourceOfferJson(offer);
+    expect(json).not.toContain("supersecret");
+    expect(json).not.toContain("pppoe");
+    expect(json).toContain("V2 composition");
+  });
+
+  it("leaves a V1 offer without a V2 section", () => {
+    const offer = createSourceOffer(build);
+    expect(offer.v2).toBeUndefined();
+    expect(offer.packages[0].strategy).toBeUndefined();
+  });
 });
 
 

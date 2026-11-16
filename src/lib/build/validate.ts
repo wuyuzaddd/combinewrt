@@ -213,6 +213,7 @@ const schemaV2 = z.object({
   profile: z.string().trim().min(1, "profile is required"),
   target: z.string().trim().min(1, "target is required"),
   kernelLine: z.string().trim().min(1, "kernelLine is required"),
+  baseVersion: z.string().trim().regex(/^\d+\.\d+\.\d+$/, "baseVersion is invalid").optional(),
   imageVariant: variantSchema,
   basePreset: z.enum(BASE_PRESETS).optional(),
   modes: z.array(modeRefSchema).max(50, "too many modes").optional(),

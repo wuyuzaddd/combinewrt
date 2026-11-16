@@ -168,6 +168,23 @@ describe("build store", () => {
     db.close();
   });
 
+  it("reports the FIFO queue position and forgets it once dispatched", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"));
+    store.create(record("b", "2026-11-11T00:00:00Z"));
+    store.create(record("c", "2026-11-11T00:01:00Z"));
+
+    expect(store.queuePosition("a")).toBe(1);
+    expect(store.queuePosition("b")).toBe(2);
+    expect(store.queuePosition("c")).toBe(3);
+    store.update("a", { status: "running" });
+    expect(store.queuePosition("a")).toBeNull();
+    expect(store.queuePosition("b")).toBe(1);
+    db.close();
+  });
+
   it("leaves legacy rows readable when the queue columns are null", () => {
     const db = openDatabase(":memory:");
     migrate(db);

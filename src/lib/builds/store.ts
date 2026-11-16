@@ -67,6 +67,11 @@ export interface BuildStore {
   claimNextQueued(maxRunning: number, timestamp: string): BuildRecord | null;
   /** Number of builds that are currently dispatched (claimed or running). */
   countRunning(): number;
+  /**
+   * 1-based position in the waiting queue, or null when the build is not queued.
+   * Used by the build detail page to answer "how much longer?" (ticket 15).
+   */
+  queuePosition(id: string): number | null;
   update(
     id: string,
     patch: Partial<
@@ -103,6 +108,19 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
       total: number;
     };
     return Number(row.total);
+  }
+
+  function queuePosition(id: string): number | null {
+    const record = get(id);
+    if (!record || record.status !== "queued") return null;
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS total FROM builds
+          WHERE status = 'queued'
+            AND (created_at < ? OR (created_at = ? AND rowid < (SELECT rowid FROM builds WHERE id = ?)))`,
+      )
+      .get(record.createdAt, record.createdAt, id) as { total: number };
+    return Number(row.total) + 1;
   }
 
   return {
@@ -216,6 +234,7 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
       }
     },
     countRunning,
+    queuePosition,
     update(id, patch, expectedUpdatedAt, source = "poll") {
       const current = get(id);
       if (!current) throw new Error(`build ${id} does not exist`);
