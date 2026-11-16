@@ -75,7 +75,7 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 
 | 线 | 引擎 | 证据 | 结果 |
 | --- | --- | --- | --- |
-| 6.12（默认） | ImageBuilder | [43704700295](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43704700295) | 日志显示安装 `kernel=6.12.103~…`，manifest `kernelLine.id=6.12`；默认线真实产出镜像 |
+| 6.12（默认） | ImageBuilder | [43704700295](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43704700295) | 日志显示安装 `kernel=6.12.103~…`（25.12.2 ImageBuilder 自带）；**该 run 的 artifact manifest 里 `kernelLine` 是 `{"id":"linux-6.6","version":"6.6","engine":"imagebuilder"}`** —— manifest 记录的是计划输入而不是实际构建出的内核，所以这条证据的真实结论是“ImageBuilder 构建产出 6.12.103 内核的镜像，manifest 的 kernelLine 字段不可作为内核证据”。默认线真实产出镜像成立 |
 | 6.6（实验） | source | [43711004777](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43711004777) | 冷启动 61m05s，`buildSeconds 3165`，kernel **6.6.159**，sha256 `11b7506040398d84ae11ac839ccfde68658915f148292c4c7c233514aa087365`，19,262,416 B |
 | 6.6（实验，暖缓存） | source | [43853764898](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43853764898) | 25m51s，`buildSeconds 1219`（冷启动的 38%），kernel **6.6.159**，sha256 `50ec85770836ffacfed31b09bc61f16c72abfa673e4b163f0b5362b165178e99`，19,260,397 B；manifest `cache:{download:true,staging:true,ccache:true}` |
 | 6.18（实验） | source | 仅 registry pin `a4ba8240d8a1aaef7e8c6f2d65e841a9bfd2b8c5` | ⬜ 从未构建 |
@@ -85,10 +85,10 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 ### 7. Modes、typed network 与主题
 
 - 16 个 mode 与 registry 完全一致：`istoreos-brand`、`nas`、`docker`、`wan-eth0`、`switch-port`、`ipv6`、`pppoe`、`wifi`、`webserver-uhttpd`、`webserver-nginx`、`webserver-lighttpd`、`https-selfsigned`、`usb-wired`、`usb-wifi`、`wwan`、`bypass`。
-- 声明式校验与生成由 `src/lib/build/modes.test.ts` 覆盖（40 例），包括：
+- 声明式校验与生成由 `src/lib/build/modes.test.ts` 覆盖（36 例），包括：
   - `switch-port` 的 WAN/LAN 端口映射生成、端口复用拒绝；
   - `ipv6` 与 typed IPv6 设置必须成对出现；
-  - `pppoe` 凭据只写入生成的 uci-defaults、验证消息不含密码；
+  - `pppoe` 凭据只写入生成的 uci-defaults、验证消息不含密码；生成文件内容在计划落库前脱敏、`build.yml` 写文件后就地重写 `plan.json`，因此凭据不进入日志或 `builds.plan_json`；
   - `wifi` 需要 radio 能力或 `usb-wifi`，缺 typed 设置被拒绝；
   - `wan-eth0` 与 `switch-port` 互斥；
   - `docker` 在 squashfs 上被拒绝，在 ext4/source 上接受。
@@ -122,19 +122,20 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 
 **supplement（真实跑通）**
 
-| 阶段 | Run | 结果 |
+| 阶段 | Run | 结果（run conclusion 见括号） |
 | --- | --- | --- |
-| 上游 commit 构建 | [43702446473](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43702446473) | 成功，6/6 包，`source_commit 19a44706dde7554f21c9d0503cdcfc399914067f`，run-name `packages 25.12.2` |
-| 自动发布 live | [43703618796](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43703618796) | 成功；由构建 run 自动 dispatch |
-| staging（元数据变化） | [43703141721](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43703141721) | 成功；写 `staging.json`，live 索引不变 |
-| staging → live 提升 | [43703283136](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43703283136) | 成功，`promoted_from_staging=true` |
-| 项目密钥重签名 | [43726635531](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43726635531) | 成功；6/6 apk + index `OK` |
+| 上游 commit 构建 | [43702446473](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43702446473) | 构建成功，6/6 包，`source_commit 19a44706dde7554f21c9d0503cdcfc399914067f`，run-name `packages 25.12.2`（build `success`） |
+| 自动发布 live | [43703618796](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43703618796) | publish 成功（`success`，main）；当时布局只有扁平 `/x86_64/`，`/supplement/<base>/<target>/` 指针尚未建立 |
+| staging（元数据变化） | [43703141721](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43703141721) | **publish 成功 / deploy 被 Pages 环境规则拒绝**：build job 写好 `staging.json` 且 live 索引不变，deploy job 因 `github-pages` environment 只允许 `main` 而失败（run conclusion `failure`） |
+| staging → live 提升 | [43703283136](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43703283136) | **publish 成功 / deploy 被 Pages 环境规则拒绝**（`failure`）；build 记录 `promoted_from_staging=true`，gh-pages 有 frozen path，但 live 站点未更新 |
+| 项目密钥重签名 | [43726635531](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43726635531) | **publish 成功 / deploy 被 Pages 环境规则拒绝**（`failure`）；build job 6/6 apk + index `OK` |
+| V2 review 修复后的真实部署 | [43891341975](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43891341975) | `success`（branch `fix/v2-feedset`）：`/supplement/25.12.2/x86_64/packages.adb` 200，与 frozen 路径同 sha256 `20c4c3d4e2c026a09fd7fd1300a6e480ed427a0ac2d4133acb413099893c0d1a`，`apk verify` OK |
 
 **dllkids（部分）**
 
 - 事务性采纳、同版本哈希阻断、解析失败回滚、缓存回滚由 `src/lib/source-watch/service.test.ts` 等 16 例 fake fetch/fake clock 测试覆盖；真实在线站点**没有**执行过一次自动采纳（站点进程需要在 6 小时窗口内运行并观察到上游变化）。
 - **延迟指标未测量**：detect ≤24h / rebuild+publish ≤48h 是设计目标；现有真实 run 都是按需触发，不能证明调度延迟。需要站点上线并连续运行至少 48 小时后再补测。
-- extension registry ref 变化走同一 watch 的候选重建路径，单测覆盖，未做真实端到端。
+- extension registry ref 变化已在 source-watch 调度器接线（`runExtensionWatchIfDue` → `recordObservedCandidate`，`src/lib/source-watch/extension.ts`）：观察到 upstream head 与 registry pin 不同时只为 `extension` 源记录一个 candidate（sha256 of the observed commit map + 缓存字节），**不采纳、不自动发布**；单测用 fake fetch/clock 覆盖，未做真实端到端。
 
 ### 11. Build ops
 
@@ -149,6 +150,18 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 - V1 标准构建 [43705270610](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43705270610)：成功，`immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img.gz` sha256 `6227c53a…`（与 V1 行为一致），manifest 无 `schemaVersion`。
 - `e2e/build-flow.spec.ts` 7 个 V1 场景 + `e2e/build-v2.spec.ts` 4 个 V2 场景，共 11/11 通过。
 - 旧快照/旧计划页面由 V1 只读路径渲染；迁移只追加。
+
+### 13. V2 两轴评审修复（2026-11-16）
+
+- **源码引擎的 `files` overlay（spec:106 / matrix 7、8）**：`SourceRecipe` 现在携带计划的 `files[]`（同一 `path`/`content`/`mode` 契约）与 feed set 摘要；`source-build.yml` 在 `make` 前把这些文件写进源码树的 `files/`（OpenWrt 的 `prepare_rootfs` 从 `$(TOPDIR)/files` 应用），并安装 `combinewrt-feed.pub.pem`；构建后再从产物镜像里逐个断言文件存在。docker mode 的 uci-defaults 同时 `mkdir -p /var/lib/docker` 并把 `/etc/config/dockerd` 的 `data_root` 指向该路径（`/var`→tmpfs，故 `dockerd` 启动时在 tmpfs 上创建；验收语义是“boot 后可写”）。rootfs 产物名与 glob 统一为 `.tar.gz`，并发出 `CONFIG_TARGET_ROOTFS_TARGZ=y`。
+- **密钥**：`build.yml` 在 “Write files” 之后用 temp+mv 就地重写 `plan.json`，把 `files[].content` 换成 `<redacted; N bytes>`；站点不再把生成文件内容、`plan.modes.network.wan.password`、`plan.modes.network.wifi.key` 写进 `builds.plan_json`（`src/lib/builds/redact.ts`），派发使用进程内的完整计划，重启后若只剩脱敏计划则显式失败而不是悄悄少写 overlay；派发路径不打印计划负载。
+- **`client_payload` 嵌套（spec:108）**：source dispatch 顶层只保留 `buildId`/`schemaVersion`/`engine`/`baseVersion`/`profileId`/`artifactName`/`composition`（7 个），整套 recipe 嵌在 `composition` 下；`source-build.yml` 先归一化回扁平 recipe。单测同时断言 ImageBuilder（10 个）与 source 两条派发的顶层属性上限。
+- **dllkids 采纳在刷新中生效**：`refreshActiveCatalog` 先读 `source_pins`（`active`），配置常量只在没有 DB pin 时作为 seed；单测证明 DB 采纳值优先于过期的 env 值。
+- **extension watch（ADR 0008）**：调度器新增 `runExtensionWatchIfDue`，对 `config/sources/registry.json` 的 extension 条目观察 upstream head，变化只记 candidate（可审计、可缓存），不采纳、不发布。
+- **feed set URL 一致**：`feeds.ts` 与 preflight 都用 `/supplement/<baseVersion>/<target>/packages.adb`；feed 仓库发布流水线新增部署后断言（live pointer 与 frozen 路径同 sha256 + `apk verify`），分支真实 run 43891341975 证明该 URL 可下载且签名可验证。
+- **正确性护栏**：`migrate()` 断言版本严格递增且唯一，并拒绝排序在已应用版本之前的待应用版本；`openDatabase` 设置 `PRAGMA busy_timeout = 5000`；`isBuildPlanV2Form` 要求显式 `schemaVersion === 2` **且**有 `target`；删除 `source-build.yml` 的死 `push` 触发器；`workflow-yaml` 测试钉死 `--allow-untrusted` 的允许清单（仅 build.yml 的下载包 verify/mkndx 共 3 处）；被跳过的契约测试会打印跳过原因。
+
+**按 ticket 保留的偏差（记录而非修改）**：V1 表单仍走 V1 路径并产出 `schemaVersion: 1` 计划（ticket 03 明确保留 V1 只读兼容；V2 表单显式发送 `schemaVersion: 2` + `target`）；`DLLKIDS_INDEX_SHA256` 配置常量继续保留，但只作为全新安装的 seed。
 
 ## 最终 V2 回归清单
 
