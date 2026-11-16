@@ -11,6 +11,7 @@ function snapshot(id: number): SnapshotMeta {
   return {
     id,
     baseVersion: "25.12.2",
+    target: "x86/64",
     feedCommit: `feed-${id}`,
     sourceNote: "fixture",
     sourcePins: { official: {}, dllkids: null, supplement: null, kernel: null },

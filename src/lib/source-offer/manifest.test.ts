@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { createSourceOffer, distributionLabel, sourceOfferJson } from "./manifest";
 import type { BuildRecord } from "../builds/types";
 import type { BuildPlan } from "../build/types";
+import type { ModeState } from "../build/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
+
+const PIN = "e".repeat(64);
 
 const plan: BuildPlan = {
   baseVersion: "25.12.2",
@@ -88,6 +91,7 @@ describe("createSourceOffer", () => {
         releaseDate: "2026-09-08",
         imageBuilderUrl: "https://example.test/ib.tar.zst",
         imageBuilderSha256: "c".repeat(64),
+        channel: "release",
         createdAt: "2026-09-08T00:00:00.000Z",
       },
     });
@@ -113,6 +117,7 @@ describe("createSourceOffer", () => {
     expect(offer.patches).toEqual([]);
     expect(offer.visibility).toBe("public");
     expect(offer.publicDistribution).toBe(true);
+    expect(offer.feedSet).toBeNull();
     expect(offer.notes.join("\n")).toContain("Distribution conclusion: this image is marked public");
   });
 
@@ -123,10 +128,179 @@ describe("createSourceOffer", () => {
     expect(json).toContain("Root password hashes and generated file contents are deliberately omitted.");
   });
 
+  it("keeps a plan without schemaVersion readable as a V1 source offer", () => {
+    const offer = createSourceOffer(build);
+    expect(offer.schemaVersion).toBe(1);
+    expect(offer.openwrtTag).toBe("v25.12.2");
+  });
+
   it("falls back to an empty pin set for legacy plans", () => {
     const legacy = { ...build, plan: { ...plan, sourcePins: undefined } } as unknown as BuildRecord;
     const offer = createSourceOffer(legacy);
     expect(offer.sourcePins).toEqual(EMPTY_SOURCE_PINS);
+  });
+
+  it("summarizes the selected modes without network settings or secrets", () => {
+    const modes = {
+      basePreset: { id: "router-default", layer: "file/board", title: "Router default", experimental: false },
+      overlays: [{ id: "pppoe", layer: "file/board", title: "PPPoE", experimental: false }],
+      experimental: [],
+      secrets: [
+        { kind: "https-selfsigned", commonName: "router", certPath: "/etc/uhttpd.crt", keyPath: "/etc/uhttpd.key" },
+      ],
+      generatedFiles: ["/etc/uci-defaults/90-combinewrt-modes"],
+      network: { wan: { protocol: "pppoe", username: "user", password: "supersecret" } },
+    } as unknown as ModeState;
+    const v2plan = { ...plan, schemaVersion: 2 as const, modes } as BuildPlan;
+
+    const offer = createSourceOffer({ ...build, plan: v2plan });
+    expect(offer.schemaVersion).toBe(1);
+    expect(offer.modes).toEqual({
+      basePreset: { id: "router-default", layer: "file/board", title: "Router default", experimental: false },
+      overlays: [{ id: "pppoe", layer: "file/board", title: "PPPoE", experimental: false }],
+      experimental: [],
+      generatedFiles: ["/etc/uci-defaults/90-combinewrt-modes"],
+    });
+    const json = sourceOfferJson(offer);
+    expect(json).not.toContain("supersecret");
+    expect(json).not.toContain("PRIVATE KEY");
+    expect(json).toContain("PPPoE credentials and the HTTPS private key are deliberately omitted");
+  });
+
+  it("carries the adopted dllkids pin from a V2 build plan", () => {
+    const adopted = { ...plan, schemaVersion: 2, sourcePins: { ...plan.sourcePins, dllkids: PIN } };
+    const offer = createSourceOffer({ ...build, plan: adopted } as BuildRecord);
+    // The source-offer schema stays 1 so V1 consumers keep working; only the
+    // pin value changes, and it names the pin the build actually used.
+    expect(offer.schemaVersion).toBe(1);
+    expect(offer.sourcePins.dllkids).toBe(PIN);
+    expect(JSON.parse(sourceOfferJson(offer)).sourcePins.dllkids).toBe(PIN);
+    expect(offer.notes.join("\n")).not.toContain("source pins were not captured");
+  });
+
+  it("records the feed set with pins and no private key material", () => {
+    const feedSet = {
+      visibility: "private" as const,
+      baseVersion: "25.12.2",
+      targetId: "x86/64",
+      feedTarget: "x86_64",
+      officialBaseUrl: "https://downloads.immortalwrt.org",
+      officialMirror: null,
+      officialRepositories: [
+        "https://downloads.immortalwrt.org/releases/25.12.2/targets/x86/64/packages/packages.adb",
+      ],
+      key: {
+        path: "/etc/apk/keys/combinewrt-feed.pub.pem",
+        url: "https://wuyuzaddd.github.io/combinewrt-packages/keys/combinewrt-feed.pub.pem",
+        fingerprint: PIN,
+      },
+      repositories: [
+        {
+          id: "supplement" as const,
+          url: "https://wuyuzaddd.github.io/combinewrt-packages/supplement/25.12.2/x86_64/packages.adb",
+          signed: true,
+          inDefaultRepositoryList: true,
+          condition: "signed supplement feed (always enabled)",
+          indexSha256: "supplement-index-sha",
+          keyFingerprint: PIN,
+        },
+        {
+          id: "dllkids" as const,
+          url: "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64/packages.adb",
+          signed: false,
+          inDefaultRepositoryList: false,
+          condition: "private image only",
+          indexSha256: "dllkids-index-sha",
+          keyFingerprint: null,
+        },
+      ],
+      files: [{ path: "/etc/apk/repositories.d/90-combinewrt.list", content: "-----BEGIN PRIVATE KEY-----", mode: 0o600 }],
+    };
+    const v2plan = { ...plan, schemaVersion: 2 as const, feedSet } as unknown as BuildPlan;
+
+    const offer = createSourceOffer({ ...build, plan: v2plan });
+    expect(offer.feedSet?.visibility).toBe("private");
+    expect(offer.feedSet?.repositories.map((repository) => repository.id)).toEqual([
+      "supplement",
+      "dllkids",
+    ]);
+    expect(offer.feedSet?.repositories[0]?.indexSha256).toBe("supplement-index-sha");
+    expect(offer.feedSet?.repositories[0]?.keyFingerprint).toBe(PIN);
+    expect(offer.feedSet?.repositories[1]?.keyFingerprint).toBeNull();
+    expect(offer.feedSet?.key.fingerprint).toBe(PIN);
+    expect(offer.feedSet).not.toHaveProperty("files");
+
+    const json = sourceOfferJson(offer);
+    expect(json).not.toContain("PRIVATE KEY");
+    expect(json).not.toContain("BEGIN");
+    expect(json).toContain("Image feed set");
+  });
+
+  it("renders the V2 composition and acquisition strategies without network secrets", () => {
+    const v2plan = {
+      ...plan,
+      schemaVersion: 2 as const,
+      channel: "release" as const,
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "generic", title: "x86/64 (generic)" },
+      deviceProfile: { targetId: "x86/64", id: "generic", title: "Generic x86/64", capabilities: ["efi"] },
+      kernelLine: { id: "6.12", version: "6.12", engine: "imagebuilder" as const },
+      imageVariant: { boot: "efi" as const, filesystem: "ext4" as const, artifact: "combined" as const, overlaySizeMb: 1024 },
+      basePreset: { id: "minimal", layer: "file/board" as const },
+      overlays: [],
+      engine: "imagebuilder" as const,
+      modes: {
+        basePreset: { id: "minimal", layer: "file/board" as const, title: "Minimal", experimental: false },
+        overlays: [],
+        experimental: [],
+        secrets: [],
+        generatedFiles: [],
+        network: { wan: { protocol: "pppoe", username: "user", password: "supersecret" } },
+      },
+      resolved: [
+        {
+          name: "lucky",
+          version: "3.5.0-r1",
+          source: "selected" as const,
+          packageSource: "dllkids" as const,
+          sourcePin: "dllkids-pin",
+          sha256: null,
+          feed: "dllkids",
+          requestedStrategy: "prebuilt" as const,
+          effectiveStrategy: "rebuild" as const,
+          fallbackReason: "prebuilt unavailable; rebuilding",
+        },
+      ],
+    } as unknown as BuildPlan;
+
+    const offer = createSourceOffer({ ...build, plan: v2plan } as BuildRecord);
+    expect(offer.v2?.engine).toBe("imagebuilder");
+    expect(offer.v2?.target.id).toBe("x86/64");
+    expect(offer.v2?.kernelLine.id).toBe("6.12");
+    expect(offer.v2?.imageVariant.artifact).toBe("combined");
+    expect(offer.v2?.strategies).toEqual([
+      {
+        name: "lucky",
+        source: "dllkids",
+        requested: "prebuilt",
+        effective: "rebuild",
+        fallbackReason: "prebuilt unavailable; rebuilding",
+      },
+    ]);
+    expect(offer.packages[0].strategy).toEqual({
+      requested: "prebuilt",
+      effective: "rebuild",
+      fallbackReason: "prebuilt unavailable; rebuilding",
+    });
+    const json = sourceOfferJson(offer);
+    expect(json).not.toContain("supersecret");
+    expect(json).not.toContain("pppoe");
+    expect(json).toContain("V2 composition");
+  });
+
+  it("leaves a V1 offer without a V2 section", () => {
+    const offer = createSourceOffer(build);
+    expect(offer.v2).toBeUndefined();
+    expect(offer.packages[0].strategy).toBeUndefined();
   });
 });
 

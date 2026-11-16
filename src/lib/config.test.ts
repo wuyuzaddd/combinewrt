@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ConfigError, loadConfig } from "./config";
+import { ConfigError, loadConfig, loadImageFeedConfig } from "./config";
 
 const SECRET = "0123456789abcdef0123456789abcdef";
 const HASH = `scrypt$${"ab".repeat(16)}$${"cd".repeat(64)}`;
@@ -13,14 +13,24 @@ describe("loadConfig", () => {
     expect(config.appOrigin).toBe("http://localhost:3000");
     expect(config.secureCookies).toBe(false);
     expect(config.artifactRetentionDays).toBe(7);
+    expect(config.artifactCacheMaxBytes).toBe(20 * 1024 ** 3);
     expect(config.artifactCacheDir).toContain("artifacts");
     expect(config.supplementFeedUrl).toContain("combinewrt-packages");
     expect(config.supplementKeyFingerprint).toHaveLength(64);
     expect(config.supplementWorkflow).toBe("packages.yml");
   });
 
-  it("rejects a malformed supplement workflow name", () => {
+  it("rejects an invalid artifact cache ceiling", () => {
     expect(() =>
+      loadConfig({
+        SESSION_SECRET: SECRET,
+        ADMIN_PASSWORD_HASH: HASH,
+        ARTIFACT_CACHE_MAX_BYTES: "-1",
+      }),
+    ).toThrow(/ARTIFACT_CACHE_MAX_BYTES/);
+  });
+
+  it("rejects a malformed supplement workflow name", () => {    expect(() =>
       loadConfig({
         SESSION_SECRET: SECRET,
         ADMIN_PASSWORD_HASH: HASH,
@@ -115,5 +125,48 @@ describe("loadConfig", () => {
 
   it("rejects a malformed password hash", () => {
     expect(() => loadConfig({ SESSION_SECRET: SECRET, ADMIN_PASSWORD_HASH: "plain" })).toThrow(/ADMIN_PASSWORD_HASH/);
+  });
+});
+
+describe("loadImageFeedConfig", () => {
+  it("defaults to the canonical official base and the project feed site", () => {
+    const config = loadImageFeedConfig({});
+    expect(config.officialBaseUrl).toBe("https://downloads.immortalwrt.org");
+    expect(config.officialMirror).toBeNull();
+    expect(config.feedBaseUrl).toBe("https://wuyuzaddd.github.io/combinewrt-packages");
+    expect(config.keyFingerprint).toHaveLength(64);
+    expect(config.dllkidsIndexSha256).toHaveLength(64);
+    expect(config.supplementIndexSha256).toBeNull();
+    expect(config.extensionIndexSha256).toBeNull();
+  });
+
+  it("honours IMMORTALWRT_MIRROR and records the trimmed value", () => {
+    const config = loadImageFeedConfig({
+      IMMORTALWRT_MIRROR: "https://mirror.example.test/immortalwrt/",
+    });
+    expect(config.officialMirror).toBe("https://mirror.example.test/immortalwrt");
+    expect(config.officialBaseUrl).toBe("https://mirror.example.test/immortalwrt");
+  });
+
+  it("honours the project feed base and optional index pins", () => {
+    const config = loadImageFeedConfig({
+      COMBINEWRT_FEED_BASE_URL: "https://packages.example.test/",
+      SUPPLEMENT_INDEX_SHA256: "a".repeat(64),
+      EXTENSION_INDEX_SHA256: "b".repeat(64),
+    });
+    expect(config.feedBaseUrl).toBe("https://packages.example.test");
+    expect(config.supplementIndexSha256).toBe("a".repeat(64));
+    expect(config.extensionIndexSha256).toBe("b".repeat(64));
+  });
+
+  it("rejects an invalid mirror without needing SESSION_SECRET", () => {
+    expect(() => loadImageFeedConfig({ IMMORTALWRT_MIRROR: "ftp://mirror.test" })).toThrow(
+      /IMMORTALWRT_MIRROR/,
+    );
+  });
+
+  it("is exposed on the full config", () => {
+    const config = loadConfig({ SESSION_SECRET: SECRET, ADMIN_PASSWORD_HASH: HASH });
+    expect(config.imageFeed.officialBaseUrl).toBe("https://downloads.immortalwrt.org");
   });
 });

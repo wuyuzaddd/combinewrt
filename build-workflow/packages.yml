@@ -1,0 +1,262 @@
+name: packages
+run-name: packages ${{ github.event.client_payload.base_version || github.event.inputs.base_version || '25.12.2' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: Space separated subset of packages (empty = all six)
+        required: false
+        default: ""
+        type: string
+      base_version:
+        description: ImmortalWrt base version (empty = 25.12.2)
+        required: false
+        default: ""
+        type: string
+      source_commit:
+        description: kiddin9/op-packages commit to build (40 lowercase hex; empty = branch head)
+        required: false
+        default: ""
+        type: string
+      publish_mode:
+        description: live publishes automatically when the metadata gate allows it; staging always stages
+        required: false
+        default: "live"
+        type: choice
+        options:
+          - live
+          - staging
+      gate_reason:
+        description: Why the source watch picked this publish mode (audit only)
+        required: false
+        default: ""
+        type: string
+  repository_dispatch:
+    types: [supplement-build]
+
+permissions:
+  contents: read
+
+env:
+  BASE_VERSION: ${{ github.event.client_payload.base_version || github.event.inputs.base_version || '25.12.2' }}
+  SDK_URL: https://downloads.immortalwrt.org/releases/${{ github.event.client_payload.base_version || github.event.inputs.base_version || '25.12.2' }}/targets/x86/64/immortalwrt-sdk-${{ github.event.client_payload.base_version || github.event.inputs.base_version || '25.12.2' }}-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+  SOURCE_REPO: kiddin9/op-packages
+  PUBLISH_MODE: ${{ github.event.client_payload.publish_mode || github.event.inputs.publish_mode || 'live' }}
+  GATE_REASON: ${{ github.event.client_payload.gate_reason || github.event.inputs.gate_reason || 'manual' }}
+  # Supplied by the source watch through repository_dispatch, or by hand through
+  # workflow_dispatch. Empty means "whatever head the source repo is on", which
+  # keeps the V1 manual trigger working.
+  SOURCE_COMMIT_INPUT: ${{ github.event.client_payload.source_commit || github.event.inputs.source_commit || '' }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      full: ${{ steps.select.outputs.full }}
+      source_commit: ${{ steps.resolve.outputs.source_commit }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve source commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit="$SOURCE_COMMIT_INPUT"
+          if [ -z "$commit" ]; then
+            commit=$(gh api "repos/$SOURCE_REPO/commits/HEAD" --jq .sha)
+            echo "source_commit not supplied; using $SOURCE_REPO head $commit"
+          fi
+          if ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::source_commit must be a 40 character lowercase git commit (got '$commit')"
+            exit 1
+          fi
+          # Reject a well-formed commit the source repo does not have, instead of
+          # failing the whole matrix halfway through the build.
+          if ! gh api "repos/$SOURCE_REPO/commits/$commit" --jq .sha >/dev/null 2>&1; then
+            echo "::error::$SOURCE_REPO does not contain commit $commit"
+            exit 1
+          fi
+          echo "source_commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "building $SOURCE_REPO@$commit for base $BASE_VERSION (publish_mode=$PUBLISH_MODE)"
+
+      - id: select
+        env:
+          PACKAGES_INPUT: ${{ github.event.inputs.packages || '' }}
+          SELECTION_PATH: selection.json
+          SOURCE_COMMIT: ${{ steps.resolve.outputs.source_commit }}
+        run: node scripts/select-packages.mjs "$PACKAGES_INPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selection
+          path: selection.json
+          retention-days: 7
+
+      - uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: .cache/sdk.tar.zst
+          key: immortalwrt-sdk-${{ env.BASE_VERSION }}-x86_64-v1
+
+      - name: Download SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p .cache
+          curl -fL --retry 3 --retry-delay 5 -o .cache/sdk.tar.zst "$SDK_URL"
+          ls -l .cache/sdk.tar.zst
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .cache/sdk.tar.zst
+          key: immortalwrt-sdk-${{ env.BASE_VERSION }}-x86_64-v1
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gawk gettext libncurses-dev unzip zlib1g-dev file rsync zstd patch
+
+      - name: Extract SDK
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sdk"
+          tar --zstd -xf .cache/sdk.tar.zst -C "$RUNNER_TEMP/sdk" --strip-components=1
+          test -f "$RUNNER_TEMP/sdk/Makefile"
+
+      - name: Fetch package sources
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/src"
+          curl -fsSL --retry 3 "https://codeload.github.com/$SOURCE_REPO/tar.gz/$SOURCE_COMMIT" \
+            | tar -xz -C "$RUNNER_TEMP/src" --strip-components=1
+          test -d "$RUNNER_TEMP/src/${{ matrix.package }}"
+
+      - name: Prepare SDK
+        run: scripts/prepare-sdk.sh "$RUNNER_TEMP/sdk"
+
+      - name: Build ${{ matrix.package }}
+        run: scripts/build-package.sh "$RUNNER_TEMP/sdk" "$RUNNER_TEMP/src" "${{ matrix.package }}"
+
+      - name: Record failure
+        if: failure()
+        run: |
+          mkdir -p out
+          printf 'build failed for %s in run %s (see job log)\n' \
+            "${{ matrix.package }}" "$GITHUB_RUN_ID" > "out/failure-${{ matrix.package }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apk-${{ matrix.package }}
+          path: out
+          if-no-files-found: error
+          retention-days: 7
+
+  manifest:
+    needs: [prepare, build]
+    # Always run when the selection succeeded: a failed matrix leg must still
+    # produce a manifest entry with status=failed instead of vanishing from
+    # the artifact entirely.
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: selection
+          path: selection
+
+      - name: Make artifact directory
+        run: mkdir -p artifacts
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: apk-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Download apk-tools 3.0.9
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/apk-tools.apk" \
+            https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/apk-tools-static-3.0.9-r0.apk
+          mkdir -p "$RUNNER_TEMP/apkstatic"
+          tar -xzf "$RUNNER_TEMP/apk-tools.apk" -C "$RUNNER_TEMP/apkstatic" --ignore-zeros
+          test -x "$RUNNER_TEMP/apkstatic/sbin/apk.static"
+
+      - name: Build manifest
+        run: |
+          node scripts/make-manifest.mjs \
+            --artifacts artifacts \
+            --selection selection/selection.json \
+            --out build \
+            --run-id "$GITHUB_RUN_ID" \
+            --apk-tool "$RUNNER_TEMP/apkstatic/sbin/apk.static" \
+            --base-version "$BASE_VERSION"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### packages-build" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "- base version: \`$BASE_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- source commit: \`$SOURCE_COMMIT\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- publish mode: \`$PUBLISH_MODE\` (gate: \`$GATE_REASON\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          if [ -f build/manifest.json ]; then
+            node -e '
+              const m = require("./build/manifest.json");
+              for (const e of m.entries) {
+                console.log(`- ${e.status === "ok" ? "✅" : "❌"} \`${e.name}\`${e.status === "ok" ? ` ${e.version}` : ""}`);
+              }
+            ' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: packages-build
+          path: build
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Dispatch publish to combinewrt-packages
+        # Subset builds are development artifacts, never a feed replacement.
+        # Partial failures still reach the feed repo so it can stage them.
+        if: needs.build.result == 'success' && needs.prepare.outputs.full == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api --method POST repos/wuyuzaddd/combinewrt-packages/dispatches \
+            -f event_type=packages-built \
+            -F client_payload[build_run_id]=${{ github.run_id }} \
+            -f client_payload[base_version]="$BASE_VERSION" \
+            -f client_payload[source_commit]="$SOURCE_COMMIT" \
+            -f client_payload[publish_mode]="$PUBLISH_MODE" \
+            -f client_payload[build_conclusion]="${{ needs.build.result }}"

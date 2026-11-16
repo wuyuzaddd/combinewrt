@@ -29,7 +29,9 @@ export default async function CatalogPage({
 
   const profiles = snapshot ? store.listProfiles(snapshot.id) : [];
   const categories = snapshot ? store.listCategories(snapshot.id) : [];
-  const sourceCounts = snapshot ? store.sourceCounts(snapshot.id) : { official: 0, dllkids: 0, supplement: 0 };
+  const sourceCounts = snapshot
+    ? store.sourceCounts(snapshot.id)
+    : { official: 0, dllkids: 0, supplement: 0, extension: 0 };
   const pins = snapshot?.sourcePins;
   const result = snapshot
     ? store.searchPackages(snapshot.id, {
@@ -59,6 +61,9 @@ export default async function CatalogPage({
           </p>
         </div>
         <div className="flex items-center gap-4">
+          <Link className="text-sm text-slate-300 underline decoration-slate-600" href="/catalog/extension">
+            扩展包与套餐
+          </Link>
           <Link className="text-sm text-slate-300 underline decoration-slate-600" href="/">
             返回首页
           </Link>
@@ -86,7 +91,7 @@ export default async function CatalogPage({
             </span>
             <span>
               {snapshot.profileCount} 个设备 · {snapshot.packageCount} 个软件包（官方 {sourceCounts.official} · dllkids{" "}
-              {sourceCounts.dllkids} · 自有 {sourceCounts.supplement}）
+              {sourceCounts.dllkids} · 自有 {sourceCounts.supplement} · 扩展 {sourceCounts.extension}）
             </span>
             <span className="text-xs">生成于 {snapshot.createdAt} UTC</span>
             <span className="w-full break-all text-xs text-slate-500">来源：{snapshot.sourceNote}</span>

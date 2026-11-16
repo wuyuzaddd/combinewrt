@@ -6,17 +6,19 @@ import type { ImmortalWrtSourceOptions } from "./source";
  * bump. Keeping the config mapping here stops the supplement pin and feed
  * options from drifting between call sites.
  */
+export type ConfiguredSourceConfig = Pick<
+  AppConfig,
+  | "apkBin"
+  | "dllkidsFeedUrl"
+  | "dllkidsIndexSha256"
+  | "supplementFeedCommit"
+  | "supplementKeyFingerprint"
+  | "supplementFeedUrl"
+  | "supplementKeyUrl"
+>;
+
 export function createConfiguredImmortalWrtSource(
-  config: Pick<
-    AppConfig,
-    | "apkBin"
-    | "dllkidsFeedUrl"
-    | "dllkidsIndexSha256"
-    | "supplementFeedCommit"
-    | "supplementKeyFingerprint"
-    | "supplementFeedUrl"
-    | "supplementKeyUrl"
-  >,
+  config: ConfiguredSourceConfig,
   baseVersion: string,
 ): ImmortalWrtSourceOptions {
   return {

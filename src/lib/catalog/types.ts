@@ -1,11 +1,19 @@
 export type ImageFormatId = "ext4-efi" | "squashfs-efi" | "rootfs-tar";
 
-export type PackageSource = "official" | "dllkids" | "supplement";
+/**
+ * Package acquisition layers. `extension` is the curated extension feed
+ * (ticket 12): its packages resolve from the source registry instead of a
+ * catalog snapshot.
+ */
+export type PackageSource = "official" | "dllkids" | "supplement" | "extension";
 
-export const PACKAGE_SOURCES: readonly PackageSource[] = ["official", "dllkids", "supplement"];
+export const PACKAGE_SOURCES: readonly PackageSource[] = ["official", "dllkids", "supplement", "extension"];
 
 export function sourcePriority(source: PackageSource): number {
-  return source === "official" ? 0 : source === "dllkids" ? 1 : 2;
+  if (source === "official") return 0;
+  if (source === "dllkids") return 1;
+  if (source === "supplement") return 2;
+  return 3;
 }
 
 export const KERNEL_VERMAGIC_PIN = "6.12.103-1-0413601b1c3f0490e17f340fe09229ea";
@@ -72,6 +80,8 @@ export interface CatalogPackage {
 
 export interface SnapshotInput {
   baseVersion: string;
+  /** OpenWrt target id; V1 callers omit it and get the x86/64 default. */
+  target?: string;
   feedCommit: string;
   sourceNote: string;
   sourcePins: SourcePins;
@@ -82,6 +92,7 @@ export interface SnapshotInput {
 export interface SnapshotMeta {
   id: number;
   baseVersion: string;
+  target: string;
   feedCommit: string;
   sourceNote: string;
   sourcePins: SourcePins;

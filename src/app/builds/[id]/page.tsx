@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
+import { artifactKindFor } from "@/lib/builds/service";
 import { createBuildStore } from "@/lib/builds/store";
 import { getDatabase } from "@/lib/db";
 import type { BuildStep } from "@/lib/builds/types";
@@ -12,6 +13,14 @@ import { BuildPoller } from "./build-poller";
 import { StatusTimeline } from "./status-timeline";
 import { CancelButton } from "../cancel-button";
 
+const STATUS_LABELS: Record<string, string> = {
+  queued: "排队中",
+  running: "运行中",
+  succeeded: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
 const STEP_LABELS: Record<BuildStep, string> = {
   "prepare-plan": "生成构建计划",
   "install-tools": "安装构建工具",
@@ -20,6 +29,7 @@ const STEP_LABELS: Record<BuildStep, string> = {
   "write-files": "写入构建配置",
   "build-image": "构建镜像",
   "assert-packages": "校验镜像内软件包",
+  postprocess: "转换镜像格式",
   "package-artifact": "打包产物",
   dispatch: "派发构建",
   timeout: "构建超时",
@@ -37,6 +47,9 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
   const active = build.status === "queued" || build.status === "running";
   const compliance = build.plan.compliance ?? createComplianceReport(build.plan.resolved);
   const events = createBuildStore(getDatabase()).listEvents(build.id);
+  const service = getBuildService();
+  const queuePosition = build.status === "queued" ? service.queuePosition(build.id) : null;
+  const artifactKind = artifactKindFor(build);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-6 py-12">
@@ -46,13 +59,26 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-400">build</p>
           <h1 className="mt-2 break-all font-mono text-lg font-semibold">{build.plan.artifactName}</h1>
           <p className="mt-1 text-xs text-slate-500">
-            {build.plan.profileTitle} · {build.plan.imageType} ·{" "}
+            {build.plan.profileTitle} · {build.plan.imageType} · 产物 {artifactKind} ·{" "}
             {(build.plan.visibility ?? "private") === "public" ? "公开分发" : "自用"} · {build.adapter} · run{" "}
             {build.runId ?? "—"}
           </p>
+          {build.status === "queued" && (
+            <p className="mt-1 text-xs text-amber-300">
+              排队中{queuePosition ? ` · 第 ${queuePosition} 位` : ""}（并发上限由 MAX_CONCURRENT_BUILDS 控制，空出构建槽位后自动派发）
+            </p>
+          )}
+          {build.status === "running" && (
+            <p className="mt-1 text-xs text-emerald-300">
+              已派发{queuePosition === null ? " · 正在构建" : ""}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-200">{build.status}</span>
+          <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-200">
+            {STATUS_LABELS[build.status] ?? build.status}
+            {queuePosition ? ` · 第 ${queuePosition} 位` : ""}
+          </span>
           {active && <CancelButton buildId={build.id} />}
           <Link
             className="text-emerald-300 underline decoration-emerald-800"
@@ -83,6 +109,13 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
               {build.failure.package ? `package=${build.failure.package}` : ""}
               {build.failure.source ? ` source=${build.failure.source}` : ""}
               {build.failure.version ? ` version=${build.failure.version}` : ""}
+            </p>
+          )}
+          {build.failure.context && (
+            <p className="mt-1 break-all font-mono text-xs text-rose-100">
+              {build.failure.context.target ? `target=${build.failure.context.target} ` : ""}
+              {build.failure.context.variant ? `variant=${build.failure.context.variant} ` : ""}
+              {build.failure.context.engine ? `engine=${build.failure.context.engine}` : ""}
             </p>
           )}
           <p className="mt-2 text-xs text-rose-200/90">{build.failure.message}</p>
@@ -134,6 +167,7 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
             下载产物（{build.artifactName}）
           </a>
           <p className="break-all font-mono text-xs text-slate-500">
+            产物类型 {artifactKind} ·{" "}
             {build.artifactSha256 ? `sha256 ${build.artifactSha256}` : "sha256 尚未记录"}
             {build.artifactSize ? ` · ${formatSize(build.artifactSize)}` : ""}
           </p>

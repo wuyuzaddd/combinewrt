@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { openDatabase, migrate } from "../db";
+import { isBuildPlanV2, readBuildPlan } from "../domain/build-plan";
+import type { BuildPlanV1, BuildPlanV2 } from "../domain/build-plan";
+import { isRedactedPlan } from "./redact";
 import { createBuildStore } from "./store";
 import type { BuildRecord } from "./types";
 
@@ -61,6 +64,55 @@ describe("build store", () => {
     db.close();
   });
 
+  it("reads a plan without schemaVersion as a read-only V1 plan", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"));
+
+    const saved = store.get("a");
+    const readable = readBuildPlan(saved?.plan);
+    expect(readable.schemaVersion).toBe(1);
+    expect(readable.readOnly).toBe(true);
+
+    const raw = db.prepare("SELECT plan_json FROM builds WHERE id = 'a'").get() as { plan_json: string };
+    expect((JSON.parse(raw.plan_json) as { schemaVersion?: number }).schemaVersion).toBeUndefined();
+    db.close();
+  });
+
+  it("round-trips a V2 plan with its target, kernel line and image variant", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    const legacy = record("v2", "2026-11-11T00:03:00Z");
+    const plan: BuildPlanV2 = {
+      ...(legacy.plan as BuildPlanV1),
+      schemaVersion: 2,
+      channel: "snapshot",
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "generic", title: "x86/64" },
+      deviceProfile: { targetId: "x86/64", id: "generic", title: "Generic", capabilities: [] },
+      kernelLine: { id: "6.18", version: "6.18", engine: "source", sourceRecipeRef: "kernel/6.18" },
+      imageVariant: { boot: "legacy", filesystem: "ext4", artifact: "vmdk", overlaySizeMb: 512 },
+      basePreset: { id: "base", layer: "file/board" },
+      overlays: [{ id: "overlay", layer: "package/kernel" }],
+      engine: "source",
+      warnings: [],
+      kernelConfig: [],
+    };
+    store.create({ ...legacy, plan });
+
+    const saved = store.get("v2");
+    expect(saved && isBuildPlanV2(saved.plan)).toBe(true);
+    if (saved && isBuildPlanV2(saved.plan)) {
+      expect(saved.plan.channel).toBe("snapshot");
+      expect(saved.plan.kernelLine.version).toBe("6.18");
+      expect(saved.plan.imageVariant.artifact).toBe("vmdk");
+      expect(saved.plan.overlays[0].id).toBe("overlay");
+      expect(saved.plan.artifactName).toBe("img-v2");
+    }
+    db.close();
+  });
+
   it("records creation and status transitions as events", () => {
     const db = openDatabase(":memory:");
     migrate(db);
@@ -90,5 +142,97 @@ describe("build store", () => {
     expect(store.get("a")?.status).toBe("queued");
     expect(store.listEvents("a")).toHaveLength(1);
     db.close();
+  });
+
+  it("claims the oldest queued build atomically and respects the running cap", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"));
+    store.create(record("b", "2026-11-11T00:01:00Z"));
+    store.create(record("c", "2026-11-11T00:02:00Z"));
+
+    const claimed = store.claimNextQueued(2, "2026-11-11T02:00:00.000Z");
+    expect(claimed?.id).toBe("a");
+    expect(claimed?.status).toBe("running");
+    expect(claimed?.dispatchedAt).toBe("2026-11-11T02:00:00.000Z");
+
+    expect(store.claimNextQueued(2, "2026-11-11T02:00:01.000Z")?.id).toBe("b");
+    expect(store.claimNextQueued(2, "2026-11-11T02:00:02.000Z")).toBeNull();
+    expect(store.countRunning()).toBe(2);
+    // A claim is a dispatch attempt: queued -> running is on the timeline.
+    expect(store.listEvents("a").at(-1)).toMatchObject({ fromStatus: "queued", toStatus: "running", source: "dispatch" });
+
+    store.update("a", { status: "succeeded" });
+    expect(store.claimNextQueued(2, "2026-11-11T02:00:03.000Z")?.id).toBe("c");
+    expect(store.countRunning()).toBe(2);
+    db.close();
+  });
+
+  it("reports the FIFO queue position and forgets it once dispatched", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"));
+    store.create(record("b", "2026-11-11T00:00:00Z"));
+    store.create(record("c", "2026-11-11T00:01:00Z"));
+
+    expect(store.queuePosition("a")).toBe(1);
+    expect(store.queuePosition("b")).toBe(2);
+    expect(store.queuePosition("c")).toBe(3);
+    store.update("a", { status: "running" });
+    expect(store.queuePosition("a")).toBeNull();
+    expect(store.queuePosition("b")).toBe(1);
+    db.close();
+  });
+
+  it("leaves legacy rows readable when the queue columns are null", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("old", "2026-11-11T00:00:00Z"));
+
+    const saved = store.get("old");
+    expect(saved?.engine).toBeNull();
+    expect(saved?.target).toBeNull();
+    expect(saved?.dispatchedAt).toBeNull();
+    expect(saved?.status).toBe("queued");
+    db.close();
+  });
+});
+
+describe("plan redaction at rest", () => {
+  it("never persists generated file contents or typed network secrets", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    const secret = "hunter2-pppoe";
+    const rootHash = "$5$rounds=1000$abcdefgh$0123456789abcdef";
+    const build = record("secret", "2026-11-11T00:00:00Z");
+    build.plan = {
+      ...build.plan,
+      files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: `root_password='${rootHash}'`, mode: 0o755 }],
+      modes: {
+        basePreset: { id: "router-default", layer: "file/board" },
+        overlays: [],
+        experimental: [],
+        network: { wan: { protocol: "pppoe", username: "user@isp", password: secret }, wifi: { ssid: "net", key: "wifi-psk", country: "CN", channel: 36, band: "5g" } },
+        secrets: [],
+        generatedFiles: [],
+      },
+    } as never;
+
+    store.create(build);
+
+    const raw = db.prepare("SELECT plan_json FROM builds WHERE id = 'secret'").get() as { plan_json: string };
+    // The row is copied into database dumps: no secret may live there.
+    expect(raw.plan_json).not.toContain(secret);
+    expect(raw.plan_json).not.toContain("wifi-psk");
+    expect(raw.plan_json).not.toContain(rootHash);
+    expect(raw.plan_json).not.toContain("127.0.0.1");
+
+    const saved = store.get("secret");
+    expect(saved?.plan.files.map((file) => file.path)).toEqual(["files/etc/uci-defaults/99-combinewrt"]);
+    expect(isRedactedPlan(saved!.plan)).toBe(true);
   });
 });

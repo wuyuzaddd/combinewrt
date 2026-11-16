@@ -1,21 +1,37 @@
 import { getConfig } from "../config";
 import { getDatabase } from "../db";
 import { createAdapter } from "./adapter";
+import { createArtifactCache, reconcileArtifactCache } from "./artifact-cache";
+import { createArtifactCacheStore } from "./artifact-store";
 import { createBuildService, type BuildService } from "./service";
+export type { ArtifactFileInfo } from "./service";
 import { createBuildStore } from "./store";
 
 import { createReconciler, type Reconciler } from "./reconciler";
-import { pruneArtifactCache, recordRetention } from "./retention";
+import {
+  pruneArtifactCache,
+  pruneArtifactCacheBySize,
+  recordRetention,
+} from "./retention";
 
 let cached: BuildService | undefined;
 let reconciler: Reconciler | undefined;
+
+function artifactCache() {
+  return createArtifactCache({
+    dir: getConfig().artifactCacheDir,
+    store: createArtifactCacheStore(getDatabase()),
+  });
+}
 
 export function getBuildService(): BuildService {
   cached ??= createBuildService({
     store: createBuildStore(getDatabase()),
     adapter: createAdapter(getConfig()),
+    maxConcurrentBuilds: getConfig().maxConcurrentBuilds,
     pollIntervalMs: 5_000,
     cacheDir: getConfig().artifactCacheDir,
+    cache: artifactCache(),
   });
   return cached;
 }
@@ -27,8 +43,30 @@ export function startRetention(): void {
   const run = () => {
     try {
       const config = getConfig();
-      const result = pruneArtifactCache(config.artifactCacheDir, config.artifactRetentionDays);
-      recordRetention(getDatabase(), { at: new Date().toISOString(), ...result });
+      const store = createArtifactCacheStore(getDatabase());
+      const cache = createArtifactCache({ dir: config.artifactCacheDir, store });
+      // Age first (the retention promise), then the size ceiling; both keep
+      // build records and manifests, they only evict cached files.
+      const byAge = pruneArtifactCache(config.artifactCacheDir, config.artifactRetentionDays);
+      const bySize = pruneArtifactCacheBySize(config.artifactCacheDir, config.artifactCacheMaxBytes);
+      const reconcile = reconcileArtifactCache({ dir: config.artifactCacheDir, store });
+      const stats = cache.stats();
+      recordRetention(getDatabase(), {
+        at: new Date().toISOString(),
+        removed: byAge.removed + bySize.removed,
+        removedBytes: byAge.removedBytes + bySize.removedBytes,
+        remainingBytes: stats.bytes,
+        entries: stats.entries,
+        failed: byAge.failed,
+      });
+      if (reconcile.dropped > 0 || reconcile.adopted > 0 || reconcile.stagingRemoved > 0) {
+        console.info(
+          "[combinewrt] artifact cache reconciled",
+          `dropped=${reconcile.dropped}`,
+          `adopted=${reconcile.adopted}`,
+          `stagingRemoved=${reconcile.stagingRemoved}`,
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[combinewrt] artifact retention failed", error);

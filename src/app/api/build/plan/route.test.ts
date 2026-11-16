@@ -199,3 +199,131 @@ describe("POST /api/build/plan", () => {
     expect(JSON.stringify(body)).not.toContain("correct horse");
   });
 });
+
+const validFormV2 = {
+  ...validForm,
+  // The V2 form states its schema explicitly; the route must not infer V2 from
+  // field presence (a stray imageVariant no longer flips the V1 path).
+  schemaVersion: 2,
+  target: "x86/64",
+  kernelLine: "6.12",
+  imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" },
+};
+
+describe("POST /api/build/plan (V2 form)", () => {
+  it("returns a schemaVersion 2 plan for the V2 form", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(request(validFormV2));
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      plan: {
+        schemaVersion: number;
+        target: { id: string };
+        kernelLine: { id: string; engine: string };
+        imageVariant: { artifact: string };
+        engine: string;
+        visibility: string;
+        artifactName: string;
+      };
+    };
+    expect(body.plan.schemaVersion).toBe(2);
+    expect(body.plan.target.id).toBe("x86/64");
+    expect(body.plan.kernelLine).toMatchObject({ id: "6.12", engine: "imagebuilder" });
+    expect(body.plan.imageVariant.artifact).toBe("combined");
+    expect(body.plan.engine).toBe("imagebuilder");
+    expect(body.plan.visibility).toBe("private");
+    expect(body.plan.artifactName).toBe("immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img.gz");
+  });
+
+  it("keeps the V1 plan JSON free of V2 fields", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(request(validForm));
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { plan: Record<string, unknown> };
+    expect(body.plan).not.toHaveProperty("schemaVersion");
+    expect(body.plan).not.toHaveProperty("imageVariant");
+    expect(body.plan).not.toHaveProperty("kernelLine");
+  });
+
+  it("rejects a variant the capability registry does not support", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({ ...validFormV2, imageVariant: { boot: "efi", filesystem: "ext4", artifact: "emmc" } }),
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { issues: string[] };
+    expect(body.issues.join("\n")).toMatch(/emmc/);
+  });
+
+  it("rejects an unmodelled kernel line without building a plan", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const five = await POST(request({ ...validFormV2, kernelLine: "5.15" }));
+    expect(five.status).toBe(409);
+    const fiveBody = (await five.json()) as { issues: string[] };
+    expect(fiveBody.issues.join("\n")).toMatch(/5\.15/);
+
+    const sixOne = await POST(request({ ...validFormV2, kernelLine: "6.1" }));
+    expect(sixOne.status).toBe(409);
+    const sixOneBody = (await sixOne.json()) as { issues: string[] };
+    expect(sixOneBody.issues.join("\n")).toMatch(/6\.1/);
+  });
+
+  it("enforces the public-image gate on V2 plans", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({ ...validFormV2, packages: ["vendor-app"], visibility: "public" }),
+    );
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { message: string }[]; plan: { visibility: string } };
+    expect(body.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/vendor-app/);
+    expect(body.plan.visibility).toBe("public");
+  });
+
+  it("rejects wan-eth0 together with switch-port as a readable 409", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({
+        ...validFormV2,
+        modes: [
+          { id: "wan-eth0", layer: "file/board" },
+          { id: "switch-port", layer: "file/board" },
+        ],
+        network: { switchPort: { wan: "wan", lan: ["lan1", "lan2"] } },
+      }),
+    );
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { names: string[]; message: string }[] };
+    expect(body.conflicts[0].names).toEqual(expect.arrayContaining(["wan-eth0", "switch-port"]));
+    expect(body.conflicts[0].message).toContain("wan-mapping");
+  });
+
+  it("rejects wifi without radio support as a readable 409", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({
+        ...validFormV2,
+        modes: [{ id: "wifi", layer: "file/board" }],
+        network: {
+          wifi: { ssid: "combinewrt", key: "correct horse", country: "CN", channel: 36, band: "5g" },
+        },
+      }),
+    );
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { message: string }[]; plan: { modes: { experimental: string[] } } };
+    expect(body.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/radio/);
+    expect(body.plan.modes.experimental).toContain("wifi");
+  });
+
+  it("reports a mode the selected kernel line cannot run as a 409-grade conflict", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(
+      request({ ...validFormV2, modes: [{ id: "docker", layer: "package/kernel" }] }),
+    );
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { message: string }[] };
+    expect(body.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/docker/);
+    expect(body.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/source engine/);
+  });
+});

@@ -1,5 +1,14 @@
 import { dirname, join } from "node:path";
 import { PASSWORD_HASH_PATTERN } from "./auth/password-format";
+import {
+  DEFAULT_DLLKIDS_FEED_URL,
+  DEFAULT_DLLKIDS_INDEX_SHA256,
+  DEFAULT_FEED_BASE_URL,
+  DEFAULT_FEED_KEY_FINGERPRINT,
+  DEFAULT_FEED_KEY_URL,
+  OFFICIAL_FEED_BASE,
+  type ResolvedImageFeedOptions,
+} from "./build/feeds";
 
 export interface AppConfig {
   sessionSecret: string;
@@ -15,13 +24,43 @@ export interface AppConfig {
   supplementKeyUrl: string;
   supplementFeedCommit: string | null;
   supplementKeyFingerprint: string;
+  /** Project image feed set configuration (ticket 09). */
+  imageFeed: ImageFeedConfig;
+  /**
+   * Upstream repository the supplement packages are rebuilt from. The watch
+   * observes its `supplementSourceRef` head and dispatches a build for that
+   * exact commit (ADR 0008).
+   */
+  supplementSourceRepo: string;
+  supplementSourceRef: string;
+  /** Target id the supplement feed publishes for (`x86_64`). */
+  supplementTarget: string;
+  /** Live publish audit record written by the feed repo. */
+  supplementPublishAuditUrl: string;
+  /** Staging publish audit record written by the feed repo. */
+  supplementStagingAuditUrl: string;
+  /** Whether the supplement watch dispatches builds on commit changes. */
+  supplementWatchEnabled: boolean;
   buildAdapter: "github" | "fake";
   buildWorkflow: string;
+  /** Workflow file that runs source builds (`combinewrt-source-build`). */
+  buildSourceWorkflow: string;
   supplementWorkflow: string;
+  /**
+   * How many builds may be dispatched and running at once (ticket 13). Queued
+   * builds beyond this wait in SQLite; no GitHub call is made for them.
+   */
+  maxConcurrentBuilds: number;
   buildRepo: string;
   buildRepoToken: string;
+  /** Branch or tag the build workflows run on (default: main). */
+  buildRef: string;
   artifactCacheDir: string;
   artifactRetentionDays: number;
+  /** Site cache size ceiling in bytes; 0 disables size-based eviction. */
+  artifactCacheMaxBytes: number;
+  sourceWatchIntervalHours: number;
+  sourceCacheDir: string;
 }
 
 export class ConfigError extends Error {
@@ -34,8 +73,90 @@ export class ConfigError extends Error {
   }
 }
 
+/**
+ * Image feed set configuration (ticket 09): the official base (or
+ * `IMMORTALWRT_MIRROR` override) plus the project supplement/extension feeds.
+ */
+export type ImageFeedConfig = ResolvedImageFeedOptions;
+
+function parseImageFeedConfig(
+  env: Record<string, string | undefined>,
+  issues: string[],
+): ImageFeedConfig {
+  const mirrorRaw = env.IMMORTALWRT_MIRROR?.trim() ?? "";
+  let officialMirror: string | null = null;
+  if (mirrorRaw) {
+    if (!/^https?:\/\//.test(mirrorRaw)) {
+      issues.push("IMMORTALWRT_MIRROR must be an http:// or https:// URL");
+    } else {
+      officialMirror = mirrorRaw.replace(/\/+$/, "");
+    }
+  }
+
+  const feedBaseUrl = (env.COMBINEWRT_FEED_BASE_URL?.trim() || DEFAULT_FEED_BASE_URL).replace(/\/+$/, "");
+  if (!/^https?:\/\//.test(feedBaseUrl)) {
+    issues.push("COMBINEWRT_FEED_BASE_URL must be an http:// or https:// URL");
+  }
+
+  const keyUrl = env.SUPPLEMENT_KEY_URL?.trim() || DEFAULT_FEED_KEY_URL;
+  if (!/^https?:\/\//.test(keyUrl)) {
+    issues.push("SUPPLEMENT_KEY_URL must be an http:// or https:// URL");
+  }
+
+  const keyFingerprint = env.SUPPLEMENT_KEY_FINGERPRINT?.trim() || DEFAULT_FEED_KEY_FINGERPRINT;
+  if (!/^[0-9a-f]{64}$/.test(keyFingerprint)) {
+    issues.push("SUPPLEMENT_KEY_FINGERPRINT must be a 64 character lowercase sha256");
+  }
+
+  const optionalSha = (raw: string | undefined, name: string): string | null => {
+    const value = raw?.trim() ?? "";
+    if (!value) return null;
+    if (!/^[0-9a-f]{64}$/.test(value)) {
+      issues.push(`${name} must be a 64 character lowercase sha256 or empty`);
+      return null;
+    }
+    return value;
+  };
+
+  const dllkidsFeedUrl = env.DLLKIDS_FEED_URL?.trim() || DEFAULT_DLLKIDS_FEED_URL;
+  if (!/^https?:\/\//.test(dllkidsFeedUrl)) {
+    issues.push("DLLKIDS_FEED_URL must be an http:// or https:// URL");
+  }
+  const dllkidsIndexSha256 = env.DLLKIDS_INDEX_SHA256?.trim() || DEFAULT_DLLKIDS_INDEX_SHA256;
+  if (!/^[0-9a-f]{64}$/.test(dllkidsIndexSha256)) {
+    issues.push("DLLKIDS_INDEX_SHA256 must be a 64 character lowercase sha256");
+  }
+
+  return {
+    officialBaseUrl: officialMirror ?? OFFICIAL_FEED_BASE,
+    officialMirror,
+    feedBaseUrl,
+    keyUrl,
+    keyFingerprint,
+    supplementIndexSha256: optionalSha(env.SUPPLEMENT_INDEX_SHA256, "SUPPLEMENT_INDEX_SHA256"),
+    extensionIndexSha256: optionalSha(env.EXTENSION_INDEX_SHA256, "EXTENSION_INDEX_SHA256"),
+    dllkidsFeedUrl,
+    dllkidsIndexSha256,
+  };
+}
+
+/**
+ * Read only the image feed variables. Kept separate from `loadConfig` so plan
+ * preparation does not require the full session/build environment (route tests
+ * deliberately do not set SESSION_SECRET).
+ */
+export function loadImageFeedConfig(
+  env: Record<string, string | undefined> = process.env,
+): ImageFeedConfig {
+  const issues: string[] = [];
+  const config = parseImageFeedConfig(env, issues);
+  if (issues.length > 0) throw new ConfigError(issues);
+  return config;
+}
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   const issues: string[] = [];
+  const imageFeed = parseImageFeedConfig(env, issues);
 
   const sessionSecret = env.SESSION_SECRET?.trim() ?? "";
   if (!sessionSecret) {
@@ -79,11 +200,43 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (!/^[A-Za-z0-9._-]+$/.test(supplementWorkflow)) {
     issues.push("SUPPLEMENT_WORKFLOW must be a workflow file name such as packages.yml");
   }
+  const buildSourceWorkflow = env.SOURCE_BUILD_WORKFLOW?.trim() || "source-build.yml";
+  if (!/^[A-Za-z0-9._-]+$/.test(buildSourceWorkflow)) {
+    issues.push("SOURCE_BUILD_WORKFLOW must be a workflow file name such as source-build.yml");
+  }
+  const maxConcurrentBuilds = Number(env.MAX_CONCURRENT_BUILDS?.trim() || "2");
+  if (!Number.isInteger(maxConcurrentBuilds) || maxConcurrentBuilds < 1 || maxConcurrentBuilds > 16) {
+    issues.push("MAX_CONCURRENT_BUILDS must be an integer between 1 and 16");
+  }
   const artifactRetentionDays = Number(env.ARTIFACT_RETENTION_DAYS?.trim() || "7");
   if (!Number.isInteger(artifactRetentionDays) || artifactRetentionDays < 0 || artifactRetentionDays > 365) {
     issues.push("ARTIFACT_RETENTION_DAYS must be an integer between 0 and 365");
   }
   const artifactCacheDir = env.ARTIFACT_CACHE_DIR?.trim() || join(dirname(databasePath), "artifacts");
+  // 20 GiB default: large enough for dozens of images, small enough that a
+  // broken build loop cannot fill the disk. 0 means unlimited.
+  const artifactCacheMaxBytes = Number(env.ARTIFACT_CACHE_MAX_BYTES?.trim() || String(20 * 1024 * 1024 * 1024));
+  if (
+    !Number.isInteger(artifactCacheMaxBytes) ||
+    artifactCacheMaxBytes < 0 ||
+    artifactCacheMaxBytes > 10 * 1024 * 1024 * 1024 * 1024
+  ) {
+    issues.push("ARTIFACT_CACHE_MAX_BYTES must be an integer between 0 and 10995116277760 (0 = unlimited)");
+  }
+  const sourceWatchIntervalHours = Number(env.SOURCE_WATCH_INTERVAL_HOURS?.trim() || "6");
+  if (
+    !Number.isInteger(sourceWatchIntervalHours) ||
+    sourceWatchIntervalHours < 1 ||
+    sourceWatchIntervalHours > 168
+  ) {
+    issues.push("SOURCE_WATCH_INTERVAL_HOURS must be an integer between 1 and 168");
+  }
+  const sourceCacheDir =
+    env.SOURCE_CACHE_DIR?.trim() || join(dirname(databasePath), "source-cache");
+  const buildRef = env.BUILD_REF?.trim() || "main";
+  if (!/^[A-Za-z0-9._/-]+$/.test(buildRef)) {
+    issues.push("BUILD_REF must be a branch or tag name");
+  }
   const buildRepo = env.BUILD_REPO?.trim() || "";
   const buildRepoToken = env.BUILD_REPO_TOKEN?.trim() || "";
   if (buildAdapter === "github") {
@@ -97,37 +250,47 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
   const apkBin = env.APK_BIN?.trim() || "apk";
   const baseVersion = env.IMMORTALWRT_BASE_VERSION?.trim() || "25.12.2";
-  const dllkidsFeedUrl =
-    env.DLLKIDS_FEED_URL?.trim() || "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64";
-  const dllkidsIndexSha256 =
-    env.DLLKIDS_INDEX_SHA256?.trim() || "04a549ed7028b126218002b126cbc60eb3a4bdc3463f15425bce3ba6b91a04ba";
-  if (!/^https?:\/\//.test(dllkidsFeedUrl)) {
-    issues.push("DLLKIDS_FEED_URL must be an http:// or https:// URL");
-  }
-  if (!/^[0-9a-f]{64}$/.test(dllkidsIndexSha256)) {
-    issues.push("DLLKIDS_INDEX_SHA256 must be a 64 character lowercase sha256");
-  }
+  const dllkidsFeedUrl = imageFeed.dllkidsFeedUrl;
+  const dllkidsIndexSha256 = imageFeed.dllkidsIndexSha256;
+  // Live supplement channel: version-scoped, but always the current index for
+  // this base version. The feed repo also keeps the V1 flat `/x86_64/` copy.
   const supplementFeedUrl =
-    env.SUPPLEMENT_FEED_URL?.trim() || "https://wuyuzaddd.github.io/combinewrt-packages/x86_64";
-  const supplementKeyUrl =
-    env.SUPPLEMENT_KEY_URL?.trim() ||
-    "https://wuyuzaddd.github.io/combinewrt-packages/keys/combinewrt-feed.pub.pem";
+    env.SUPPLEMENT_FEED_URL?.trim() ||
+    `https://wuyuzaddd.github.io/combinewrt-packages/supplement/${baseVersion}/x86_64`;
+  const supplementKeyUrl = imageFeed.keyUrl;
   if (!/^https?:\/\//.test(supplementFeedUrl)) {
     issues.push("SUPPLEMENT_FEED_URL must be an http:// or https:// URL");
-  }
-  if (!/^https?:\/\//.test(supplementKeyUrl)) {
-    issues.push("SUPPLEMENT_KEY_URL must be an http:// or https:// URL");
   }
   const supplementFeedCommit = env.SUPPLEMENT_FEED_COMMIT?.trim() || null;
   if (supplementFeedCommit && !/^[0-9a-f]{40}$/.test(supplementFeedCommit)) {
     issues.push("SUPPLEMENT_FEED_COMMIT must be a 40 character lowercase git commit or empty");
   }
-  const supplementKeyFingerprint =
-    env.SUPPLEMENT_KEY_FINGERPRINT?.trim() ||
-    "f71286670f3cc138ec4f55e650c6aa4ed2bd7fff7d29851aef2ac53bae72d083";
-  if (!/^[0-9a-f]{64}$/.test(supplementKeyFingerprint)) {
-    issues.push("SUPPLEMENT_KEY_FINGERPRINT must be a 64 character lowercase sha256");
+  const supplementKeyFingerprint = imageFeed.keyFingerprint;
+  const supplementSourceRepo = env.SUPPLEMENT_SOURCE_REPO?.trim() || "kiddin9/op-packages";
+  if (!/^[^/\s]+\/[^/\s]+$/.test(supplementSourceRepo)) {
+    issues.push("SUPPLEMENT_SOURCE_REPO must be owner/repo");
   }
+  const supplementSourceRef = env.SUPPLEMENT_SOURCE_REF?.trim() || "main";
+  if (!/^[A-Za-z0-9._/-]+$/.test(supplementSourceRef)) {
+    issues.push("SUPPLEMENT_SOURCE_REF must be a branch, tag or 40 character commit");
+  }
+  const supplementTarget = env.SUPPLEMENT_TARGET?.trim() || "x86_64";
+  if (!/^[A-Za-z0-9._-]+$/.test(supplementTarget)) {
+    issues.push("SUPPLEMENT_TARGET must be a target id such as x86_64");
+  }
+  const supplementPublishAuditUrl =
+    env.SUPPLEMENT_PUBLISH_AUDIT_URL?.trim() ||
+    "https://wuyuzaddd.github.io/combinewrt-packages/publish.json";
+  const supplementStagingAuditUrl =
+    env.SUPPLEMENT_STAGING_AUDIT_URL?.trim() ||
+    "https://wuyuzaddd.github.io/combinewrt-packages/staging.json";
+  if (!/^https?:\/\//.test(supplementPublishAuditUrl)) {
+    issues.push("SUPPLEMENT_PUBLISH_AUDIT_URL must be an http:// or https:// URL");
+  }
+  if (!/^https?:\/\//.test(supplementStagingAuditUrl)) {
+    issues.push("SUPPLEMENT_STAGING_AUDIT_URL must be an http:// or https:// URL");
+  }
+  const supplementWatchEnabled = (env.SUPPLEMENT_WATCH_ENABLED?.trim() || "true") !== "false";
 
   if (issues.length > 0) {
     throw new ConfigError(issues);
@@ -147,13 +310,26 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     supplementKeyUrl,
     supplementFeedCommit,
     supplementKeyFingerprint,
+    imageFeed,
+    supplementSourceRepo,
+    supplementSourceRef,
+    supplementTarget,
+    supplementPublishAuditUrl,
+    supplementStagingAuditUrl,
+    supplementWatchEnabled,
     buildAdapter: buildAdapter as "github" | "fake",
     buildWorkflow,
+    buildSourceWorkflow,
+    maxConcurrentBuilds,
     supplementWorkflow,
     buildRepo,
     buildRepoToken,
+    buildRef,
     artifactCacheDir,
     artifactRetentionDays,
+    artifactCacheMaxBytes,
+    sourceWatchIntervalHours,
+    sourceCacheDir,
   };
 }
 

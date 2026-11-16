@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Argon 主题预览">
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b2f6b"/><stop offset="1" stop-color="#7c4dff"/>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="200" fill="url(#a)"/>
+  <rect x="16" y="16" width="120" height="12" rx="6" fill="#ffffff" opacity=".85"/>
+  <rect x="16" y="44" width="288" height="140" rx="10" fill="#0f1226" opacity=".78"/>
+  <rect x="32" y="60" width="120" height="10" rx="5" fill="#ffffff" opacity=".5"/>
+  <rect x="32" y="78" width="256" height="6" rx="3" fill="#ffffff" opacity=".22"/>
+  <text x="16" y="196" fill="#cfc8ff" font-family="sans-serif" font-size="11">Argon · 示意图</text>
+</svg>

@@ -1,13 +1,16 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { BuildPlan } from "../build/types";
 import { migrate, openDatabase } from "../db";
+import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError } from "../image/postprocess";
+import { createArtifactCache } from "./artifact-cache";
+import { createArtifactCacheStore } from "./artifact-store";
 import { createFakeAdapter } from "./fake";
 import { createBuildService } from "./service";
 import { createBuildStore } from "./store";
-import type { BuildAdapter, BuildRecord, RunUpdate } from "./types";
+import type { BuildAdapter, RunUpdate } from "./types";
 
 const dirs: string[] = [];
 
@@ -57,7 +60,8 @@ describe("build service", () => {
     const store = createBuildStore(db);
     const service = createBuildService({ store, adapter: createFakeAdapter() });
     const submitted = await service.submit(plan());
-    expect((await service.refresh(submitted.id))?.status).toBe("queued");
+    expect(submitted.status).toBe("running");
+    expect((await service.refresh(submitted.id))?.status).toBe("running");
 
     const cancelled = await service.cancel(submitted.id);
     expect(cancelled?.status).toBe("cancelled");
@@ -65,15 +69,17 @@ describe("build service", () => {
     expect(store.listEvents(submitted.id).at(-1)?.source).toBe("cancel");
   });
 
-  it("records queued, polls to succeeded, and survives a restart", async () => {
+  it("records the dispatched build, polls to succeeded, and survives a restart", async () => {
     const db = database();
     const service = createBuildService({ store: createBuildStore(db), adapter: createFakeAdapter() });
 
     const submitted = await service.submit(plan());
-    expect(submitted.status).toBe("queued");
+    expect(submitted.status).toBe("running");
     expect(submitted.runId).toBe("fake-run-1");
 
-    expect((await service.refresh(submitted.id))?.status).toBe("queued");
+    // GitHub reports its own "queued" run state first; that must never hand a
+    // dispatched build back to the site queue.
+    expect((await service.refresh(submitted.id))?.status).toBe("running");
     expect((await service.refresh(submitted.id))?.status).toBe("running");
     const done = await service.refresh(submitted.id);
     expect(done?.status).toBe("succeeded");
@@ -129,7 +135,7 @@ describe("build service", () => {
     const service = createBuildService({ store: createBuildStore(db), adapter: flaky });
     const submitted = await service.submit(plan());
     const record = await service.refresh(submitted.id);
-    expect(record?.status).toBe("queued");
+    expect(record?.status).toBe("running");
     expect(record?.error).toContain("network down");
   });
 });
@@ -147,31 +153,6 @@ describe("build service resilience", () => {
 
     expect(stale.status).toBe("succeeded");
     expect(stale.artifactName).toBe("kept.zip");
-  });
-
-  it("fails a queued record whose dispatch never recorded a run id", async () => {
-    const db = database();
-    const store = createBuildStore(db);
-    const old = new Date(Date.now() - 10 * 60_000).toISOString();
-    const record: BuildRecord = {
-      id: "b-orphan",
-      plan: plan(),
-      status: "queued",
-      runId: null,
-      adapter: "fake",
-      logTail: "",
-      error: null,
-      artifactName: null,
-      createdAt: old,
-      updatedAt: old,
-    };
-    store.create(record);
-
-    const service = createBuildService({ store, adapter: createFakeAdapter() });
-    const refreshed = await service.refresh("b-orphan");
-
-    expect(refreshed?.status).toBe("failed");
-    expect(refreshed?.error).toContain("matched");
   });
 
   it("marks a build failed after the build timeout", async () => {
@@ -274,4 +255,92 @@ describe("build service resilience", () => {
     expect(result?.artifactName).toBe("new.zip");
   });
 
+});
+
+describe("artifact cache integration", () => {
+  function cacheDb() {
+    const db = database();
+    const dir = mkdtempSync(join(tmpdir(), "cw-artifacts-"));
+    dirs.push(dir);
+    return { db, dir, cache: createArtifactCache({ dir, store: createArtifactCacheStore(db) }) };
+  }
+
+  it("archives a download in the site cache and exposes it as a ranged file", async () => {
+    const { db, dir, cache } = cacheDb();
+    const service = createBuildService({
+      store: createBuildStore(db),
+      adapter: createFakeAdapter(),
+      cacheDir: dir,
+      cache,
+    });
+    const submitted = await service.submit(plan());
+    await service.refresh(submitted.id);
+    await service.refresh(submitted.id);
+    expect((await service.refresh(submitted.id))?.status).toBe("succeeded");
+
+    const file = await service.artifactFile(submitted.id);
+    expect(file?.size).toBe(20);
+    expect(file?.kind).toBe("combined");
+    expect(file?.path.startsWith(dir)).toBe(true);
+    // The second call is served from the index, not by downloading again.
+    expect((await service.artifactFile(submitted.id))?.path).toBe(file?.path);
+
+    const download = await service.artifact(submitted.id);
+    expect(download?.contentType).toBe("application/zip");
+  });
+
+  it("keeps a V1 legacy <id>.zip cache file downloadable", async () => {
+    const { db, dir, cache } = cacheDb();
+    const service = createBuildService({
+      store: createBuildStore(db),
+      adapter: createFakeAdapter(),
+      cacheDir: dir,
+      cache,
+    });
+    const submitted = await service.submit(plan());
+    await service.refresh(submitted.id);
+    await service.refresh(submitted.id);
+    await service.refresh(submitted.id);
+
+    // Simulate the pre-ticket-14 cache layout, written before this build ran.
+    writeFileSync(join(dir, `${submitted.id}.zip`), "legacy-zip");
+
+    const restarted = createBuildService({
+      store: createBuildStore(db),
+      adapter: createFakeAdapter(),
+      cacheDir: dir,
+      cache: createArtifactCache({ dir, store: createArtifactCacheStore(db) }),
+    });
+    const file = await restarted.artifactFile(submitted.id);
+    expect(file?.path).toBe(join(dir, `${submitted.id}.zip`));
+    expect(file?.size).toBe("legacy-zip".length);
+  });
+
+  it("rejects an over-cap artifact before caching it", async () => {
+    const { db, dir, cache } = cacheDb();
+    const oversized: BuildAdapter = {
+      name: "fake",
+      findRun: async () => null,
+      dispatch: async () => ({ runId: "run-big" }),
+      getRun: async () => ({ status: "succeeded", artifactName: "big.img.gz", logTail: "ok" }),
+      downloadArtifact: async () => ({
+        name: "big.img.gz",
+        contentType: "application/gzip",
+        size: ARTIFACT_SIZE_LIMIT_BYTES + 1,
+        body: new Uint8Array([1]),
+      }),
+    };
+    const service = createBuildService({
+      store: createBuildStore(db),
+      adapter: oversized,
+      cacheDir: dir,
+      cache,
+    });
+    const submitted = await service.submit(plan());
+    await service.refresh(submitted.id);
+
+    await expect(service.artifactFile(submitted.id)).rejects.toBeInstanceOf(ArtifactSizeLimitError);
+    expect(cache.stats().entries).toBe(0);
+    expect(existsSync(join(dir, submitted.id))).toBe(false);
+  });
 });

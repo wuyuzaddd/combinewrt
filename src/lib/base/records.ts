@@ -1,7 +1,8 @@
+import type { BaseChannel } from "../domain/types";
 import type { BaseVersion } from "./types";
 import { STABLE_VERSION, imageBuilderUrl } from "./releases";
 
-export type BaseVersionInput = Omit<BaseVersion, "createdAt">;
+export type BaseVersionInput = Omit<BaseVersion, "createdAt" | "channel"> & { channel?: BaseChannel };
 
 export type BaseVersionInputResult =
   | { ok: true; value: BaseVersionInput }

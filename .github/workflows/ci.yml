@@ -23,6 +23,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      - run: npm run capabilities:validate
+      - run: npm run sources:validate
+      - run: npm run kernel-lines:validate
+      - name: Validate workflow YAML
+        run: npx vitest run src/lib/build/workflow-yaml.test.ts
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

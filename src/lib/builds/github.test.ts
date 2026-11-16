@@ -98,6 +98,157 @@ describe("github adapter", () => {
     expect(payload.profileId).toBe("generic");
     expect(payload.composition.topLevelPackages).toEqual(plan.topLevelPackages);
     expect(payload.composition.downloads).toEqual(plan.downloads);
+    // Ticket 09 fields exist only on V2 plans.
+    expect(payload.composition).not.toHaveProperty("feedSet");
+    expect(payload.composition).not.toHaveProperty("preflight");
+  });
+
+  it("ships the resolved modes inside the composition for V2 plans", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(undefined, 204))
+      .mockResolvedValueOnce(
+        response({
+          workflow_runs: [
+            {
+              id: 43,
+              name: "CI",
+              display_title: "combinewrt-b2",
+              status: "queued",
+              conclusion: null,
+              created_at: new Date().toISOString(),
+            },
+          ],
+        }),
+      );
+    const adapter = createGitHubAdapter({
+      repo: "me/build",
+      token: "t",
+      workflow: "build.yml",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+    });
+    const modes = {
+      basePreset: { id: "minimal", layer: "file/board", title: "Minimal", experimental: false },
+      overlays: [],
+      experimental: [],
+      secrets: [],
+      generatedFiles: [],
+      network: { wan: { protocol: "dhcp", device: "default" } },
+    };
+    const v2plan = {
+      ...plan,
+      schemaVersion: 2,
+      baseVersion: "25.12.2",
+      feedCommit: "0".repeat(40),
+      packages: ["luci"],
+      topLevelPackages: ["luci"],
+      sourcePins: {},
+      downloads: [],
+      files: [],
+      imageBuilderCommand: "make -j$(nproc) image PROFILE=generic PACKAGES=\"luci\" FILES=files",
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "64", title: "x86/64" },
+      kernelLine: { id: "linux-6.6", version: "6.6", engine: "imagebuilder" },
+      imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" },
+      basePreset: { id: "minimal", layer: "file/board" },
+      overlays: [],
+      engine: "imagebuilder",
+      modes,
+    } as unknown as BuildPlan;
+
+    await adapter.dispatch(v2plan, { buildId: "b2", artifactName: "image.gz" });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(body.client_payload.composition.modes.basePreset.id).toBe("minimal");
+    expect(Object.keys(body.client_payload)).toHaveLength(10);
+    expect(body.client_payload.composition.v2.imageVariant).toEqual({
+      boot: "efi",
+      filesystem: "ext4",
+      artifact: "combined",
+    });
+  });
+
+  it("ships the feed set and installability preflight inside the composition", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(undefined, 204))
+      .mockResolvedValueOnce(
+        response({
+          workflow_runs: [
+            {
+              id: 44,
+              name: "CI",
+              display_title: "combinewrt-b3",
+              status: "queued",
+              conclusion: null,
+              created_at: new Date().toISOString(),
+            },
+          ],
+        }),
+      );
+    const adapter = createGitHubAdapter({
+      repo: "me/build",
+      token: "t",
+      workflow: "build.yml",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+    });
+    const feedSet = {
+      visibility: "public",
+      baseVersion: "25.12.2",
+      targetId: "x86/64",
+      feedTarget: "x86_64",
+      officialBaseUrl: "https://downloads.immortalwrt.org",
+      officialMirror: null,
+      officialRepositories: ["https://example.test/target/packages.adb"],
+      key: {
+        path: "/etc/apk/keys/combinewrt-feed.pub.pem",
+        url: "https://example.test/key.pem",
+        fingerprint: "a".repeat(64),
+      },
+      repositories: [],
+      files: [],
+    };
+    const preflight = {
+      packages: ["luci", "luci-app-demo"],
+      repositories: ["https://example.test/target/packages.adb"],
+      localRepository: "packages",
+      allowUntrusted: false,
+    };
+    // Ticket 09's fixture predates ticket 05's dispatch builder: every
+    // schemaVersion-2 plan now carries its target/kernel/variant, so the merged
+    // payload contract needs the full V2 shape, not only the added feed fields.
+    const v2plan = {
+      ...plan,
+      schemaVersion: 2,
+      baseVersion: "25.12.2",
+      feedCommit: "0".repeat(40),
+      packages: ["luci", "luci-app-demo"],
+      topLevelPackages: ["luci", "luci-app-demo"],
+      sourcePins: {},
+      downloads: [],
+      files: [],
+      imageBuilderCommand: "make -j$(nproc) image PROFILE=generic PACKAGES=\"luci luci-app-demo\" FILES=files",
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "64", title: "x86/64" },
+      kernelLine: { id: "linux-6.6", version: "6.6", engine: "imagebuilder" },
+      imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" },
+      basePreset: { id: "minimal", layer: "file/board" },
+      overlays: [],
+      engine: "imagebuilder",
+      feedSet,
+      preflight,
+    } as unknown as BuildPlan;
+
+    await adapter.dispatch(v2plan, { buildId: "b3", artifactName: "image.gz" });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(body.client_payload.composition.feedSet.visibility).toBe("public");
+    expect(body.client_payload.composition.feedSet.repositories).toEqual([]);
+    expect(body.client_payload.composition.preflight.packages).toEqual([
+      "luci",
+      "luci-app-demo",
+    ]);
+    expect(body.client_payload.files).toEqual(v2plan.files);
   });
 
   it("parses the manifest marker emitted by the workflow", () => {
@@ -107,6 +258,28 @@ describe("github adapter", () => {
     expect(manifest?.sha256).toHaveLength(64);
     expect(parseManifest("no marker")).toBeNull();
     expect(parseManifest("COMBINEWRT_MANIFEST={\"sha256\":\"bad\",\"size\":1}")).toBeNull();
+  });
+
+  it("parses the V2 manifest with target, variant and both artifact digests", () => {
+    const manifest = {
+      schemaVersion: 2,
+      artifactName: "immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.qcow2",
+      path: "/work/bin/targets/x86/64/immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.qcow2",
+      sha256: "b".repeat(64),
+      size: 4096,
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "64" },
+      kernelLine: { id: "linux-6.6", version: "6.6", engine: "imagebuilder" },
+      variant: { boot: "efi", filesystem: "ext4", artifact: "qcow2", overlaySizeMb: 512 },
+      engine: "imagebuilder",
+      raw: { name: "immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img", sha256: "a".repeat(64), size: 8192 },
+      converted: { name: "immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.qcow2", sha256: "b".repeat(64), size: 4096 },
+    };
+    const parsed = parseManifest(`build log\nCOMBINEWRT_MANIFEST=${JSON.stringify(manifest)}\n`);
+    expect(parsed?.schemaVersion).toBe(2);
+    expect(parsed?.target).toEqual(manifest.target);
+    expect(parsed?.variant).toEqual(manifest.variant);
+    expect(parsed?.raw?.sha256).toBe("a".repeat(64));
+    expect(parsed?.converted?.size).toBe(4096);
   });
 
   it("reads logs and artifacts for a completed run", async () => {
@@ -293,5 +466,28 @@ describe("parseFailure", () => {
 
   it("returns null without a marker", () => {
     expect(parseFailure("plain failure")).toBeNull();
+  });
+
+  it("keeps the V2 target/variant context from the marker", () => {
+    const log = [
+      "step output",
+      'COMBINEWRT_FAILURE={"step":"postprocess","package":null,"source":null,"version":null,"message":"qemu-img convert failed","context":{"target":"x86/64","variant":"efi-ext4-qcow2","engine":"imagebuilder"}}',
+    ].join("\n");
+    expect(parseFailure(log)).toEqual({
+      step: "postprocess",
+      package: null,
+      source: null,
+      version: null,
+      message: "qemu-img convert failed",
+      context: { target: "x86/64", variant: "efi-ext4-qcow2", engine: "imagebuilder" },
+    });
+  });
+
+  it("drops an unknown failure context but keeps the failure", () => {
+    const log =
+      'COMBINEWRT_FAILURE={"step":"build-image","message":"make failed","context":{"target":"x86/64","engine":"watchtower"}}';
+    const failure = parseFailure(log);
+    expect(failure?.step).toBe("build-image");
+    expect(failure?.context).toEqual({ target: "x86/64" });
   });
 });

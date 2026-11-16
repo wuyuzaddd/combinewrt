@@ -1,8 +1,12 @@
 import { unzipSync } from "fflate";
 import type { BuildPlan } from "../build/types";
 import { PACKAGE_SOURCES } from "../catalog/types";
-import { BUILD_STEPS } from "./types";
-import type { ArtifactDownload, BuildAdapter, BuildFailure, RunUpdate } from "./types";
+import type { BuildEngine } from "../domain/types";
+import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError } from "../image/postprocess";
+import { buildDispatchRequest } from "./dispatch";
+import { BUILD_STEPS, buildEngineOf } from "./types";
+import type { BuildFailure, BuildFailureContext } from "./types";
+import type { ArtifactDownload, BuildAdapter, RunUpdate } from "./types";
 
 const API = "https://api.github.com";
 
@@ -10,6 +14,8 @@ export interface GitHubAdapterOptions {
   repo: string;
   token: string;
   workflow: string;
+  /** Workflow file that runs source builds (ticket 13); defaults to source-build.yml. */
+  sourceWorkflow?: string;
   ref?: string;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -56,6 +62,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     repo,
     token,
     workflow,
+    sourceWorkflow = "source-build.yml",
     fetchImpl = fetch,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = options;
@@ -86,10 +93,12 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
   return {
     name: "github",
 
-    async findRun(buildId: string): Promise<string | null> {
+    async findRun(buildId: string, engine?: BuildEngine): Promise<string | null> {
+      // Source builds live in their own workflow file (ticket 06/13).
+      const workflowFile = engine === "source" ? sourceWorkflow : workflow;
       for (let attempt = 0; attempt < 15; attempt += 1) {
         const runs = await json<{ workflow_runs: WorkflowRun[] }>(
-          `/repos/${repo}/actions/workflows/${workflow}/runs?event=repository_dispatch&per_page=20`,
+          `/repos/${repo}/actions/workflows/${workflowFile}/runs?event=repository_dispatch&per_page=20`,
         );
         const match = runs.workflow_runs.find((run) => {
           const title = run.display_title ?? run.name ?? "";
@@ -102,31 +111,19 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     },
 
     async dispatch(plan: BuildPlan, meta: { buildId: string; artifactName: string }) {
-      const payload = {
-        buildId: meta.buildId,
-        baseVersion: plan.baseVersion,
-        feedCommit: plan.feedCommit,
-        profileId: plan.profileId,
-        imageType: plan.imageType,
-        packages: plan.packages,
-        composition: {
-          topLevelPackages: plan.topLevelPackages,
-          sourcePins: plan.sourcePins,
-          downloads: plan.downloads,
-        },
-        files: plan.files,
-        artifactName: meta.artifactName,
-        imageBuilderCommand: plan.imageBuilderCommand,
-      };
+      // Ticket 13: the engine chooses the event and the payload. A source plan
+      // sends the ticket 06 recipe to `combinewrt-source-build`; nothing else
+      // does, so a source build can never silently run as an ImageBuilder job.
+      const request = buildDispatchRequest(plan, meta);
       await json(`/repos/${repo}/dispatches`, {
         method: "POST",
         body: JSON.stringify({
-          event_type: "combinewrt-build",
-          client_payload: payload,
+          event_type: request.eventType,
+          client_payload: request.payload,
         }),
       });
 
-      return { runId: await this.findRun(meta.buildId) };
+      return { runId: await this.findRun(meta.buildId, buildEngineOf(plan)) };
     },
 
     async getRun(runId: string, expectedArtifactName?: string): Promise<RunUpdate> {
@@ -198,11 +195,15 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
       const response = await fetchImpl(artifact.archive_download_url, withTimeout({ headers }, 600_000));
       if (!response.ok) throw new Error(`artifact download failed: ${response.status}`);
       const size = Number(response.headers.get("content-length") ?? "0");
-      if (size > 512 * 1024 * 1024) throw new Error("artifact is larger than the 512 MB proxy limit");
+      // Ticket 14: every artifact kind shares the 2 GiB per-artifact cap. The
+      // cache enforces it again on the streamed byte count.
+      if (size > ARTIFACT_SIZE_LIMIT_BYTES) {
+        throw new ArtifactSizeLimitError(size, ARTIFACT_SIZE_LIMIT_BYTES);
+      }
       return {
         name: `${artifact.name}.zip`,
         contentType: "application/zip",
-        size: Number(response.headers.get("content-length") ?? "0") || undefined,
+        size: size || undefined,
         body: response.body ?? new Uint8Array(await response.arrayBuffer()),
       };
     },
@@ -307,10 +308,44 @@ export async function findWorkflowRunByTitle(options: FindWorkflowRunOptions): P
   return null;
 }
 
+export interface ManifestArtifactRef {
+  name: string | null;
+  sha256: string;
+  size: number;
+}
+
+/**
+ * The manifest the workflow prints as `COMBINEWRT_MANIFEST=`.
+ *
+ * V1 builds emit `{artifactName, path, sha256, size}`; V2 builds add the plan
+ * context and, for VMDK/qcow2, the raw image the converted artifact came from.
+ * Only `sha256`/`size` are required so both shapes parse with one code path.
+ */
 export interface BuildManifest {
   artifactName?: string;
   sha256: string;
   size: number;
+  schemaVersion: 1 | 2;
+  target?: { id: string; architecture: string; subtarget: string };
+  kernelLine?: { id: string; version: string; engine: string };
+  variant?: { boot: string; filesystem: string; artifact: string; overlaySizeMb?: number };
+  engine?: string;
+  /** Raw combined `.img` that the VMDK/qcow2 postprocess step converted. */
+  raw?: ManifestArtifactRef;
+  /** Converted artifact; repeats the top-level sha256/size. */
+  converted?: ManifestArtifactRef;
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function parseArtifactRef(value: unknown): ManifestArtifactRef | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const ref = value as Record<string, unknown>;
+  if (typeof ref.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(ref.sha256)) return null;
+  if (typeof ref.size !== "number" || !Number.isFinite(ref.size) || ref.size <= 0) return null;
+  return { name: nonEmptyString(ref.name), sha256: ref.sha256, size: ref.size };
 }
 
 export function parseManifest(log: string): BuildManifest | null {
@@ -318,17 +353,67 @@ export function parseManifest(log: string): BuildManifest | null {
   const last = matches.at(-1)?.[1];
   if (!last) return null;
   try {
-    const parsed = JSON.parse(last) as { artifactName?: unknown; sha256?: unknown; size?: unknown };
+    const parsed = JSON.parse(last) as Record<string, unknown>;
     if (typeof parsed.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(parsed.sha256)) return null;
     if (typeof parsed.size !== "number" || !Number.isFinite(parsed.size) || parsed.size <= 0) return null;
-    return {
-      artifactName: typeof parsed.artifactName === "string" ? parsed.artifactName : undefined,
+    const manifest: BuildManifest = {
       sha256: parsed.sha256,
       size: parsed.size,
+      schemaVersion: parsed.schemaVersion === 2 ? 2 : 1,
     };
+    if (typeof parsed.artifactName === "string") manifest.artifactName = parsed.artifactName;
+    if (parsed.target && typeof parsed.target === "object") {
+      const target = parsed.target as Record<string, unknown>;
+      const id = nonEmptyString(target.id);
+      const architecture = nonEmptyString(target.architecture);
+      const subtarget = nonEmptyString(target.subtarget);
+      if (id && architecture && subtarget) manifest.target = { id, architecture, subtarget };
+    }
+    if (parsed.kernelLine && typeof parsed.kernelLine === "object") {
+      const kernelLine = parsed.kernelLine as Record<string, unknown>;
+      const id = nonEmptyString(kernelLine.id);
+      const version = nonEmptyString(kernelLine.version);
+      const engine = nonEmptyString(kernelLine.engine);
+      if (id && version && engine) manifest.kernelLine = { id, version, engine };
+    }
+    if (parsed.variant && typeof parsed.variant === "object") {
+      const variant = parsed.variant as Record<string, unknown>;
+      const boot = nonEmptyString(variant.boot);
+      const filesystem = nonEmptyString(variant.filesystem);
+      const artifact = nonEmptyString(variant.artifact);
+      if (boot && filesystem && artifact) {
+        manifest.variant = {
+          boot,
+          filesystem,
+          artifact,
+          ...(typeof variant.overlaySizeMb === "number" && Number.isFinite(variant.overlaySizeMb)
+            ? { overlaySizeMb: variant.overlaySizeMb }
+            : {}),
+        };
+      }
+    }
+    const engine = nonEmptyString(parsed.engine);
+    if (engine) manifest.engine = engine;
+    const raw = parseArtifactRef(parsed.raw);
+    if (raw) manifest.raw = raw;
+    const converted = parseArtifactRef(parsed.converted);
+    if (converted) manifest.converted = converted;
+    return manifest;
   } catch {
     return null;
   }
+}
+
+function parseFailureContext(value: unknown): BuildFailureContext | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const context: BuildFailureContext = {};
+  const target = nonEmptyString(raw.target);
+  if (target) context.target = target;
+  const variant = nonEmptyString(raw.variant);
+  if (variant) context.variant = variant;
+  if (raw.engine === "imagebuilder" || raw.engine === "source") context.engine = raw.engine as BuildEngine;
+  return Object.keys(context).length > 0 ? context : null;
 }
 
 export function parseFailure(log: string): BuildFailure | null {
@@ -340,13 +425,16 @@ export function parseFailure(log: string): BuildFailure | null {
       const source = typeof parsed.source === "string" && (PACKAGE_SOURCES as readonly string[]).includes(parsed.source)
         ? (parsed.source as (typeof PACKAGE_SOURCES)[number])
         : null;
-      return {
+      const failure: BuildFailure = {
         step: parsed.step as (typeof BUILD_STEPS)[number],
         package: typeof parsed.package === "string" && parsed.package ? parsed.package : null,
         source,
         version: typeof parsed.version === "string" && parsed.version ? parsed.version : null,
         message: typeof parsed.message === "string" && parsed.message ? parsed.message : "workflow failed",
       };
+      const context = parseFailureContext(parsed.context);
+      if (context) failure.context = context;
+      return failure;
     } catch {
       // Ignore malformed markers; a later marker may still be valid.
     }

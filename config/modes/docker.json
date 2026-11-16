@@ -1,0 +1,50 @@
+{
+  "id": "docker",
+  "layer": "kernel/config",
+  "title": "Docker",
+  "experimental": false,
+  "description": "Docker needs a source build and an ext4 combined image with a writable overlay; squashfs is rejected.",
+  "requires": [
+    "engine:source",
+    "filesystem:ext4",
+    "artifact:combined",
+    "capability:overlay"
+  ],
+  "conflicts": [
+    "package:podman"
+  ],
+  "packages": [
+    "docker",
+    "dockerd",
+    "containerd",
+    "runc",
+    "tini",
+    "ca-bundle",
+    "kmod-veth",
+    "kmod-br-netfilter",
+    "kmod-ipt-nat",
+    "iptables-nft"
+  ],
+  "kernelConfig": [
+    "CONFIG_OVERLAY_FS=y",
+    "CONFIG_CGROUPS=y",
+    "CONFIG_NAMESPACES=y",
+    "CONFIG_NET_NS=y",
+    "CONFIG_PID_NS=y",
+    "CONFIG_UTS_NS=y",
+    "CONFIG_IPC_NS=y",
+    "CONFIG_USER_NS=y",
+    "CONFIG_BRIDGE=y",
+    "CONFIG_VETH=y",
+    "CONFIG_BRIDGE_NETFILTER=y",
+    "CONFIG_NF_NAT=y",
+    "CONFIG_MEMCG=y",
+    "CONFIG_BLK_CGROUP=y",
+    "CONFIG_CGROUP_PIDS=y",
+    "CONFIG_CGROUP_CPUACCT=y"
+  ],
+  "generatedFiles": [],
+  "docker": {
+    "dataRoot": "/var/lib/docker"
+  }
+}
