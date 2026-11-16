@@ -1,6 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { BuildConfig } from "../build/types";
 import { parseBuildPlanJson } from "../domain/build-plan";
+import { redactPlanForStorage } from "./redact";
+
 import type { BuildEvent, BuildEventSource, BuildFailure, BuildRecord, BuildStatus } from "./types";
 
 interface BuildRow {
@@ -132,7 +134,7 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           build.id,
-          JSON.stringify(build.plan),
+          JSON.stringify(redactPlanForStorage(build.plan)),
           build.config ? JSON.stringify(build.config) : null,
           build.status,
           build.runId,

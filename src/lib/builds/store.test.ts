@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { openDatabase, migrate } from "../db";
 import { isBuildPlanV2, readBuildPlan } from "../domain/build-plan";
 import type { BuildPlanV1, BuildPlanV2 } from "../domain/build-plan";
+import { isRedactedPlan } from "./redact";
 import { createBuildStore } from "./store";
 import type { BuildRecord } from "./types";
 
@@ -197,5 +198,41 @@ describe("build store", () => {
     expect(saved?.dispatchedAt).toBeNull();
     expect(saved?.status).toBe("queued");
     db.close();
+  });
+});
+
+describe("plan redaction at rest", () => {
+  it("never persists generated file contents or typed network secrets", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    const secret = "hunter2-pppoe";
+    const rootHash = "$5$rounds=1000$abcdefgh$0123456789abcdef";
+    const build = record("secret", "2026-11-11T00:00:00Z");
+    build.plan = {
+      ...build.plan,
+      files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: `root_password='${rootHash}'`, mode: 0o755 }],
+      modes: {
+        basePreset: { id: "router-default", layer: "file/board" },
+        overlays: [],
+        experimental: [],
+        network: { wan: { protocol: "pppoe", username: "user@isp", password: secret }, wifi: { ssid: "net", key: "wifi-psk", country: "CN", channel: 36, band: "5g" } },
+        secrets: [],
+        generatedFiles: [],
+      },
+    } as never;
+
+    store.create(build);
+
+    const raw = db.prepare("SELECT plan_json FROM builds WHERE id = 'secret'").get() as { plan_json: string };
+    // The row is copied into database dumps: no secret may live there.
+    expect(raw.plan_json).not.toContain(secret);
+    expect(raw.plan_json).not.toContain("wifi-psk");
+    expect(raw.plan_json).not.toContain(rootHash);
+    expect(raw.plan_json).not.toContain("127.0.0.1");
+
+    const saved = store.get("secret");
+    expect(saved?.plan.files.map((file) => file.path)).toEqual(["files/etc/uci-defaults/99-combinewrt"]);
+    expect(isRedactedPlan(saved!.plan)).toBe(true);
   });
 });

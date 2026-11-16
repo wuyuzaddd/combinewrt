@@ -82,9 +82,7 @@ jobs:
             echo "POSTPROCESS_KIND=" >> "$GITHUB_ENV"
             echo "COMBINEWRT_IMAGEBUILDER_COMMAND=$(jq -r .imageBuilderCommand plan.json)"
           fi
-          # Generated file contents may carry the root password hash; never put
-          # them in a public log.
-          jq -c '.files = ((.files // []) | map(.content = "<redacted; \(.content | length) bytes>"))' plan.json
+          echo "plan.json prepared for $SCHEMA schema build"
 
       - name: Install tools
         run: |
@@ -246,6 +244,24 @@ jobs:
           fi
           find files -type f 2>/dev/null | sort || true
           echo 'uci-defaults written (contents not printed: they contain the root password hash)'
+
+      - name: Redact plan file
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          # The build steps above already consumed the generated files. Their
+          # contents carry the root password hash, the PPPoE password and the
+          # WiFi key, so rewrite plan.json in place (temp + mv) now: nothing
+          # after this step can print them from a debugging shell or a workspace
+          # upload. The site stores the same redacted shape in builds.plan_json.
+          tmp=plan.json.redacted
+          if ! jq -c '.files = ((.files // []) | map(.content = ("<redacted; " + ((.content | length) | tostring) + " bytes>")))' plan.json > "$tmp"; then
+            rm -f "$tmp"
+            fail redact-plan "" "" "" "failed to redact plan.json"
+          fi
+          mv "$tmp" plan.json
+          chmod 600 plan.json
+          echo "plan.json rewritten with generated file contents redacted"
 
       - name: Install feed key and preflight packages
         run: |

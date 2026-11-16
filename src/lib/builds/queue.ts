@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { BuildPlan } from "../build/types";
 import type { BuildStore } from "./store";
+import { isRedactedPlan } from "./redact";
 import type { BuildAdapter, BuildRecord } from "./types";
 import { buildEngineOf, buildTargetOf } from "./types";
 
@@ -40,6 +41,10 @@ export function createBuildQueue(options: BuildQueueOptions): BuildQueue {
   // check stays consistent inside one process, and the store transaction covers
   // the same guarantee across processes.
   let tail: Promise<void> = Promise.resolve();
+  // `builds.plan_json` is redacted at rest (secrets only live at dispatch time);
+  // the in-flight copy keeps the full plan for the dispatch that follows
+  // `enqueue()` in the same process.
+  const pendingPlans = new Map<string, BuildPlan>();
 
   function enqueue(plan: BuildPlan): BuildRecord {
     const id = randomUUID();
@@ -62,20 +67,48 @@ export function createBuildQueue(options: BuildQueueOptions): BuildQueue {
       createdAt: timestamp,
       updatedAt: timestamp,
     });
+    pendingPlans.set(id, plan);
     const created = store.get(id);
     if (!created) throw new Error(`build ${id} disappeared after insert`);
     return created;
   }
 
   async function dispatchOne(record: BuildRecord): Promise<void> {
+    // A plan restored from the database lost its generated file contents and
+    // network secrets; dispatching it would produce an image without the files
+    // overlay. Fail it loudly instead.
+    const plan = pendingPlans.get(record.id) ?? record.plan;
+    if (!pendingPlans.has(record.id) && isRedactedPlan(plan)) {
+      const latest = store.get(record.id);
+      if (!latest || latest.status !== "running") return;
+      store.update(
+        record.id,
+        {
+          status: "failed",
+          error:
+            "构建计划的生成文件与网络密钥只在派发时保存在内存中，进程重启后无法重建；请重新提交该构建",
+          failure: {
+            step: "dispatch",
+            package: null,
+            source: null,
+            version: null,
+            message: "plan secrets are not persisted; resubmit the build",
+          },
+        },
+        latest.updatedAt,
+        "dispatch",
+      );
+      return;
+    }
     let runId: string | null = null;
     try {
-      const result = await adapter.dispatch(record.plan, {
+      const result = await adapter.dispatch(plan, {
         buildId: record.id,
-        artifactName: record.plan.artifactName,
+        artifactName: plan.artifactName,
       });
       runId = result.runId;
     } catch (error) {
+      pendingPlans.delete(record.id);
       const message = error instanceof Error ? error.message : String(error);
       const latest = store.get(record.id);
       // A cancel during the dispatch call wins: it is already terminal.
@@ -93,6 +126,7 @@ export function createBuildQueue(options: BuildQueueOptions): BuildQueue {
       return;
     }
 
+    pendingPlans.delete(record.id);
     if (!runId) {
       // The dispatch call succeeded but GitHub has not exposed the run yet; the
       // reconciler resolves it through findRun and fails the build if the run
