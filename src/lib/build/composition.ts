@@ -126,6 +126,12 @@ export function findSourceConflicts(
           message: `包 ${entry.name} 的 dllkids pin 与快照不一致：${entry.sourcePin} != ${pins.dllkids}`,
         });
       }
+    } else if (entry.packageSource === "extension") {
+      // Extension packages are feed-resident and pinned by the registry ref;
+      // plan-v2 validates the ref against the registry entry (ticket 12).
+      if (!entry.sourcePin) {
+        conflicts.push({ names: [entry.name], message: `扩展包 ${entry.name} 缺少固定的上游 ref` });
+      }
     } else {
       const supplement = pins.supplement;
       if (!supplement || (!supplement.commit && !supplement.fingerprint)) {
@@ -189,7 +195,16 @@ export function buildDownloadManifest(
 ): DownloadEntry[] {
   const downloads = new Map<string, DownloadEntry>();
   for (const entry of entries) {
-    if (!entry.packageSource || entry.packageSource === "official" || !entry.version) continue;
+    if (
+      !entry.packageSource ||
+      entry.packageSource === "official" ||
+      // Extension packages arrive through the signed extension feed at build
+      // time; there is no per-package download to verify (ticket 12).
+      entry.packageSource === "extension" ||
+      !entry.version
+    ) {
+      continue;
+    }
     const candidates = context.lookupAll?.(entry.name) ?? [];
     const hit = candidates.find((candidate) => candidate.source === entry.packageSource);
     if (!hit?.sha256 || !hit.filename || !hit.downloadUrl) {

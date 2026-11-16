@@ -117,6 +117,7 @@ describe("createSourceOffer", () => {
     expect(offer.patches).toEqual([]);
     expect(offer.visibility).toBe("public");
     expect(offer.publicDistribution).toBe(true);
+    expect(offer.feedSet).toBeNull();
     expect(offer.notes.join("\n")).toContain("Distribution conclusion: this image is marked public");
   });
 
@@ -175,6 +176,64 @@ describe("createSourceOffer", () => {
     expect(offer.sourcePins.dllkids).toBe(PIN);
     expect(JSON.parse(sourceOfferJson(offer)).sourcePins.dllkids).toBe(PIN);
     expect(offer.notes.join("\n")).not.toContain("source pins were not captured");
+  });
+
+  it("records the feed set with pins and no private key material", () => {
+    const feedSet = {
+      visibility: "private" as const,
+      baseVersion: "25.12.2",
+      targetId: "x86/64",
+      feedTarget: "x86_64",
+      officialBaseUrl: "https://downloads.immortalwrt.org",
+      officialMirror: null,
+      officialRepositories: [
+        "https://downloads.immortalwrt.org/releases/25.12.2/targets/x86/64/packages/packages.adb",
+      ],
+      key: {
+        path: "/etc/apk/keys/combinewrt-feed.pub.pem",
+        url: "https://wuyuzaddd.github.io/combinewrt-packages/keys/combinewrt-feed.pub.pem",
+        fingerprint: PIN,
+      },
+      repositories: [
+        {
+          id: "supplement" as const,
+          url: "https://wuyuzaddd.github.io/combinewrt-packages/supplement/25.12.2/x86_64/packages.adb",
+          signed: true,
+          inDefaultRepositoryList: true,
+          condition: "signed supplement feed (always enabled)",
+          indexSha256: "supplement-index-sha",
+          keyFingerprint: PIN,
+        },
+        {
+          id: "dllkids" as const,
+          url: "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64/packages.adb",
+          signed: false,
+          inDefaultRepositoryList: false,
+          condition: "private image only",
+          indexSha256: "dllkids-index-sha",
+          keyFingerprint: null,
+        },
+      ],
+      files: [{ path: "/etc/apk/repositories.d/90-combinewrt.list", content: "-----BEGIN PRIVATE KEY-----", mode: 0o600 }],
+    };
+    const v2plan = { ...plan, schemaVersion: 2 as const, feedSet } as unknown as BuildPlan;
+
+    const offer = createSourceOffer({ ...build, plan: v2plan });
+    expect(offer.feedSet?.visibility).toBe("private");
+    expect(offer.feedSet?.repositories.map((repository) => repository.id)).toEqual([
+      "supplement",
+      "dllkids",
+    ]);
+    expect(offer.feedSet?.repositories[0]?.indexSha256).toBe("supplement-index-sha");
+    expect(offer.feedSet?.repositories[0]?.keyFingerprint).toBe(PIN);
+    expect(offer.feedSet?.repositories[1]?.keyFingerprint).toBeNull();
+    expect(offer.feedSet?.key.fingerprint).toBe(PIN);
+    expect(offer.feedSet).not.toHaveProperty("files");
+
+    const json = sourceOfferJson(offer);
+    expect(json).not.toContain("PRIVATE KEY");
+    expect(json).not.toContain("BEGIN");
+    expect(json).toContain("Image feed set");
   });
 });
 

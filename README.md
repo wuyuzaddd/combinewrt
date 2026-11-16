@@ -47,6 +47,12 @@ npm run dev
 | `SUPPLEMENT_KEY_URL` | 否 | 补充包签名公钥地址 |
 | `SUPPLEMENT_KEY_FINGERPRINT` | 否 | 补充包公钥的 sha256；索引签名与 pin 对不上时刷新失败 |
 | `SUPPLEMENT_FEED_COMMIT` | 否 | 补充包源提交；留空时只固定公钥和索引 sha256 |
+| `SUPPLEMENT_SOURCE_REPO` | 否 | 上游包源仓库，默认 `kiddin9/op-packages`；watch 只认这个仓库的提交 |
+| `SUPPLEMENT_SOURCE_REF` | 否 | 上游包源分支，默认 `main` |
+| `SUPPLEMENT_TARGET` | 否 | 补充包目标架构，默认 `x86_64`；决定冻结路径与构建矩阵 |
+| `SUPPLEMENT_PUBLISH_AUDIT_URL` | 否 | feed 仓库写出的 live 发布审计记录，默认 `…/publish.json` |
+| `SUPPLEMENT_STAGING_AUDIT_URL` | 否 | feed 仓库写出的 staging 审计记录，默认 `…/staging.json` |
+| `SUPPLEMENT_WATCH_ENABLED` | 否 | 设为 `false` 关闭补充包 source watch，默认开启 |
 | `BUILD_ADAPTER` | 否 | `fake`（默认，本地 stub）或 `github`（派发到真实 Actions） |
 | `BUILD_REPO` | 条件 | `owner/repo`；`BUILD_ADAPTER=github` 时必填 |
 | `BUILD_REPO_TOKEN` | 条件 | 仅授权该仓库 `Actions: write` 的 PAT；`github` 适配器必填 |

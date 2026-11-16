@@ -6,10 +6,26 @@ import { resolveImageVariant } from "../image/variants";
 import { EMPTY_SOURCE_REGISTRY } from "../sources/registry";
 import { decideStrategy } from "../sources/strategy";
 import type { SourceRegistry } from "../sources/types";
+import { commonPackageSelectionConflicts, type CommonPreset } from "../presets/common";
+import { expandBundleTokens } from "../extension/bundles";
+import type { ExtensionBundle } from "../extension/types";
 import { artifactNameV2, imageTypeForVariant } from "./artifact-name";
+import {
+  buildImageFeedSet,
+  createImagePreflight,
+  type ResolvedImageFeedOptions,
+} from "./feeds";
 import { resolveModes } from "./modes";
 import { createBuildPlan } from "./plan";
-import type { BuildConflict, BuildFormInputV2, PackageLookup, PackageLookupAll } from "./types";
+import { parsePackageRef } from "./refs";
+import { applyPackageRemovals, findRemovalDependencyConflicts } from "./removal";
+import type {
+  BuildConflict,
+  BuildFormInputV2,
+  PackageLookup,
+  PackageLookupAll,
+  RequestedPackage,
+} from "./types";
 
 /**
  * V2 planner context. The capability registry and the source registry are
@@ -30,6 +46,12 @@ export interface PlanV2Context {
   sources?: SourceRegistry;
   lookup: PackageLookup;
   lookupAll?: PackageLookupAll;
+  /** Curated common package registry (ticket 08); enables applicability checks. */
+  commonPreset?: CommonPreset;
+  /** Curated one-click bundles (ticket 12); `bundle:<id>` requests expand to plain packages. */
+  bundles?: readonly ExtensionBundle[];
+  /** Project feed configuration (ticket 09); defaults to the checked-in values. */
+  feedOptions?: Partial<ResolvedImageFeedOptions>;
   hashPassword: (password: string) => Promise<string>;
   now?: Date;
 }
@@ -90,6 +112,16 @@ export async function createBuildPlanV2(
     throw error;
   }
 
+  const sources = context.sources ?? EMPTY_SOURCE_REGISTRY;
+
+  // `bundle:<id>` requests are the one-click path: they expand into the same
+  // plain package list the rest of the composer already understands, so the
+  // licence gate, kmod ABI checks and feed preflight apply unchanged.
+  const bundleExpansion = (context.bundles ?? []).length
+    ? expandBundleTokens(form.packages, { bundles: context.bundles ?? [], registry: sources, targetId: target.id })
+    : { packages: [...form.packages], bundles: [], conflicts: [] };
+  const expandedForm: BuildFormInputV2 = { ...form, packages: bundleExpansion.packages };
+
   const variantSupport = supportsVariant({ targetId: target.id, id: profile.id }, kernel.id, form.imageVariant, registry);
   if (!variantSupport.supported) return reject(variantSupport.reason.message);
 
@@ -97,11 +129,9 @@ export async function createBuildPlanV2(
   for (const mode of overlays) {
     const modeSupport = supportsMode({ targetId: target.id, id: profile.id }, mode.id, registry);
     if (!modeSupport.supported) return reject(modeSupport.reason.message);
-    if (modeSupport.mode.requiresEngine && modeSupport.mode.requiresEngine !== kernel.engine) {
-      return reject(
-        `Mode "${mode.id}" requires the ${modeSupport.mode.requiresEngine} engine, but kernel line "${kernel.id}" uses the ${kernel.engine} engine.`,
-      );
-    }
+    // Engine/filesystem/artifact requirements are declarative tokens: an
+    // unsatisfied one is a 409-grade conflict naming the requirement (ticket
+    // 08), not a 400 from the capability registry.
   }
 
   const imageVariant = resolveImageVariant(form.imageVariant, profile.overlay.defaultMb);
@@ -122,12 +152,33 @@ export async function createBuildPlanV2(
     imageVariant,
     engine: kernel.engine,
     capabilities: profile.capabilities,
+    // Normalise source prefixes / pins so a `conflicts: ["package:podman"]`
+    // token matches `official/podman` too (ticket 08).
+    packages: expandedForm.packages.map((raw) => parsePackageRef(raw)?.name ?? raw),
     lanIp: form.lanIp,
     netmask: form.netmask,
   });
   if (modeResolution.issues.length > 0) {
     return { ok: false, status: 400, issues: modeResolution.issues };
   }
+
+  // Negative package list + mode package sets (ticket 08). The V1 composer
+  // receives the already-filtered positive list with `removePackages` cleared,
+  // so removal semantics live in exactly one place per planner.
+  const parsedRequested = expandedForm.packages
+    .map(parsePackageRef)
+    .filter((item): item is RequestedPackage => item !== null);
+  const removal = applyPackageRemovals({
+    requested: parsedRequested,
+    removals: form.removePackages ?? [],
+    modePackages: modeResolution.packageOwners,
+  });
+  const removedNames = new Set(removal.removed);
+  const selectedPackages = expandedForm.packages.filter((raw) => {
+    const reference = parsePackageRef(raw);
+    return !reference || !removedNames.has(reference.name);
+  });
+  const effectivePackages = [...new Set([...selectedPackages, ...modeResolution.packages])];
 
   const catalogProfile = context.catalogProfiles.find((item) => item.id === profile.id);
   const profileForPlan: CatalogProfile = catalogProfile
@@ -141,7 +192,7 @@ export async function createBuildPlanV2(
 
   // The V1 composer stays the single implementation of package resolution,
   // compliance, downloads and UCI output (ticket 03 keeps V1 intact).
-  const basePlan = (await createBuildPlan({ ...form, imageType }, {
+  const basePlan = (await createBuildPlan({ ...expandedForm, imageType, packages: effectivePackages, removePackages: [] }, {
     baseVersion: context.baseVersion,
     feedCommit: context.feedCommit,
     sourceNote: context.sourceNote,
@@ -153,7 +204,6 @@ export async function createBuildPlanV2(
     now: context.now,
   })) as BuildPlanV1;
 
-  const sources = context.sources ?? EMPTY_SOURCE_REGISTRY;
   const request = {
     target: target.id,
     kernelLine: kernel.id,
@@ -185,8 +235,125 @@ export async function createBuildPlanV2(
     return { ...entry, ...decision };
   });
 
-  const conflicts = [...basePlan.conflicts, ...strategyConflicts, ...modeResolution.conflicts];
+  // Extension entries are pinned to a 40-hex upstream ref in the registry; a
+  // plan may not silently build from a different commit (ticket 12).
+  const extensionPinConflicts: BuildConflict[] = [];
+  for (const entry of resolved) {
+    if (entry.packageSource !== "extension") continue;
+    const record = sources.lookup(entry.name, { source: "extension" });
+    if (!record) {
+      extensionPinConflicts.push({
+        names: [entry.name],
+        message: `Extension package "${entry.name}" is not in the source registry, so it cannot be acquired.`,
+      });
+      continue;
+    }
+    const ref = record.ref ?? record.pin ?? null;
+    if (!ref || entry.sourcePin !== ref) {
+      extensionPinConflicts.push({
+        names: [entry.name],
+        message: `Extension package "${entry.name}" is pinned to ${entry.sourcePin ?? "no ref"}, but the registry pins ${ref ?? "no ref"}.`,
+      });
+    }
+  }
+
+  // Public/private rule (ticket 12, spec "Public vs private images"): a package
+  // whose registry entry is not publicAllowed may only appear in a private
+  // plan. The conflict names the package and its source, which turns into the
+  // 409 the plan route returns.
+  const visibility = basePlan.visibility ?? "private";
+  const publicAllowedConflicts: BuildConflict[] = [];
+  if (visibility === "public") {
+    for (const entry of resolved) {
+      if (!entry.packageSource) continue;
+      const record =
+        sources.lookup(entry.name, { source: entry.packageSource }) ??
+        sources.lookup(entry.name);
+      if (!record) {
+        if (entry.packageSource !== "official") {
+          publicAllowedConflicts.push({
+            names: [entry.name],
+            message: `Package "${entry.name}" (${entry.packageSource}) is not in the source registry, so a public image cannot include it.`,
+          });
+        }
+        continue;
+      }
+      if (record.publicAllowed !== true) {
+        const origin = record.repo ?? record.pin ?? "unregistered upstream";
+        publicAllowedConflicts.push({
+          names: [entry.name],
+          message: `Package "${entry.name}" (${entry.packageSource}) is not publicAllowed (source: ${origin}); public images need private visibility.`,
+        });
+      }
+    }
+  }
+
+  // A mode package that is a kmod must resolve to official and match the ABI
+  // the source registry recorded for this kernel line (ticket 08).
+  const modePackageNames = new Set(modeResolution.packages);
+  const modePackageConflicts: BuildConflict[] = [];
+  for (const entry of resolved) {
+    if (!modePackageNames.has(entry.name) || !entry.name.startsWith("kmod-")) continue;
+    if (entry.packageSource !== "official") {
+      modePackageConflicts.push({
+        names: [entry.name],
+        message: `Mode package "${entry.name}" is a kmod and must come from the official source, but it resolved from ${entry.packageSource ?? "unknown"}.`,
+      });
+      continue;
+    }
+    const record = sources.lookup(entry.name, { ...request, source: entry.packageSource });
+    const abi = record?.abi ?? null;
+    if (abi && request.abi && abi !== request.abi) {
+      modePackageConflicts.push({
+        names: [entry.name],
+        message: `Mode package "${entry.name}" is built against kernel ABI ${abi}, but this build pins ${request.abi}.`,
+      });
+    }
+  }
+
+  const removalConflicts = findRemovalDependencyConflicts({
+    removals: removal.removed,
+    requests: parsedRequested.filter((item) => !removedNames.has(item.name)),
+    entries: resolved,
+    lookup: context.lookup,
+  });
+
+  const curatedConflicts: BuildConflict[] = context.commonPreset
+    ? commonPackageSelectionConflicts(context.commonPreset, {
+        targetId: target.id,
+        kernelLine: kernel.id,
+        packages: parsedRequested.filter((item) => !removedNames.has(item.name)).map((item) => item.name),
+        resolvedSources: new Map(
+          resolved.map((entry) => [entry.name, entry.packageSource ?? "unknown"]),
+        ),
+      })
+    : [];
+
+  const conflicts = [
+    ...bundleExpansion.conflicts,
+    ...basePlan.conflicts,
+    ...strategyConflicts,
+    ...extensionPinConflicts,
+    ...publicAllowedConflicts,
+    ...modeResolution.conflicts,
+    ...removal.conflicts,
+    ...removalConflicts,
+    ...modePackageConflicts,
+    ...curatedConflicts,
+  ];
   const engine: BuildEngine = kernel.engine;
+  const feedSet = buildImageFeedSet(
+    {
+      baseVersion: context.baseVersion,
+      target,
+      kernel: context.sourcePins?.kernel ?? null,
+      visibility: basePlan.visibility ?? "private",
+      resolved,
+      downloads: basePlan.downloads,
+    },
+    context.feedOptions ?? {},
+  );
+  const preflight = createImagePreflight(feedSet, basePlan.packages);
 
   const plan: BuildPlanV2 = {
     ...basePlan,
@@ -214,8 +381,13 @@ export async function createBuildPlanV2(
     basePreset: { id: form.basePreset ?? "minimal", layer: "file/board" },
     overlays,
     modes: modeResolution.state,
-    files: [...basePlan.files, ...modeResolution.files],
+    files: [...basePlan.files, ...modeResolution.files, ...feedSet.files],
     engine,
+    feedSet,
+    preflight,
+    warnings: [...(basePlan.warnings ?? []), ...removal.warnings],
+    kernelConfig: modeResolution.kernelConfig,
+    ...(modeResolution.docker ? { docker: modeResolution.docker } : {}),
     artifactName: artifactNameV2({
       baseVersion: context.baseVersion,
       targetId: target.id,

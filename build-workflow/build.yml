@@ -3,8 +3,21 @@ name: combinewrt image
 on:
   repository_dispatch:
     types: [combinewrt-build]
+  # repository_dispatch always runs the default branch, so a ticket branch can
+  # only be exercised through workflow_dispatch. The input carries the same
+  # object the site sends as client_payload.
+  workflow_dispatch:
+    inputs:
+      plan_json:
+        description: Build plan JSON; the same object as the repository_dispatch client_payload
+        required: true
+        type: string
+      build_id:
+        description: Build id used for the run title combinewrt-<build_id>
+        required: true
+        type: string
 
-run-name: combinewrt-${{ github.event.client_payload.buildId }}
+run-name: combinewrt-${{ github.event.client_payload.buildId || inputs.build_id }}
 
 permissions:
   contents: read
@@ -20,12 +33,50 @@ jobs:
         run: |
           set -euo pipefail
           source .github/scripts/fail.sh
-          jq '.client_payload' "$GITHUB_EVENT_PATH" > plan.json
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            jq -r '.inputs.plan_json' "$GITHUB_EVENT_PATH" | jq -c . > plan.json \
+              || fail prepare-plan "" "" "" "workflow_dispatch input plan_json is not valid JSON"
+          else
+            jq '.client_payload' "$GITHUB_EVENT_PATH" > plan.json
+          fi
           for field in artifactName imageType profileId baseVersion; do
             jq -e --arg field "$field" 'has($field) and (.[$field] | type == "string") and (.[$field] | length > 0)' plan.json >/dev/null \
               || fail prepare-plan "" "" "" "client_payload is missing $field"
           done
+          # V1 payloads have no schemaVersion and keep the original build path.
+          # V2 payloads carry it nested so the top-level property count of the
+          # repository_dispatch payload stays at the documented limit.
+          SCHEMA=$(jq -r '.composition.v2.schemaVersion // .schemaVersion // 1' plan.json)
+          echo "PLAN_SCHEMA=$SCHEMA" >> "$GITHUB_ENV"
           echo "PLAN_ARTIFACT=$(jq -r .artifactName plan.json)" >> "$GITHUB_ENV"
+          if [ "$SCHEMA" = "2" ]; then
+            TARGET_ID=$(jq -r '.composition.v2.target.id // ""' plan.json)
+            export COMBINEWRT_CONTEXT=$(jq -c '.composition.v2 | {target:.target.id,variant:(.imageVariant | "\(.boot)-\(.filesystem)-\(.artifact)"),engine:.engine}' plan.json)
+            echo "COMBINEWRT_CONTEXT=$COMBINEWRT_CONTEXT" >> "$GITHUB_ENV"
+            echo "COMBINEWRT_TARGET=$TARGET_ID"
+            echo "COMBINEWRT_KERNEL_LINE=$(jq -r '.composition.v2.kernelLine.id // ""' plan.json)"
+            echo "COMBINEWRT_VARIANT=$(jq -r '.composition.v2.imageVariant | "\(.boot)-\(.filesystem)-\(.artifact)"' plan.json)"
+            echo "COMBINEWRT_MODES=$(jq -c '.composition.v2.modes // []' plan.json)"
+            echo "COMBINEWRT_FEED_SET=$(jq -r '.composition.v2.feedSet // ""' plan.json)"
+            echo "COMBINEWRT_PREFLIGHT=$(jq -c '.composition.v2.preflight // null' plan.json)"
+            if ! bash .github/scripts/variant-config.sh plan.json > variant.json 2> variant-error.txt; then
+              fail prepare-plan "" "" "" "invalid V2 image variant: $(tr '\n' ' ' < variant-error.txt)"
+            fi
+            BUILD_ARTIFACT=$(jq -r '.buildArtifact' variant.json)
+            MAKE_TARGETS=$(jq -r '.makeTargets | join(" ")' variant.json)
+            POSTPROCESS_KIND=$(jq -r '.postprocess.kind // empty' variant.json)
+            echo "BUILD_ARTIFACT=$BUILD_ARTIFACT" >> "$GITHUB_ENV"
+            echo "MAKE_TARGETS=$MAKE_TARGETS" >> "$GITHUB_ENV"
+            echo "POSTPROCESS_KIND=$POSTPROCESS_KIND" >> "$GITHUB_ENV"
+            echo "COMBINEWRT_IMAGEBUILDER_COMMAND=$(jq -r '.command' variant.json)"
+          else
+            echo "BUILD_ARTIFACT=$(jq -r .artifactName plan.json)" >> "$GITHUB_ENV"
+            echo "POSTPROCESS_KIND=" >> "$GITHUB_ENV"
+            echo "COMBINEWRT_IMAGEBUILDER_COMMAND=$(jq -r .imageBuilderCommand plan.json)"
+          fi
+          # Generated file contents may carry the root password hash; never put
+          # them in a public log.
+          jq -c '.files = ((.files // []) | map(.content = "<redacted; \(.content | length) bytes>"))' plan.json
 
       - name: Install tools
         run: |
@@ -40,7 +91,19 @@ jobs:
           set -euo pipefail
           source .github/scripts/fail.sh
           BASE=$(jq -r .baseVersion plan.json)
-          URL="https://downloads.immortalwrt.org/releases/${BASE}/targets/x86/64/immortalwrt-imagebuilder-${BASE}-x86-64.Linux-x86_64.tar.zst"
+          if [ "$PLAN_SCHEMA" = "2" ]; then
+            TARGET=$(jq -r '.composition.v2.target.id // ""' plan.json)
+            case "$TARGET" in
+              "" | *[!a-z0-9_/-]*) fail download-imagebuilder "" "" "" "unsafe or missing target id: '$TARGET'" ;;
+              */*) ;;
+              *) fail download-imagebuilder "" "" "" "target id must be <target>/<subtarget>: '$TARGET'" ;;
+            esac
+            TARGET_SLUG=${TARGET//\//-}
+          else
+            TARGET="x86/64"
+            TARGET_SLUG="x86-64"
+          fi
+          URL="https://downloads.immortalwrt.org/releases/${BASE}/targets/${TARGET}/immortalwrt-imagebuilder-${BASE}-${TARGET_SLUG}.Linux-x86_64.tar.zst"
           echo "Downloading $URL"
           if ! curl -fL --retry 3 --retry-delay 5 -o ib.tar.zst "$URL"; then
             fail download-imagebuilder "" "" "" "failed to download $URL"
@@ -50,6 +113,37 @@ jobs:
           if ! tar --zstd -xf ib.tar.zst -C ib --strip-components=1; then
             fail download-imagebuilder "" "" "" "failed to extract the ImageBuilder archive"
           fi
+
+      - name: Configure ImageBuilder
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          if [ "$PLAN_SCHEMA" != "2" ]; then
+            # V1 never touched the shipped configuration; keep that behaviour.
+            echo "V1 plan: keep the ImageBuilder default configuration"
+            exit 0
+          fi
+          cd ib
+          # The ImageBuilder's "image" target re-enters make with MAKEFLAGS
+          # unset, so CONFIG_* assignments on the make command line never reach
+          # the build. The variant configuration therefore has to be written
+          # into the ImageBuilder's own .config; the make arguments stay on the
+          # command for provenance and for the manifest.
+          jq -r '.config[]' ../variant.json | while IFS= read -r entry; do
+            key=${entry%%=*}
+            value=${entry#*=}
+            case "$key" in
+              CONFIG_[A-Z0-9_]*) ;;
+              *) fail prepare-plan "" "" "" "invalid ImageBuilder config key: $key" ;;
+            esac
+            if grep -q "^${key}=" .config; then
+              sed -i "s|^${key}=.*|${key}=${value}|" .config
+            else
+              printf '%s=%s\n' "$key" "$value" >> .config
+            fi
+            echo "ImageBuilder config: ${key}=${value}"
+          done
+          grep -E '^CONFIG_(TARGET_ROOTFS_(EXT4FS|SQUASHFS|TARGZ|PARTSIZE)|GRUB|ISO_IMAGES|QCOW2|VDI|VMDK|VHDX|TARGET_IMAGES_GZIP)' .config
 
       - name: Download pinned third-party packages
         run: |
@@ -101,28 +195,32 @@ jobs:
             echo "verified pinned package sha256: $filename $actual"
             echo "COMBINEWRT_DOWNLOAD_SHA256=$filename $(sha256sum "packages/$filename" | cut -d' ' -f1)"
           done
-          # Sign the local index with a build key that ImageBuilder will also
-          # trust, so official feed signatures stay verified while the local
-          # package set is consumable.
-          if [ ! -s keys/local-private-key.pem ]; then
-            mkdir -p keys
-            openssl ecparam -name prime256v1 -genkey -noout -out keys/local-private-key.pem
-            sed -i '1s/^/untrusted comment: Local build key\n/' keys/local-private-key.pem
-            openssl ec -in keys/local-private-key.pem -pubout > keys/local-public-key.pem
-            sed -i '1s/^/untrusted comment: Local build key\n/' keys/local-public-key.pem
+          if [ "$COUNT" -gt 0 ]; then
+            # Sign the local index with a build key that ImageBuilder will also
+            # trust, so official feed signatures stay verified while the local
+            # package set is consumable.
+            if [ ! -s keys/local-private-key.pem ]; then
+              mkdir -p keys
+              openssl ecparam -name prime256v1 -genkey -noout -out keys/local-private-key.pem
+              sed -i '1s/^/untrusted comment: Local build key\n/' keys/local-private-key.pem
+              openssl ec -in keys/local-private-key.pem -pubout > keys/local-public-key.pem
+              sed -i '1s/^/untrusted comment: Local build key\n/' keys/local-public-key.pem
+            fi
+            rm -f packages/packages.adb
+            IB_ROOT="$PWD"
+            if ! (cd packages && "$IB_ROOT/staging_dir/host/bin/apk" mkndx --allow-untrusted \
+              --keys-dir "$IB_ROOT/keys" --sign-key "$IB_ROOT/keys/local-private-key.pem" \
+              --output packages.adb ./*.apk); then
+              fail download-packages "" "" "" "failed to rebuild the local APK index"
+            fi
+            if ! staging_dir/host/bin/apk verify --keys-dir "$IB_ROOT/keys" packages/packages.adb; then
+              fail download-packages "" "" "" "failed to verify the local APK index"
+            fi
+            ls -l packages/*.apk | head -20
+            echo "local package index rebuilt and signed with pinned apks"
+          else
+            echo "no pinned third-party packages; using the feed index unchanged"
           fi
-          rm -f packages/packages.adb
-          IB_ROOT="$PWD"
-          if ! (cd packages && "$IB_ROOT/staging_dir/host/bin/apk" mkndx --allow-untrusted \
-            --keys-dir "$IB_ROOT/keys" --sign-key "$IB_ROOT/keys/local-private-key.pem" \
-            --output packages.adb ./*.apk); then
-            fail download-packages "" "" "" "failed to rebuild the local APK index"
-          fi
-          if ! staging_dir/host/bin/apk verify --keys-dir "$IB_ROOT/keys" packages/packages.adb; then
-            fail download-packages "" "" "" "failed to verify the local APK index"
-          fi
-          ls -l packages/*.apk | head -20
-          echo "local package index rebuilt and signed with pinned apks"
 
       - name: Write files
         run: |
@@ -138,8 +236,94 @@ jobs:
           done; then
             fail write-files "" "" "" "failed to write generated files"
           fi
-          find files -type f | sort
+          find files -type f 2>/dev/null | sort || true
           echo 'uci-defaults written (contents not printed: they contain the root password hash)'
+
+      - name: Install feed key and preflight packages
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd ib
+          if ! jq -e '.composition.feedSet' ../plan.json >/dev/null 2>&1; then
+            echo "plan has no image feed set (V1 payload); skipping installability preflight"
+            exit 0
+          fi
+          if ! jq -e '.composition.preflight' ../plan.json >/dev/null 2>&1; then
+            fail preflight "" "" "" "plan has a feed set but no installability preflight"
+          fi
+          KEY_URL=$(jq -r '.composition.feedSet.key.url' ../plan.json)
+          KEY_SHA=$(jq -r '.composition.feedSet.key.fingerprint' ../plan.json)
+          if [ -z "$KEY_URL" ] || [ "$KEY_URL" = "null" ] || [ -z "$KEY_SHA" ] || [ "$KEY_SHA" = "null" ]; then
+            fail preflight "" "" "" "image feed set is missing the project key URL or fingerprint"
+          fi
+          # The image trusts the project key for the supplement/extension feeds;
+          # the same key is trusted by the preflight apk invocation below.
+          mkdir -p files/etc/apk/keys keys
+          KEY_FILE=files/etc/apk/keys/combinewrt-feed.pub.pem
+          if ! curl -fL --retry 3 --retry-delay 5 -o "$KEY_FILE" "$KEY_URL"; then
+            fail preflight "" "" "" "failed to download the project feed key: $KEY_URL"
+          fi
+          # The fingerprint is the sha256 of the key file bytes (same value the
+          # catalog source checks), not an openssl key id.
+          ACTUAL_SHA=$(sha256sum "$KEY_FILE" | cut -d' ' -f1)
+          if [ "$ACTUAL_SHA" != "$KEY_SHA" ]; then
+            fail preflight "" "" "" "project feed key sha256 does not match the pinned fingerprint: expected=$KEY_SHA actual=$ACTUAL_SHA"
+          fi
+          cp "$KEY_FILE" keys/combinewrt-feed.pub.pem
+          jq -r '.composition.preflight.repositories[]' ../plan.json > preflight.repositories
+          if [ ! -s preflight.repositories ]; then
+            fail preflight "" "" "" "installability preflight has no repositories"
+          fi
+          PACKAGES=$(jq -r '.composition.preflight.packages | join(" ")' ../plan.json)
+          if [ -z "$PACKAGES" ]; then
+            fail preflight "" "" "" "installability preflight has no packages"
+          fi
+          FEED_TARGET=$(jq -r '.composition.feedSet.feedTarget' ../plan.json)
+          APK=staging_dir/host/bin/apk
+          ROOT=$(mktemp -d)
+          trap 'rm -rf "$ROOT"' EXIT
+          # apk-tools 3 will not run against a bare mktemp root: it needs the
+          # world file and the installed database directory to exist, and it
+          # does not create them itself (not even with --initdb). Bootstrap
+          # them so the preflight resolves against an empty throwaway rootfs.
+          mkdir -p "$ROOT/etc/apk" "$ROOT/lib/apk/db" "$ROOT/var/cache/apk" "$PWD/preflight-cache"
+          : > "$ROOT/etc/apk/world"
+          REPO_ARGS=(--root "$ROOT" --arch "$FEED_TARGET" \
+            --cache-dir "$PWD/preflight-cache" \
+            --repositories-file "$PWD/preflight.repositories" \
+            --keys-dir "$PWD/keys")
+          # The pinned third-party packages were re-indexed and signed above;
+          # trust it through keys/ and never by disabling signature checks.
+          if [ -f packages/packages.adb ]; then
+            REPO_ARGS+=(--repository "$PWD/packages")
+          fi
+          echo "COMBINEWRT_PREFLIGHT_PACKAGES=$(jq -r '.composition.preflight.packages | length' ../plan.json)"
+          # apk add only reads indexes from the cache, so refresh them first
+          # with the same repositories and keys; otherwise an empty cache looks
+          # exactly like "package not found".
+          if ! "$APK" update --no-progress "${REPO_ARGS[@]}" 2>&1 | tee preflight-update.log; then
+            fail preflight "" "" "" "failed to refresh the package indexes for the installability preflight"
+          fi
+          if ! "$APK" add --simulate --no-progress "${REPO_ARGS[@]}" $PACKAGES 2>&1 | tee preflight.log; then
+            # apk prints the unresolved world entries as
+            # "  name (reason):" lines under "unable to select packages".
+            MISSING=$(awk '
+              /^ERROR: unable to select packages:/ { in_block = 1; next }
+              in_block && /^  [A-Za-z0-9]/ { print $1; next }
+              in_block && /^[[:space:]]*$/ { in_block = 0 }
+            ' preflight.log | sed -E 's/-[0-9][^-]*$//' | sort -u)
+            DETAIL=$(grep -m1 -E 'no such package|missing dependency|conflict' preflight.log | sed -E 's/^[[:space:]]+//' || true)
+            MISSING_LIST=$(echo "$MISSING" | paste -sd ',' -)
+            if [ -n "$MISSING" ]; then
+              while IFS= read -r pkg; do
+                [ -z "$pkg" ] && continue
+                source=$(jq -r --arg pkg "$pkg" '[.composition.downloads[]? | select(.name == $pkg) | .source] | first // "official"' ../plan.json)
+                fail preflight "$pkg" "$source" "" "installability preflight failed for ${MISSING_LIST}: ${DETAIL:-see preflight.log}"
+              done <<< "$MISSING"
+            fi
+            fail preflight "" "" "" "installability preflight failed for ${MISSING_LIST:-the requested packages}: ${DETAIL:-see preflight.log}"
+          fi
+          echo "installability preflight passed for $(jq -r '.composition.preflight.packages | length' ../plan.json) packages"
 
       - name: Build image
         run: |
@@ -148,11 +332,17 @@ jobs:
           cd ib
           PROFILE=$(jq -r .profileId ../plan.json)
           PACKAGES=$(jq -r '.packages | join(" ")' ../plan.json)
+          if [ "$PLAN_SCHEMA" = "2" ]; then
+            # The variant decides the image targets, the root filesystem and the
+            # ext4 partition size; V1 builds keep the fixed disable list below.
+            mapfile -t CONFIG_ARGS < <(jq -r '.config[]' ../variant.json)
+          else
+            CONFIG_ARGS=(CONFIG_ISO_IMAGES= CONFIG_QCOW2_IMAGES= CONFIG_VDI_IMAGES= CONFIG_VMDK_IMAGES= CONFIG_VHDX_IMAGES=)
+          fi
           echo "COMBINEWRT_PROFILE=$PROFILE"
           echo "COMBINEWRT_PACKAGES=$PACKAGES"
-          echo "COMBINEWRT_MAKE=make -j$(nproc) image PROFILE=\"$PROFILE\" PACKAGES=\"$PACKAGES\" FILES=files"
-          if ! make -j"$(nproc)" image PROFILE="$PROFILE" PACKAGES="$PACKAGES" FILES=files \
-            CONFIG_ISO_IMAGES= CONFIG_QCOW2_IMAGES= CONFIG_VDI_IMAGES= CONFIG_VMDK_IMAGES= CONFIG_VHDX_IMAGES= 2>&1 | tee build.log; then
+          echo "COMBINEWRT_MAKE=make -j$(nproc) ${MAKE_TARGETS:-image} PROFILE=\"$PROFILE\" PACKAGES=\"$PACKAGES\" FILES=files ${CONFIG_ARGS[*]}"
+          if ! make -j"$(nproc)" "${MAKE_TARGETS:-image}" PROFILE="$PROFILE" PACKAGES="$PACKAGES" FILES=files "${CONFIG_ARGS[@]}" 2>&1 | tee build.log; then
             fail build-image "" "" "" "make image failed; see the workflow log"
           fi
 
@@ -162,7 +352,7 @@ jobs:
           source .github/scripts/fail.sh
           cd ib
           IMAGE_TYPE=$(jq -r .imageType ../plan.json)
-          ARTIFACT=$(jq -r .artifactName ../plan.json)
+          ARTIFACT="${BUILD_ARTIFACT}"
           IMG=$(find bin/targets -type f -name "$ARTIFACT" | head -1)
           if [ -z "$IMG" ]; then
             fail package-artifact "" "" "" "expected artifact $ARTIFACT was not produced"
@@ -225,22 +415,86 @@ jobs:
             echo "verified package: $pkg"
           done < /tmp/combinewrt-top-level.txt
 
+      - name: Postprocess artifact
+        if: env.POSTPROCESS_KIND != ''
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd ib
+          # variant.json is written at the repository root by Prepare plan.
+          VARIANT="../variant.json"
+          KIND="${POSTPROCESS_KIND}"
+          SOURCE=$(jq -r '.postprocess.source' "$VARIANT")
+          RAW=$(jq -r '.postprocess.raw' "$VARIANT")
+          OUTPUT=$(jq -r '.postprocess.output' "$VARIANT")
+          echo "converting $SOURCE ($KIND) to $OUTPUT"
+          if ! gzip -dc "$SOURCE" > "$RAW"; then
+            fail postprocess "" "" "" "failed to decompress $SOURCE"
+          fi
+          if ! qemu-img convert -f raw -O "$KIND" "$RAW" "$OUTPUT"; then
+            fail postprocess "" "" "" "qemu-img convert -f raw -O $KIND failed for $RAW"
+          fi
+          RAW_SHA=$(sha256sum "$RAW" | cut -d' ' -f1)
+          RAW_SIZE=$(stat -c%s "$RAW")
+          OUT_SHA=$(sha256sum "$OUTPUT" | cut -d' ' -f1)
+          OUT_SIZE=$(stat -c%s "$OUTPUT")
+          jq -n -c \
+            --arg kind "$KIND" \
+            --arg rawPath "$RAW" --arg rawSha "$RAW_SHA" --argjson rawSize "$RAW_SIZE" \
+            --arg outPath "$OUTPUT" --arg outSha "$OUT_SHA" --argjson outSize "$OUT_SIZE" \
+            --argjson steps "$(jq -c '.postprocess.steps' "$VARIANT")" \
+            '{kind:$kind,steps:$steps,raw:{name:($rawPath | split("/") | last),sha256:$rawSha,size:$rawSize},converted:{name:($outPath | split("/") | last),sha256:$outSha,size:$outSize}}' > postprocess.json
+          rm -f "$RAW"
+          cat postprocess.json
+          echo "COMBINEWRT_POSTPROCESS=$(jq -r '.steps | join("; ")' postprocess.json)"
+          echo "COMBINEWRT_RAW_SHA256=$RAW_SHA"
+          echo "COMBINEWRT_CONVERTED_SHA256=$OUT_SHA"
+
       - name: Package artifact
         run: |
           set -euo pipefail
           source .github/scripts/fail.sh
           cd ib
           ARTIFACT=$(jq -r .artifactName ../plan.json)
-          IMG=$(find bin/targets -type f -name "$ARTIFACT" | head -1)
+          SRC=$(find bin/targets -type f -name "$BUILD_ARTIFACT" | head -1)
+          if [ -z "$SRC" ]; then
+            find bin/targets -type f | sort >&2
+            fail package-artifact "" "" "" "expected artifact $BUILD_ARTIFACT was not produced"
+          fi
+          if [ -f postprocess.json ]; then
+            IMG=$(find bin/targets -type f -name "$ARTIFACT" | head -1)
+          else
+            IMG=$SRC
+            gzip -t "$IMG"
+          fi
           if [ -z "$IMG" ]; then
             find bin/targets -type f | sort >&2
             fail package-artifact "" "" "" "expected artifact $ARTIFACT was not produced"
           fi
-          gzip -t "$IMG"
           SHA=$(sha256sum "$IMG" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$IMG")
-          jq -c -n --arg artifactName "$ARTIFACT" --arg path "$PWD/$IMG" --arg sha256 "$SHA" --argjson size "$SIZE" \
-            '{artifactName:$artifactName,path:$path,sha256:$sha256,size:$size}' > manifest.json
+          if [ "$PLAN_SCHEMA" = "2" ]; then
+            RAW_JSON=null
+            CONVERTED_JSON=null
+            if [ -f postprocess.json ]; then
+              RAW_JSON=$(jq -c '.raw' postprocess.json)
+              CONVERTED_JSON=$(jq -c '.converted' postprocess.json)
+            fi
+            jq -n -c \
+              --arg artifactName "$ARTIFACT" --arg path "$PWD/$IMG" --arg sha256 "$SHA" --argjson size "$SIZE" \
+              --argjson target "$(jq -c '.composition.v2.target' ../plan.json)" \
+              --argjson kernelLine "$(jq -c '.composition.v2.kernelLine' ../plan.json)" \
+              --argjson variant "$(jq -c '.composition.v2.imageVariant' ../plan.json)" \
+              --arg engine "$(jq -r '.composition.v2.engine' ../plan.json)" \
+              --arg command "${COMBINEWRT_IMAGEBUILDER_COMMAND:-$(jq -r '.imageBuilderCommand // ""' ../plan.json)}" \
+              --argjson raw "$RAW_JSON" --argjson converted "$CONVERTED_JSON" \
+              '{schemaVersion:2, artifactName:$artifactName, path:$path, sha256:$sha256, size:$size, target:$target, kernelLine:$kernelLine, variant:$variant, engine:$engine, imageBuilderCommand:$command}
+               + (if $raw != null then {raw:$raw} else {} end)
+               + (if $converted != null then {converted:$converted} else {} end)' > manifest.json
+          else
+            jq -n -c --arg artifactName "$ARTIFACT" --arg path "$PWD/$IMG" --arg sha256 "$SHA" --argjson size "$SIZE" \
+              '{artifactName:$artifactName,path:$path,sha256:$sha256,size:$size}' > manifest.json
+          fi
           cat manifest.json
           echo "COMBINEWRT_MANIFEST=$(cat manifest.json)"
           echo "ARTIFACT_PATH=$PWD/$IMG" >> "$GITHUB_ENV"

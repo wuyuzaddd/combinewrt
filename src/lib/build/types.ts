@@ -26,6 +26,11 @@ export interface BuildFormInput {
   netmask: string;
   rootPassword: string;
   packages: string[];
+  /**
+   * Negative package list (ticket 08). Applied before dependency resolution;
+   * essentials and mode-owned packages are rejected, absent names only warn.
+   */
+  removePackages?: string[];
   packagePins?: PackagePin[];
   visibility?: BuildVisibility;
 }

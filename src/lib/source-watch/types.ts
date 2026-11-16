@@ -18,7 +18,8 @@ export type PinEventReason =
   | "blocked_same_version_hash"
   | "blocked_baseline_missing"
   | "adoption_rolled_back"
-  | "rolled_back";
+  | "rolled_back"
+  | "supplement_auto_published";
 
 export interface SourcePinRecord {
   id: number;
@@ -49,7 +50,12 @@ export type WatchCandidateReason =
   | "same_version_hash_changed"
   | "baseline_missing"
   | "adoption_failed"
-  | "unchanged";
+  | "unchanged"
+  | "supplement_live_dispatched"
+  | "supplement_staging_dispatched"
+  | "supplement_staged"
+  | "supplement_dispatch_failed"
+  | "supplement_skipped";
 
 export interface SourceWatchState {
   source: WatchSourceId;

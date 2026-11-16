@@ -313,14 +313,14 @@ describe("POST /api/build/plan (V2 form)", () => {
     expect(body.plan.modes.experimental).toContain("wifi");
   });
 
-  it("rejects a mode the selected kernel line cannot run", async () => {
+  it("reports a mode the selected kernel line cannot run as a 409-grade conflict", async () => {
     state.session = { sub: "admin", iat: 0, exp: 1 };
     const response = await POST(
       request({ ...validFormV2, modes: [{ id: "docker", layer: "package/kernel" }] }),
     );
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as { issues: string[] };
-    expect(body.issues.join("\n")).toMatch(/docker/);
-    expect(body.issues.join("\n")).toMatch(/source/);
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { conflicts: { message: string }[] };
+    expect(body.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/docker/);
+    expect(body.conflicts.map((conflict) => conflict.message).join("\n")).toMatch(/source engine/);
   });
 });

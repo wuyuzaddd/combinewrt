@@ -5,8 +5,17 @@ import { createComplianceReport } from "../compliance";
 import { buildDownloadManifest, collectRequests, findSourceConflicts } from "./composition";
 import { findConflicts } from "./conflicts";
 import { APPLIED_PATCHES } from "./patches";
+import { applyPackageRemovals, findRemovalDependencyConflicts } from "./removal";
+import { parsePackageRef } from "./refs";
 import { resolveDependencies } from "./resolve";
-import type { BuildConflict, BuildFormInput, BuildPlan, PackageLookup, PackageLookupAll } from "./types";
+import type {
+  BuildConflict,
+  BuildFormInput,
+  BuildPlan,
+  PackageLookup,
+  PackageLookupAll,
+  RequestedPackage,
+} from "./types";
 import { generateUciDefaults } from "./uci";
 
 export interface PlanContext {
@@ -32,12 +41,33 @@ export function imageBuilderCommand(profileId: string, packages: string[]): stri
 }
 
 export async function createBuildPlan(form: BuildFormInput, context: PlanContext): Promise<BuildPlan> {
-  const formatConflicts: BuildConflict[] = [];
-  const requests = collectRequests(form, formatConflicts);
+  // The negative package list runs before dependency resolution, so a removal
+  // never pulls its own dependencies back in (ticket 08).
+  const parsedRequested = form.packages
+    .map(parsePackageRef)
+    .filter((item): item is RequestedPackage => item !== null);
+  const removal = applyPackageRemovals({
+    requested: parsedRequested,
+    removals: form.removePackages ?? [],
+  });
+  const removedNames = new Set(removal.removed);
+  const packagesAfterRemoval = form.packages.filter((raw) => {
+    const reference = parsePackageRef(raw);
+    return !reference || !removedNames.has(reference.name);
+  });
+
+  const formatConflicts: BuildConflict[] = [...removal.conflicts];
+  const requests = collectRequests({ ...form, packages: packagesAfterRemoval }, formatConflicts);
   const { entries, missingDependencies } = resolveDependencies(requests, context.lookup, context.lookupAll);
   const names = entries.map((entry) => entry.name);
   const sourceConflicts = findSourceConflicts(requests, entries, context, form.packagePins ?? []);
   const downloads = buildDownloadManifest(entries, context, sourceConflicts);
+  const removalConflicts = findRemovalDependencyConflicts({
+    removals: removal.removed,
+    requests,
+    entries,
+    lookup: context.lookup,
+  });
   const topLevelPackages = [...new Set(requests.map((request) => request.name))];
   const visibility = form.visibility ?? "private";
   const compliance = createComplianceReport(entries);
@@ -82,7 +112,14 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
     resolved: entries,
     downloads,
     missingDependencies,
-    conflicts: [...formatConflicts, ...sourceConflicts, ...complianceConflicts, ...findConflicts(names)],
+    conflicts: [
+      ...formatConflicts,
+      ...sourceConflicts,
+      ...removalConflicts,
+      ...complianceConflicts,
+      ...findConflicts(names),
+    ],
+    warnings: removal.warnings,
     compliance,
     patches: APPLIED_PATCHES,
     files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: uci, mode: 0o755 }],

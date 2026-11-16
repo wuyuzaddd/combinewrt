@@ -1,4 +1,5 @@
 import type { BaseVersion } from "../base/types";
+import type { ImageFeedSet } from "../build/feeds";
 import type { AppliedMode, BuildConfig, BuildPlan, AppliedPatch, BuildVisibility } from "../build/types";
 import type { BuildRecord, BuildStatus } from "../builds/types";
 import {
@@ -39,6 +40,13 @@ export interface SourceOfferModes {
   generatedFiles: string[];
 }
 
+/**
+ * The feed set as published: every repository URL, its enablement condition,
+ * the index pin and the key fingerprint. Generated file contents (and any
+ * private key material) are deliberately excluded.
+ */
+export type SourceOfferFeedSet = Omit<ImageFeedSet, "files">;
+
 export interface SourceOfferManifest {
   schemaVersion: 1;
   build: {
@@ -55,6 +63,8 @@ export interface SourceOfferManifest {
   baseVersion: string;
   imageBuilder: { url: string; sha256: string } | null;
   sourcePins: SourcePins;
+  /** Image feed set (ticket 09); null for plans written before it existed. */
+  feedSet: SourceOfferFeedSet | null;
   packages: SourceOfferPackage[];
   patches: AppliedPatch[];
   config: BuildConfig | null;
@@ -98,6 +108,20 @@ export function createSourceOffer(
           generatedFiles: [...plan.modes.generatedFiles],
         }
       : undefined;
+  const feedSet: SourceOfferFeedSet | null =
+    plan.schemaVersion === 2 && plan.feedSet
+      ? {
+          visibility: plan.feedSet.visibility,
+          baseVersion: plan.feedSet.baseVersion,
+          targetId: plan.feedSet.targetId,
+          feedTarget: plan.feedSet.feedTarget,
+          officialBaseUrl: plan.feedSet.officialBaseUrl,
+          officialMirror: plan.feedSet.officialMirror,
+          officialRepositories: [...plan.feedSet.officialRepositories],
+          key: { ...plan.feedSet.key },
+          repositories: plan.feedSet.repositories.map((repository) => ({ ...repository })),
+        }
+      : null;
   const notes = [
     "This manifest is the GPL source offer for the pinned package sources used by this image.",
     "No firmware or third-party source code is published by this repository; dllkids is referenced by URL and sha256 only.",
@@ -124,6 +148,16 @@ export function createSourceOffer(
       "Mode network settings, PPPoE credentials and the HTTPS private key are deliberately omitted from this manifest.",
     );
   }
+  if (feedSet) {
+    notes.push(
+      "Image feed set: ImageBuilder's distfeeds.list keeps the official ImmortalWrt feeds; project supplement/extension feeds are version-frozen and signed with the recorded key. No private keys or credentials are included.",
+    );
+    if (feedSet.repositories.some((repository) => repository.id === "dllkids")) {
+      notes.push(
+        "The dllkids feed is unsigned and reachable only through the explicit apk-dllkids wrapper; it is recorded by URL and sha256 without a key fingerprint.",
+      );
+    }
+  }
 
   return {
     schemaVersion: 1,
@@ -141,6 +175,7 @@ export function createSourceOffer(
     baseVersion: plan.baseVersion,
     imageBuilder,
     sourcePins: plan.sourcePins ?? EMPTY_SOURCE_PINS,
+    feedSet,
     packages: plan.resolved.map((entry) => ({
       name: entry.name,
       version: entry.version,
