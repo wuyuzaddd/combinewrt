@@ -268,12 +268,17 @@ describe("dispatch logging", () => {
     const secret = "hunter2-pppoe-only";
     const plan = v2Plan({ boot: "efi", filesystem: "ext4", artifact: "combined" }, {
       modes: {
-        basePreset: { id: "router-default", layer: "file/board" },
+        basePreset: { id: "router-default", layer: "file/board", title: "路由默认", experimental: false },
         overlays: [],
         experimental: [],
         network: {
+          lan: { ipv4: "192.168.31.1", netmask: "255.255.255.0", dhcp: { enabled: true, start: 100, limit: 100, lease: "12h" } },
           wan: { protocol: "pppoe", username: "user@isp", password: secret },
+          dns: ["223.5.5.5"],
+          ipv6: "disabled",
           wifi: { ssid: "net", key: "wifi-psk", country: "CN", channel: 36, band: "5g" },
+          switchPort: null,
+          bypass: null,
         },
         secrets: [],
         generatedFiles: [],
