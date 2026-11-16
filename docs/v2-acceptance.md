@@ -4,7 +4,7 @@
 
 - 基线：`v2-integration` @ `0165891`（tickets 01–15 已合并）
 - 证据时间：2026-11-16
-- 构建仓：[`wuyuzaddd/combinewrt-build`](https://github.com/wuyuzaddd/combinewrt-build)（main 已与站点 `build-workflow/` 逐字节同步）
+- 构建仓：[`wuyuzaddd/combinewrt-build`](https://github.com/wuyuzaddd/combinewrt-build)（main = `92761d3`，四个 workflow 与 `.github/scripts/*` 已与站点 `build-workflow/` 逐字节同步；main 上的 V2 冒烟 [43868727061](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43868727061) 全步骤通过）
 - Feed 仓：[`wuyuzaddd/combinewrt-packages`](https://github.com/wuyuzaddd/combinewrt-packages)
 - 状态图例：✅ 真实运行/可复现证据成立；🟡 单测/fixture/部分证据成立，缺真机或端到端；⬜ 未验证或明确不在 V2.0 范围
 

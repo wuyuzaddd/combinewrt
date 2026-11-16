@@ -192,3 +192,19 @@ V1 计划/构建应只读可打开。若页面报错，先确认迁移是否完�
 
 `ProtectSystem=strict` 下新增数据目录必须加入 `ReadWritePaths`。症状是迁移/缓存/source watch 报
 `EROFS` 或 permission denied；修改 unit 后 `systemctl daemon-reload && systemctl restart combinewrt`。
+
+### 6.6 手工派发 V2 payload 的契约
+
+用 `workflow_dispatch` 手工冒烟时（正式路径始终是站点的 `repository_dispatch`），payload 必须满足：
+
+- `imageType` 是 V1 枚举 `ext4-efi` / `squashfs-efi` / `rootfs-tar`，不是 `combined`。
+- `composition.topLevelPackages` 必须存在；只给顶层 `packages` 会被 `Assert top-level packages` 拒绝。
+- `artifactName` 必须与 ImageBuilder 实际产出的文件名一致（例如
+  `immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img.gz`），不要自造 `combinewrt-*` 名字。
+- `files` 必须存在（空数组 `[]` 可以）。
+- V2 变体还必须带 `composition.v2`，其中 `schemaVersion: 2` 与 `target.id` 缺一不可；否则
+  Prepare plan 会快速失败。
+- 至少要有一个真实包（例如 `luci`）；“无包冒烟”按设计不会通过。
+
+这些约束是工作流 `Prepare plan` / `Assert top-level packages` 的真实行为，2026-11-16 的同步冒烟
+（run `43868727061`）在 main 上逐步骤通过，可作为对照。
