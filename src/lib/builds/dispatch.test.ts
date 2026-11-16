@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { artifactNameV2 } from "../build/artifact-name";
 import type { BuildPlan, BuildPlanV2 } from "../build/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
@@ -260,5 +260,42 @@ describe("buildDispatchRequest", () => {
     expect(() => buildDispatchRequest(plan, { buildId: "s2", artifactName: plan.artifactName })).toThrow(
       /config\/kernel-lines\.json/,
     );
+  });
+});
+
+describe("dispatch logging", () => {
+  it("never logs the plan payload or its typed network secrets", () => {
+    const secret = "hunter2-pppoe-only";
+    const plan = v2Plan({ boot: "efi", filesystem: "ext4", artifact: "combined" }, {
+      modes: {
+        basePreset: { id: "router-default", layer: "file/board" },
+        overlays: [],
+        experimental: [],
+        network: {
+          wan: { protocol: "pppoe", username: "user@isp", password: secret },
+          wifi: { ssid: "net", key: "wifi-psk", country: "CN", channel: 36, band: "5g" },
+        },
+        secrets: [],
+        generatedFiles: [],
+      },
+      files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: `password='${secret}'`, mode: 0o755 }],
+      artifactName: artifactNameV2({ ...BASE, imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" } }),
+    });
+    const calls: unknown[][] = [];
+    for (const method of ["log", "info", "warn", "error", "debug"] as const) {
+      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
+    }
+    try {
+      buildDispatchRequest(plan, { buildId: "b1", artifactName: plan.artifactName });
+    } finally {
+      vi.restoreAllMocks();
+    }
+    // The workflow gets the secrets over the dispatch API; the site never
+    // prints them (the review found the payload reaching logs).
+    expect(JSON.stringify(calls)).not.toContain(secret);
+    expect(JSON.stringify(calls)).not.toContain("wifi-psk");
+    expect(calls).toHaveLength(0);
   });
 });
