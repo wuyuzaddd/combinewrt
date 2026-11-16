@@ -244,6 +244,8 @@ describe("build queue cancellation", () => {
     const waiting = await service.submit(plan());
 
     const cancelled = await service.cancel(first.id);
+    // Cancelling frees the slot in the background; let the queue take the next build.
+    await service.pump();
 
     expect(cancelled?.status).toBe("cancelled");
     expect(h.cancelled).toEqual([first.runId]);
@@ -251,6 +253,49 @@ describe("build queue cancellation", () => {
     // The freed slot is filled by the oldest queued build.
     expect(h.dispatched).toEqual([first.id, second.id, waiting.id]);
     expect(service.get(waiting.id)?.status).toBe("running");
+  });
+
+  it("cancels a build while its dispatch is in flight and cancels the late run", async () => {
+    const db = database();
+    const store = createBuildStore(db);
+    const cancelledRuns: string[] = [];
+    let release: (value: { runId: string | null }) => void = () => {};
+    const gate = new Promise<{ runId: string | null }>((resolve) => {
+      release = resolve;
+    });
+    const adapter: BuildAdapter = {
+      name: "fake",
+      findRun: async () => null,
+      dispatch: async () => gate,
+      getRun: async () => ({ status: "running" }),
+      cancelRun: async (runId: string) => {
+        cancelledRuns.push(runId);
+      },
+      downloadArtifact: async () => {
+        throw new Error("not implemented");
+      },
+    };
+    const service = createBuildService({ store, adapter, maxConcurrentBuilds: 2 });
+
+    const pending = service.submit(plan());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const [record] = store.list();
+    expect(record?.status).toBe("running");
+    expect(record?.runId).toBeNull();
+
+    const cancelled = await service.cancel(record!.id);
+    expect(cancelled?.status).toBe("cancelled");
+
+    // The dispatch resolves after the cancel; the late run must be cancelled on
+    // GitHub and recorded, not left running behind a cancelled build.
+    release({ runId: "late-run" });
+    await pending;
+    await service.pump();
+
+    expect(cancelledRuns).toEqual(["late-run"]);
+    const final = service.get(record!.id)!;
+    expect(final.status).toBe("cancelled");
+    expect(final.runId).toBe("late-run");
   });
 });
 

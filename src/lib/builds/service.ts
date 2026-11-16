@@ -299,6 +299,19 @@ export function createBuildService(options: {
       if (updated.status !== "cancelled") {
         const latest = store.get(id);
         if (latest && !isTerminal(latest.status)) {
+          // The dispatch may have recorded a run id between our read and the
+          // update; cancel that run too, or it would keep building invisibly.
+          if (latest.runId && latest.runId !== record.runId && adapter.cancelRun) {
+            try {
+              await adapter.cancelRun(latest.runId);
+            } catch (error) {
+              return store.update(
+                id,
+                { error: error instanceof Error ? error.message : String(error) },
+                latest.updatedAt,
+              );
+            }
+          }
           updated = store.update(
             id,
             { status: "cancelled", logTail, error: null },
@@ -307,8 +320,10 @@ export function createBuildService(options: {
           );
         }
       }
-      // Cancelling a running build frees a slot for the next queued build.
-      await pump();
+      // Cancelling a running build frees a slot for the next queued build. This
+      // runs in the background: a cancel request must not wait for the next
+      // dispatch (which may spend seconds resolving its run id).
+      void pump().catch((error) => console.error("[combinewrt] queue pump after cancel failed", error));
       return updated;
     },
 
