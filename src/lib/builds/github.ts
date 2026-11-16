@@ -3,8 +3,8 @@ import type { BuildPlan } from "../build/types";
 import { PACKAGE_SOURCES } from "../catalog/types";
 import type { BuildEngine } from "../domain/types";
 import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError } from "../image/postprocess";
-import { buildDispatchPayload } from "./dispatch";
-import { BUILD_STEPS } from "./types";
+import { buildDispatchRequest } from "./dispatch";
+import { BUILD_STEPS, buildEngineOf } from "./types";
 import type { BuildFailure, BuildFailureContext } from "./types";
 import type { ArtifactDownload, BuildAdapter, RunUpdate } from "./types";
 
@@ -14,6 +14,8 @@ export interface GitHubAdapterOptions {
   repo: string;
   token: string;
   workflow: string;
+  /** Workflow file that runs source builds (ticket 13); defaults to source-build.yml. */
+  sourceWorkflow?: string;
   ref?: string;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -60,6 +62,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     repo,
     token,
     workflow,
+    sourceWorkflow = "source-build.yml",
     fetchImpl = fetch,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = options;
@@ -90,10 +93,12 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
   return {
     name: "github",
 
-    async findRun(buildId: string): Promise<string | null> {
+    async findRun(buildId: string, engine?: BuildEngine): Promise<string | null> {
+      // Source builds live in their own workflow file (ticket 06/13).
+      const workflowFile = engine === "source" ? sourceWorkflow : workflow;
       for (let attempt = 0; attempt < 15; attempt += 1) {
         const runs = await json<{ workflow_runs: WorkflowRun[] }>(
-          `/repos/${repo}/actions/workflows/${workflow}/runs?event=repository_dispatch&per_page=20`,
+          `/repos/${repo}/actions/workflows/${workflowFile}/runs?event=repository_dispatch&per_page=20`,
         );
         const match = runs.workflow_runs.find((run) => {
           const title = run.display_title ?? run.name ?? "";
@@ -106,16 +111,19 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     },
 
     async dispatch(plan: BuildPlan, meta: { buildId: string; artifactName: string }) {
-      const payload = buildDispatchPayload(plan, meta);
+      // Ticket 13: the engine chooses the event and the payload. A source plan
+      // sends the ticket 06 recipe to `combinewrt-source-build`; nothing else
+      // does, so a source build can never silently run as an ImageBuilder job.
+      const request = buildDispatchRequest(plan, meta);
       await json(`/repos/${repo}/dispatches`, {
         method: "POST",
         body: JSON.stringify({
-          event_type: "combinewrt-build",
-          client_payload: payload,
+          event_type: request.eventType,
+          client_payload: request.payload,
         }),
       });
 
-      return { runId: await this.findRun(meta.buildId) };
+      return { runId: await this.findRun(meta.buildId, buildEngineOf(plan)) };
     },
 
     async getRun(runId: string, expectedArtifactName?: string): Promise<RunUpdate> {

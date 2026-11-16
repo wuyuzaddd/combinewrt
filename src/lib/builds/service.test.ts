@@ -10,7 +10,7 @@ import { createArtifactCacheStore } from "./artifact-store";
 import { createFakeAdapter } from "./fake";
 import { createBuildService } from "./service";
 import { createBuildStore } from "./store";
-import type { BuildAdapter, BuildRecord, RunUpdate } from "./types";
+import type { BuildAdapter, RunUpdate } from "./types";
 
 const dirs: string[] = [];
 
@@ -60,7 +60,8 @@ describe("build service", () => {
     const store = createBuildStore(db);
     const service = createBuildService({ store, adapter: createFakeAdapter() });
     const submitted = await service.submit(plan());
-    expect((await service.refresh(submitted.id))?.status).toBe("queued");
+    expect(submitted.status).toBe("running");
+    expect((await service.refresh(submitted.id))?.status).toBe("running");
 
     const cancelled = await service.cancel(submitted.id);
     expect(cancelled?.status).toBe("cancelled");
@@ -68,15 +69,17 @@ describe("build service", () => {
     expect(store.listEvents(submitted.id).at(-1)?.source).toBe("cancel");
   });
 
-  it("records queued, polls to succeeded, and survives a restart", async () => {
+  it("records the dispatched build, polls to succeeded, and survives a restart", async () => {
     const db = database();
     const service = createBuildService({ store: createBuildStore(db), adapter: createFakeAdapter() });
 
     const submitted = await service.submit(plan());
-    expect(submitted.status).toBe("queued");
+    expect(submitted.status).toBe("running");
     expect(submitted.runId).toBe("fake-run-1");
 
-    expect((await service.refresh(submitted.id))?.status).toBe("queued");
+    // GitHub reports its own "queued" run state first; that must never hand a
+    // dispatched build back to the site queue.
+    expect((await service.refresh(submitted.id))?.status).toBe("running");
     expect((await service.refresh(submitted.id))?.status).toBe("running");
     const done = await service.refresh(submitted.id);
     expect(done?.status).toBe("succeeded");
@@ -132,7 +135,7 @@ describe("build service", () => {
     const service = createBuildService({ store: createBuildStore(db), adapter: flaky });
     const submitted = await service.submit(plan());
     const record = await service.refresh(submitted.id);
-    expect(record?.status).toBe("queued");
+    expect(record?.status).toBe("running");
     expect(record?.error).toContain("network down");
   });
 });
@@ -150,31 +153,6 @@ describe("build service resilience", () => {
 
     expect(stale.status).toBe("succeeded");
     expect(stale.artifactName).toBe("kept.zip");
-  });
-
-  it("fails a queued record whose dispatch never recorded a run id", async () => {
-    const db = database();
-    const store = createBuildStore(db);
-    const old = new Date(Date.now() - 10 * 60_000).toISOString();
-    const record: BuildRecord = {
-      id: "b-orphan",
-      plan: plan(),
-      status: "queued",
-      runId: null,
-      adapter: "fake",
-      logTail: "",
-      error: null,
-      artifactName: null,
-      createdAt: old,
-      updatedAt: old,
-    };
-    store.create(record);
-
-    const service = createBuildService({ store, adapter: createFakeAdapter() });
-    const refreshed = await service.refresh("b-orphan");
-
-    expect(refreshed?.status).toBe("failed");
-    expect(refreshed?.error).toContain("matched");
   });
 
   it("marks a build failed after the build timeout", async () => {

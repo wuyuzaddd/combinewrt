@@ -303,6 +303,21 @@ export const MIGRATIONS: Migration[] = [
     `,
   },
   {
+    version: "120_build_queue",
+    // Ticket 13: SQLite is the only build queue. `status = 'queued'` means the
+    // build is waiting for a dispatch slot; `dispatched_at` records when it left
+    // the queue (the dispatch attempt), and `engine`/`target` keep the dispatch
+    // decision visible without re-reading the plan JSON. All columns are
+    // nullable so V1 rows stay readable.
+    sql: `
+      ALTER TABLE builds ADD COLUMN engine TEXT;
+      ALTER TABLE builds ADD COLUMN target TEXT;
+      ALTER TABLE builds ADD COLUMN dispatched_at TEXT;
+
+      CREATE INDEX IF NOT EXISTS builds_queue ON builds (status, created_at);
+    `,
+  },
+  {
     version: "130_artifact_cache",
     // Site artifact cache index (ticket 14). Files on disk stay authoritative:
     // the index is reconciled against them on startup and after every cleanup,

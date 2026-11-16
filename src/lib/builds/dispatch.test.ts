@@ -4,7 +4,8 @@ import type { BuildPlan, BuildPlanV2 } from "../build/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
 import type { ImageVariant } from "../domain/types";
 import { mapImageVariant } from "../image/variants";
-import { buildDispatchPayload, imageBuilderCommandForVariant } from "./dispatch";
+import { buildDispatchPayload, buildDispatchRequest, imageBuilderCommandForVariant } from "./dispatch";
+import type { SourceDispatchPayload } from "./source-dispatch";
 
 const BASE = {
   baseVersion: "25.12.2",
@@ -169,5 +170,64 @@ describe("buildDispatchPayload", () => {
     expect(v2).toBeDefined();
     expect(Object.keys(v2!)).not.toContain("feedSet");
     expect(Object.keys(v2!)).not.toContain("preflight");
+  });
+});
+
+describe("buildDispatchRequest", () => {
+  function sourcePlan(overrides: Partial<BuildPlanV2> = {}): BuildPlanV2 {
+    const variant: ImageVariant = { boot: "efi", filesystem: "ext4", artifact: "combined" };
+    return v2Plan(variant, {
+      engine: "source",
+      kernelLine: { id: "6.6", version: "6.6", engine: "source" },
+      overlays: [],
+      artifactName: "immortalwrt-24.10-SNAPSHOT-x86-64-generic-ext4-combined-efi.img.gz",
+      ...overrides,
+    });
+  }
+
+  it("keeps the combinewrt-build event for V1 and ImageBuilder plans", () => {
+    const v1 = buildDispatchRequest(v1Plan(), { buildId: "b1", artifactName: "image.gz" });
+    expect(v1.eventType).toBe("combinewrt-build");
+    expect((v1.payload as { buildId: string }).buildId).toBe("b1");
+
+    const variant: ImageVariant = { boot: "efi", filesystem: "ext4", artifact: "combined" };
+    const plan = v2Plan(variant, { artifactName: artifactNameV2({ ...BASE, imageVariant: variant }) });
+    expect(buildDispatchRequest(plan, { buildId: "b2", artifactName: plan.artifactName }).eventType).toBe(
+      "combinewrt-build",
+    );
+  });
+
+  it("uses the ticket 06 recipe and the source-build event for source plans", () => {
+    const plan = sourcePlan();
+    const request = buildDispatchRequest(
+      plan,
+      { buildId: "s1", artifactName: plan.artifactName },
+      { now: new Date("2026-01-02T03:04:05.000Z") },
+    );
+
+    expect(request.eventType).toBe("combinewrt-source-build");
+    const payload = request.payload as SourceDispatchPayload;
+    expect(payload.buildId).toBe("s1");
+    expect(payload.schemaVersion).toBe(1);
+    expect(payload.engine).toBe("source");
+    expect(payload.kernelLineId).toBe("6.6");
+    expect(payload.expectedKernel).toBe("6.6.159");
+    expect(payload.source.ref).toMatch(/^[0-9a-f]{40}$/);
+    expect(payload.config).toContain("CONFIG_TARGET_x86_64=y");
+    expect(payload.config).toContain("CONFIG_PACKAGE_luci=y");
+    expect(payload.feedsConf).toContain("src-git packages");
+    expect(payload.metadata.generatedAt).toBe("2026-01-02T03:04:05.000Z");
+    // The ImageBuilder payload must never be produced for a source plan.
+    expect(payload).not.toHaveProperty("imageBuilderCommand");
+  });
+
+  it("refuses an unmodelled source kernel line instead of falling back to ImageBuilder", () => {
+    const plan = sourcePlan({ kernelLine: { id: "6.9", version: "6.6", engine: "source" } as never });
+    expect(() => buildDispatchRequest(plan, { buildId: "s2", artifactName: plan.artifactName })).toThrow(
+      /6\.9/,
+    );
+    expect(() => buildDispatchRequest(plan, { buildId: "s2", artifactName: plan.artifactName })).toThrow(
+      /config\/kernel-lines\.json/,
+    );
   });
 });

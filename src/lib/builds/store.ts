@@ -16,6 +16,9 @@ interface BuildRow {
   artifact_name: string | null;
   artifact_sha256: string | null;
   artifact_size: number | null;
+  engine: string | null;
+  target: string | null;
+  dispatched_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -34,9 +37,18 @@ function toRecord(row: BuildRow): BuildRecord {
     artifactName: row.artifact_name,
     artifactSha256: row.artifact_sha256,
     artifactSize: row.artifact_size,
+    engine: (row.engine as BuildRecord["engine"]) ?? null,
+    target: row.target ?? null,
+    dispatchedAt: row.dispatched_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/** Keep `updated_at` strictly increasing even when two writes share a millisecond. */
+function nextUpdatedAt(previous: string, timestamp: string): string {
+  if (timestamp > previous) return timestamp;
+  return new Date(Date.parse(previous) + 1).toISOString();
 }
 
 export interface BuildStore {
@@ -46,6 +58,15 @@ export interface BuildStore {
   count(): number;
   listActive(limit?: number): BuildRecord[];
   listEvents(id: string): BuildEvent[];
+  /**
+   * Atomically claim the oldest queued build for dispatch (ticket 13). Returns
+   * null when the running cap is reached or the queue is empty. The claim is a
+   * single `BEGIN IMMEDIATE` transaction, so two server processes (or a restart
+   * racing a submit) can never claim the same row or exceed the cap.
+   */
+  claimNextQueued(maxRunning: number, timestamp: string): BuildRecord | null;
+  /** Number of builds that are currently dispatched (claimed or running). */
+  countRunning(): number;
   update(
     id: string,
     patch: Partial<
@@ -77,13 +98,20 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
     ).run(buildId, fromStatus, toStatus, source, createdAt);
   }
 
+  function countRunning(): number {
+    const row = db.prepare("SELECT COUNT(*) AS total FROM builds WHERE status = 'running'").get() as {
+      total: number;
+    };
+    return Number(row.total);
+  }
+
   return {
     create(build) {
       db.exec("BEGIN IMMEDIATE");
       try {
         db.prepare(
-          `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, failure_json, artifact_name, artifact_sha256, artifact_size, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, failure_json, artifact_name, artifact_sha256, artifact_size, engine, target, dispatched_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           build.id,
           JSON.stringify(build.plan),
@@ -97,6 +125,9 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
           build.artifactName,
           build.artifactSha256 ?? null,
           build.artifactSize ?? null,
+          build.engine ?? null,
+          build.target ?? null,
+          build.dispatchedAt ?? null,
           build.createdAt,
           build.updatedAt,
         );
@@ -123,7 +154,9 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
     listActive(limit = 20) {
       const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 20;
       const rows = db
-        .prepare("SELECT * FROM builds WHERE status IN ('queued', 'running') ORDER BY created_at ASC LIMIT ?")
+        .prepare(
+          "SELECT * FROM builds WHERE status IN ('queued', 'running') ORDER BY created_at ASC, rowid ASC LIMIT ?",
+        )
         .all(safeLimit) as unknown as BuildRow[];
       return rows.map(toRecord);
     },
@@ -149,13 +182,44 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
         createdAt: row.created_at,
       }));
     },
+    claimNextQueued(maxRunning, timestamp) {
+      const cap = Math.max(1, Math.trunc(maxRunning));
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        if (countRunning() >= cap) {
+          db.exec("COMMIT");
+          return null;
+        }
+        const row = db
+          .prepare("SELECT * FROM builds WHERE status = 'queued' ORDER BY created_at ASC, rowid ASC LIMIT 1")
+          .get() as BuildRow | undefined;
+        if (!row) {
+          db.exec("COMMIT");
+          return null;
+        }
+        const updatedAt = nextUpdatedAt(row.updated_at, timestamp);
+        const result = db
+          .prepare(
+            "UPDATE builds SET status = 'running', dispatched_at = ?, updated_at = ? WHERE id = ? AND status = 'queued'",
+          )
+          .run(timestamp, updatedAt, row.id);
+        if (Number(result.changes) === 0) {
+          db.exec("ROLLBACK");
+          return null;
+        }
+        insertEvent(row.id, "queued", "running", "dispatch", updatedAt);
+        db.exec("COMMIT");
+        return get(row.id);
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
+    countRunning,
     update(id, patch, expectedUpdatedAt, source = "poll") {
       const current = get(id);
       if (!current) throw new Error(`build ${id} does not exist`);
-      let updatedAt = new Date().toISOString();
-      if (updatedAt <= current.updatedAt) {
-        updatedAt = new Date(Date.parse(current.updatedAt) + 1).toISOString();
-      }
+      const updatedAt = nextUpdatedAt(current.updatedAt, new Date().toISOString());
       const next: BuildRecord = { ...current, ...patch, updatedAt };
       const sql = expectedUpdatedAt
         ? "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, failure_json = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, updated_at = ? WHERE id = ? AND updated_at = ?"

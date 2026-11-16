@@ -32,6 +32,7 @@ describe("database bootstrap", () => {
       "010_v2_domain",
       "011_source_watch",
       "050_supplement_publish",
+      "120_build_queue",
       "130_artifact_cache",
     ]);
     const tables = db
@@ -84,7 +85,13 @@ describe("database bootstrap", () => {
        VALUES ('build-legacy', ?, 'succeeded', 'fake', '', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')`,
     ).run(legacyPlan);
 
-    expect(migrate(db)).toEqual(["010_v2_domain", "011_source_watch", "050_supplement_publish", "130_artifact_cache"]);
+    expect(migrate(db)).toEqual([
+      "010_v2_domain",
+      "011_source_watch",
+      "050_supplement_publish",
+      "120_build_queue",
+      "130_artifact_cache",
+    ]);
 
     const snapshot = db.prepare("SELECT * FROM catalog_snapshots WHERE id = 7").get() as Record<string, unknown>;
     expect(snapshot).toMatchObject({

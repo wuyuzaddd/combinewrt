@@ -1,4 +1,5 @@
 import type { ImageFeedSet, ImagePreflight } from "../build/feeds";
+import type { SourceRecipe } from "../build/source";
 import type { ImageFormatId, SourcePins } from "../catalog/types";
 import type { DownloadEntry, GeneratedFile, ModeState } from "../build/types";
 import type { BuildPlan, BuildPlanV2 } from "../domain/build-plan";
@@ -6,6 +7,7 @@ import { isBuildPlanV2 } from "../domain/build-plan";
 import type { BuildEngine, ImageVariant, KernelLine, Target } from "../domain/types";
 import type { ImageVariantMapping } from "../image/variants";
 import { mapImageVariant } from "../image/variants";
+import { loadSourceRecipe, type SourceDispatchPayload } from "./source-dispatch";
 
 /**
  * The `client_payload` of a `combinewrt-build` repository_dispatch event.
@@ -133,4 +135,43 @@ export function buildDispatchPayload(plan: BuildPlan, meta: DispatchMeta): Dispa
       v2: planV2Payload(plan, mapping),
     },
   };
+}
+
+/** Repository event types the site may send to the build repository. */
+export type DispatchEventType = "combinewrt-build" | "combinewrt-source-build";
+
+/** One dispatch: which repository event to send and the exact payload. */
+export interface DispatchRequest {
+  eventType: DispatchEventType;
+  payload: DispatchPayload | SourceDispatchPayload;
+}
+
+export interface BuildDispatchRequestOptions {
+  now?: Date;
+  /** Test seam: replace the config-backed source recipe loader. */
+  sourceRecipe?: (plan: BuildPlanV2, meta: DispatchMeta) => SourceRecipe;
+}
+
+/**
+ * Choose the dispatch path for a plan (ticket 13). A V2 plan whose engine is
+ * `source` sends ticket 06's recipe to `combinewrt-source-build`; every other
+ * plan keeps the ImageBuilder payload the workflow has always read. This is
+ * the only place the two engines are selected, so a source build cannot fall
+ * back to ImageBuilder by accident.
+ */
+export function buildDispatchRequest(
+  plan: BuildPlan,
+  meta: DispatchMeta,
+  options: BuildDispatchRequestOptions = {},
+): DispatchRequest {
+  if (plan.schemaVersion === 2 && plan.engine === "source") {
+    const recipe = options.sourceRecipe
+      ? options.sourceRecipe(plan, meta)
+      : loadSourceRecipe(plan, { now: options.now });
+    return {
+      eventType: "combinewrt-source-build",
+      payload: { ...recipe, buildId: meta.buildId },
+    };
+  }
+  return { eventType: "combinewrt-build", payload: buildDispatchPayload(plan, meta) };
 }
