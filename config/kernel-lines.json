@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "unwantedVersions": [
+    "5.15",
+    "6.1"
+  ],
+  "lines": [
+    {
+      "id": "6.6",
+      "version": "6.6",
+      "engine": "source",
+      "experimental": true,
+      "source": {
+        "repo": "https://github.com/immortalwrt/immortalwrt.git",
+        "ref": "af0775ab50d2d0e41f4e558c59208f6c9b8bdf0b",
+        "branch": "openwrt-24.10",
+        "expectedKernel": "6.6.159",
+        "kernelVersionFile": "include/kernel-6.6",
+        "configFragment": "config/kernel/6.6.config",
+        "cacheKey": "immortalwrt-24.10-6.6",
+        "feeds": [
+          {
+            "name": "packages",
+            "repo": "https://github.com/immortalwrt/packages.git",
+            "ref": "171d5f9203379f77693807d7283515a873f95df9"
+          },
+          {
+            "name": "luci",
+            "repo": "https://github.com/immortalwrt/luci.git",
+            "ref": "cc142cd196d425d9f14f9c18f072913730b642ce"
+          },
+          {
+            "name": "routing",
+            "repo": "https://github.com/openwrt/routing.git",
+            "ref": "00619bc7bc60d8b67ecc490121e45298b122cd6e"
+          },
+          {
+            "name": "telephony",
+            "repo": "https://github.com/openwrt/telephony.git",
+            "ref": "695f4f4a733dfaf10922d24bf9dbdfd509b8a6d4"
+          }
+        ],
+        "patches": []
+      }
+    },
+    {
+      "id": "6.12",
+      "version": "6.12",
+      "engine": "imagebuilder",
+      "experimental": false
+    },
+    {
+      "id": "6.18",
+      "version": "6.18",
+      "engine": "source",
+      "experimental": true,
+      "source": {
+        "repo": "https://github.com/immortalwrt/immortalwrt.git",
+        "ref": "a4ba8240d8a1aaef7e8c6f2d65e841a9bfd2b8c5",
+        "branch": "master",
+        "expectedKernel": "6.18.60",
+        "kernelVersionFile": "target/linux/generic/kernel-6.18",
+        "configFragment": "config/kernel/6.18.config",
+        "cacheKey": "immortalwrt-master-6.18",
+        "feeds": [
+          {
+            "name": "packages",
+            "repo": "https://github.com/immortalwrt/packages.git",
+            "ref": "decf94639ffd6ddd26591c190b547c6b7eea150b"
+          },
+          {
+            "name": "luci",
+            "repo": "https://github.com/immortalwrt/luci.git",
+            "ref": "ad75cde88e694b511100576bfbe0a280e5efe6ef"
+          },
+          {
+            "name": "routing",
+            "repo": "https://github.com/openwrt/routing.git",
+            "ref": "ea8633da9c461a9bdc62a0323439d31180762e03"
+          },
+          {
+            "name": "telephony",
+            "repo": "https://github.com/openwrt/telephony.git",
+            "ref": "06feffc2c154993f555b43756ef7db6dd7e58225"
+          },
+          {
+            "name": "video",
+            "repo": "https://github.com/openwrt/video.git",
+            "ref": "97137d9e4bbf2d5b8fc74b49d2a8641f21855032"
+          }
+        ],
+        "patches": []
+      }
+    }
+  ]
+}

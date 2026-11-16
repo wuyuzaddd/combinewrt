@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "capabilities:validate": "tsx scripts/validate-capabilities.ts",
+    "kernel-lines:validate": "tsx scripts/validate-kernel-lines.ts",
     "sources:validate": "tsx scripts/validate-sources.ts",
     "test": "vitest run",
     "test:watch": "vitest",

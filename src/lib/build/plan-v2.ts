@@ -62,17 +62,22 @@ export interface PlanV2Success {
   conflicts: BuildConflict[];
 }
 
-/** A form the capability registry refuses; the route answers 400. */
+/**
+ * A form the capability registry refuses. Most refusals are malformed requests
+ * (400); naming a kernel line the product does not model at all is a
+ * deliberate "this build cannot be supported" answer (409), matching the
+ * ticket 06 contract.
+ */
 export interface PlanV2Failure {
   ok: false;
-  status: 400;
+  status: 400 | 409;
   issues: string[];
 }
 
 export type PlanV2Outcome = PlanV2Success | PlanV2Failure;
 
-function reject(issue: string): PlanV2Failure {
-  return { ok: false, status: 400, issues: [issue] };
+function reject(issue: string, status: 400 | 409 = 400): PlanV2Failure {
+  return { ok: false, status, issues: [issue] };
 }
 
 /**
@@ -101,7 +106,9 @@ export async function createBuildPlanV2(
     profile = getProfile(form.target, form.profile, registry);
     kernel = getKernelLine(form.kernelLine, registry);
   } catch (error) {
-    if (error instanceof CapabilityError) return reject(error.message);
+    if (error instanceof CapabilityError) {
+      return reject(error.message, error.code === "unknown-kernel-line" ? 409 : 400);
+    }
     throw error;
   }
 

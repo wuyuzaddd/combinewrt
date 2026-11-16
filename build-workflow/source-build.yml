@@ -1,0 +1,355 @@
+# Source-build a kernel line for combinewrt V2.
+#
+# Canonical copy: build-workflow/source-build.yml in the combinewrt site repo.
+# Keep this file byte-identical with that copy.
+#
+# The payload is a SourceRecipe produced by src/lib/build/source.ts. It carries
+# the exact .config, pinned feeds.conf, package list and image expectations, so
+# this workflow never invents build input: it only checks out the pinned source,
+# applies the recipe and packages what came out. Both triggers exist for the
+# transition period: workflow_dispatch while the workflow lives on a topic
+# branch, repository_dispatch once it is on the default branch.
+name: source-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      plan:
+        description: "SourceRecipe JSON produced by src/lib/build/source.ts"
+        required: true
+        type: string
+  repository_dispatch:
+    types: [combinewrt-source-build]
+  # Before this workflow lands on the default branch GitHub cannot dispatch it
+  # by file name, so the ticket branch uses a pushed plan file as its payload.
+  push:
+    branches: [v2/ticket-06]
+    paths:
+      - ".github/workflows/source-build.yml"
+      - ".github/source-build-plan.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-build-${{ github.ref }}
+  cancel-in-progress: false
+
+run-name: source-build-${{ github.ref_name }}-${{ github.run_id }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Check out workflow repository
+        uses: actions/checkout@v7
+
+      - name: Prepare recipe
+        env:
+          RECIPE_INPUT: ${{ inputs.plan }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+
+          if [ -n "${RECIPE_INPUT:-}" ]; then
+            printf '%s' "$RECIPE_INPUT" > plan.json
+          elif jq -e '.client_payload | type == "object"' "$GITHUB_EVENT_PATH" > /dev/null; then
+            jq '.client_payload' "$GITHUB_EVENT_PATH" > plan.json
+          elif [ -f .github/source-build-plan.json ]; then
+            jq '.' .github/source-build-plan.json > plan.json
+          else
+            fail prepare "" "" "" "No source-build recipe in the dispatch payload or .github/source-build-plan.json."
+          fi
+
+          if ! jq -e '
+            .schemaVersion == 1 and
+            .engine == "source" and
+            (.config | type == "string") and
+            (.feedsConf | type == "string") and
+            (.packages | type == "array") and
+            (.configChecks | type == "array" and length > 0) and
+            (.profileChecks | type == "array" and length > 0) and
+            (.source.repo | type == "string" and startswith("https://github.com/")) and
+            (.source.ref | type == "string" and test("^[0-9a-f]{40}$")) and
+            (.kernelLineId | type == "string" and length > 0) and
+            (.kernelVersion | type == "string" and length > 0) and
+            (.expectedKernel | type == "string" and length > 0) and
+            (.artifactName | type == "string" and test("^immortalwrt-[A-Za-z0-9._-]+\\.(img\\.gz|tar\\.gz|vmdk|qcow2)$")) and
+            (.imageGlob | type == "string" and length > 0)
+          ' plan.json > /dev/null; then
+            fail prepare "" "" "" "Invalid source-build recipe payload."
+          fi
+
+          source_repo=$(jq -r .source.repo plan.json)
+          source_ref=$(jq -r .source.ref plan.json)
+          source_key=$(jq -r .cacheKey plan.json)
+          config_hash=$(jq -r .config plan.json | sha256sum | cut -c1-16)
+          {
+            echo "SOURCE_REPO=$source_repo"
+            echo "SOURCE_REF=$source_ref"
+            echo "SOURCE_BRANCH=$(jq -r .source.branch plan.json)"
+            echo "SOURCE_KEY=$source_key"
+            echo "KERNEL_LINE=$(jq -r .kernelLineId plan.json)"
+            echo "KERNEL_VERSION=$(jq -r .kernelVersion plan.json)"
+            echo "EXPECTED_KERNEL=$(jq -r .expectedKernel plan.json)"
+            echo "KERNEL_VERSION_FILE=$(jq -r .kernelVersionFile plan.json)"
+            echo "ARTIFACT_NAME=$(jq -r .artifactName plan.json)"
+            echo "IMAGE_GLOB=$(jq -r .imageGlob plan.json)"
+            echo "CONFIG_HASH=$config_hash"
+            echo "DL_CACHE_KEY=source-build-dl-${source_key}-${source_ref:0:12}"
+            echo "STAGING_CACHE_KEY=source-build-staging-v2-${source_key}-${source_ref:0:12}-${config_hash}"
+          } >> "$GITHUB_ENV"
+
+      - name: Free runner disk space
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost /usr/share/swift /opt/az /opt/microsoft /usr/local/.ghcup
+          sudo apt-get clean
+          df -h /
+
+      - name: Install build tools
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          if ! sudo apt-get update -qq; then
+            fail tools "" "" "" "apt-get update failed."
+          fi
+          if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential autoconf automake bc bison ccache cpio file flex gawk genisoimage gettext git \
+            jq libelf-dev libncurses-dev libssl-dev libtool patch pkg-config python3 python3-setuptools \
+            rsync squashfs-tools subversion swig time unzip wget xsltproc zlib1g-dev zstd e2fsprogs qemu-utils; then
+            fail tools "" "" "" "Installing source-build dependencies failed."
+          fi
+
+      - name: Check out pinned ImmortalWrt source
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          rm -rf source
+          mkdir source
+          cd source
+          git init -q
+          git remote add origin "$SOURCE_REPO"
+          if ! git fetch --depth 1 origin "$SOURCE_REF"; then
+            echo "shallow fetch by commit failed; fetching branch ${SOURCE_BRANCH} instead" >&2
+            if ! git fetch origin "$SOURCE_BRANCH"; then
+              fail source "" "$SOURCE_REF" "" "Could not fetch pinned source ${SOURCE_REF}."
+            fi
+          fi
+          if ! git checkout -q "$SOURCE_REF" 2>/dev/null; then
+            git checkout -q FETCH_HEAD
+          fi
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$SOURCE_REF" ]; then
+            fail source "" "$SOURCE_REF" "" "Checked out ${actual} instead of pinned ${SOURCE_REF}."
+          fi
+          patchver=$(sed -n 's/^KERNEL_PATCHVER:=//p' target/linux/x86/Makefile | head -1)
+          if [ "$patchver" != "$KERNEL_VERSION" ]; then
+            fail source "" "$SOURCE_REF" "$KERNEL_VERSION" "target/linux/x86/Makefile wants kernel ${patchver}, recipe says ${KERNEL_VERSION}."
+          fi
+          expected_prefix="${EXPECTED_KERNEL%.*}"
+          expected_patch="${EXPECTED_KERNEL##*.}"
+          if [ ! -f "$KERNEL_VERSION_FILE" ]; then
+            fail source "" "$SOURCE_REF" "$EXPECTED_KERNEL" "Kernel version file ${KERNEL_VERSION_FILE} is missing."
+          fi
+          if ! grep -Eq "LINUX_VERSION-${expected_prefix//./\\.} = \\.${expected_patch}$" "$KERNEL_VERSION_FILE"; then
+            fail source "" "$SOURCE_REF" "$EXPECTED_KERNEL" "${KERNEL_VERSION_FILE} does not pin kernel ${EXPECTED_KERNEL}."
+          fi
+
+      - name: Restore download cache
+        id: dl-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: source/dl
+          key: ${{ env.DL_CACHE_KEY }}
+          restore-keys: |
+            source-build-dl-${{ env.SOURCE_KEY }}-
+
+      - name: Restore build staging cache
+        id: staging-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            source/staging_dir/host
+            source/staging_dir/toolchain-*
+            source/build_dir/host
+            source/build_dir/toolchain-*
+          key: ${{ env.STAGING_CACHE_KEY }}
+          restore-keys: |
+            source-build-staging-${{ env.SOURCE_KEY }}-
+
+      - name: Restore compiler cache
+        id: ccache-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: source/.ccache
+          key: source-build-ccache-${{ env.SOURCE_KEY }}-${{ env.CONFIG_HASH }}
+          restore-keys: |
+            source-build-ccache-${{ env.SOURCE_KEY }}-
+
+      - name: Install pinned feeds
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd source
+          jq -r .feedsConf "$GITHUB_WORKSPACE/plan.json" > feeds.conf
+          if ! ./scripts/feeds update -a; then
+            fail feeds "" "$SOURCE_REF" "" "scripts/feeds update -a failed."
+          fi
+          if ! ./scripts/feeds install -a; then
+            fail feeds "" "$SOURCE_REF" "" "scripts/feeds install -a failed."
+          fi
+
+      - name: Apply generated config
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd source
+          jq -r .config "$GITHUB_WORKSPACE/plan.json" > .config
+          if ! make defconfig; then
+            fail config "" "$SOURCE_REF" "" "make defconfig failed."
+          fi
+          echo "Target/profile symbols selected by make defconfig:"
+          grep -E '^CONFIG_TARGET_(x86|MULTI_PROFILE|DEVICE_)' .config || true
+          missing=$(jq -r '.configChecks[]' "$GITHUB_WORKSPACE/plan.json" | while IFS= read -r check; do
+            grep -qxF "$check" .config || printf '%s\n' "$check"
+          done)
+          if [ -n "$missing" ]; then
+            fail config "" "$SOURCE_REF" "" "Missing required symbols after make defconfig: $(printf '%s' "$missing" | tr '\n' ' ')"
+          fi
+          profile=""
+          while IFS= read -r candidate; do
+            if grep -qxF "$candidate" .config; then
+              profile="$candidate"
+              break
+            fi
+          done <<< "$(jq -r '.profileChecks[]' "$GITHUB_WORKSPACE/plan.json")"
+          if [ -z "$profile" ]; then
+            fail config "" "$SOURCE_REF" "" "None of the expected target-profile symbols are enabled; selected: $(grep -E '^CONFIG_TARGET_(MULTI_PROFILE|x86_64|DEVICE_)' .config | tr '\n' ' ')"
+          fi
+          echo "Selected target profile: $profile"
+          echo "COMBINEWRT_PROFILE=$profile" >> "$GITHUB_ENV"
+
+      - name: Download package sources
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd source
+          if ! make -j"$(nproc)" download; then
+            echo "parallel download failed; retrying serially" >&2
+            if ! make -j1 V=s download; then
+              fail download "" "$SOURCE_REF" "" "make download failed."
+            fi
+          fi
+
+      - name: Save download cache
+        if: steps.dl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: source/dl
+          key: ${{ env.DL_CACHE_KEY }}
+
+      - name: Build image
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd source
+          start=$(date +%s)
+          if ! make -j"$(( $(nproc) + 1 ))" 2>&1 | tee build.log; then
+            tail -n 160 build.log || true
+            fail build "" "$SOURCE_REF" "$KERNEL_LINE" "make failed; see build.log."
+          fi
+          echo "COMBINEWRT_BUILD_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Save build staging cache
+        if: success() && steps.staging-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            source/staging_dir/host
+            source/staging_dir/toolchain-*
+            source/build_dir/host
+            source/build_dir/toolchain-*
+          key: ${{ env.STAGING_CACHE_KEY }}
+      - name: Save compiler cache
+        if: success() && steps.ccache-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: source/.ccache
+          key: source-build-ccache-${{ env.SOURCE_KEY }}-${{ env.CONFIG_HASH }}
+
+      - name: Package image and manifest
+        env:
+          DL_HIT: ${{ steps.dl-cache.outputs.cache-hit }}
+          STAGING_HIT: ${{ steps.staging-cache.outputs.cache-hit }}
+          CCACHE_HIT: ${{ steps.ccache-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          cd source
+          image=$(find bin/targets -type f -name "$IMAGE_GLOB" | head -1)
+          if [ -z "$image" ]; then
+            fail package "" "$SOURCE_REF" "$KERNEL_LINE" "No image matched ${IMAGE_GLOB} in bin/targets."
+          fi
+          kernel_release=$(find build_dir -type f -name kernel.release | head -1)
+          if [ -z "$kernel_release" ]; then
+            fail package "" "$SOURCE_REF" "$KERNEL_LINE" "No kernel.release found under build_dir."
+          fi
+          built_kernel=$(cat "$kernel_release")
+          if [ "$built_kernel" != "$EXPECTED_KERNEL" ]; then
+            fail package "" "$SOURCE_REF" "$EXPECTED_KERNEL" "Built kernel ${built_kernel}, recipe expects ${EXPECTED_KERNEL}."
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          artifact="$GITHUB_WORKSPACE/out/$ARTIFACT_NAME"
+          cp "$image" "$artifact"
+          if ! gzip -t "$artifact" 2>"$RUNNER_TEMP/gzip.err"; then
+            # Some x86 disk images carry padding after the gzip member. gzip
+            # verifies the stream CRC and then only warns about that padding,
+            # so accept exactly that case and reject any other damage.
+            if grep -q "trailing garbage ignored" "$RUNNER_TEMP/gzip.err"; then
+              echo "gzip: stream verified; padding after the gzip member ignored"
+            else
+              cat "$RUNNER_TEMP/gzip.err" >&2
+              fail package "" "$SOURCE_REF" "$KERNEL_LINE" "gzip integrity check failed for ${ARTIFACT_NAME}."
+            fi
+          fi
+          sha=$(sha256sum "$artifact" | awk '{print $1}')
+          size=$(stat -c%s "$artifact")
+          if [ "$size" -gt 2147483648 ]; then
+            fail package "" "$SOURCE_REF" "$KERNEL_LINE" "Artifact is ${size} bytes, above the 2 GiB cap."
+          fi
+          jq -c -n \
+            --arg artifact "$ARTIFACT_NAME" \
+            --arg sha256 "$sha" \
+            --argjson sizeBytes "$size" \
+            --arg kernelLine "$KERNEL_LINE" \
+            --arg kernelVersion "$built_kernel" \
+            --arg sourceRepo "$SOURCE_REPO" \
+            --arg sourceRef "$SOURCE_REF" \
+            --arg sourceBranch "$SOURCE_BRANCH" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg runUrl "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --argjson downloadCache "${DL_HIT:-false}" \
+            --argjson stagingCache "${STAGING_HIT:-false}" \
+            --argjson ccacheCache "${CCACHE_HIT:-false}" \
+            --arg buildSeconds "${COMBINEWRT_BUILD_SECONDS:-0}" \
+            '{artifact:$artifact,sha256:$sha256,sizeBytes:$sizeBytes,kernelLine:$kernelLine,kernelVersion:$kernelVersion,source:{repo:$sourceRepo,ref:$sourceRef,branch:$sourceBranch},run:{id:$runId,url:$runUrl},cache:{download:$downloadCache,staging:$stagingCache,ccache:$ccacheCache},buildSeconds:($buildSeconds|tonumber)}' \
+            > "$GITHUB_WORKSPACE/out/manifest.json"
+          cat "$GITHUB_WORKSPACE/out/manifest.json"
+          echo "COMBINEWRT_MANIFEST=$(cat "$GITHUB_WORKSPACE/out/manifest.json")"
+          echo "COMBINEWRT_ARTIFACT_SHA256=$sha"
+          echo "COMBINEWRT_ARTIFACT_SIZE=$size"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            out/${{ env.ARTIFACT_NAME }}
+            out/manifest.json
+          retention-days: 7
+          if-no-files-found: error
+
