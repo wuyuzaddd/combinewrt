@@ -19,7 +19,7 @@
 | 5 | eMMC | 模型/能力/UI 完成，真实构建不计入 | 🟡 | registry + UI 禁用原因（e2e）；无真实 eMMC 构建（本就不承诺） |
 | 6 | Kernel | 6.12 默认；6.6/6.18 实验；至少一条源码线产出镜像 | 🟡 | 6.12 ImageBuilder、6.6 源码冷/暖各一次；6.18 已 pin 但从未构建 |
 | 7 | Modes | 16 个声明式 mode；主题走 extension bundle | 🟡 | mode/typed-network 单测与 e2e 冲突 409；无真机网络验证；主题包真实签名/verify 通过 |
-| 8 | Docker | 源码构建、ext4 combined + overlay、`/var/lib/docker` 可写 | 🟡 | 源码构建 [43866444618](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43866444618) 成功，docker 包集/init/config/ext4 可写已从 artifact 验证；`/var/lib/docker` 缺失（stock data_root `/opt/docker`，source engine 不写计划 generated files） |
+| 8 | Docker | 源码构建、ext4 combined + overlay、`/var/lib/docker` 可写 | 🟡 | 两次真实源码构建：包集/init/config/ext4 可写已验证（[43866444618](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43866444618)）；review 修复后带 files overlay 的验证 run [43891611647](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43891611647) **镜像构建成功（`buildSeconds 4826`，artifact 已上传）但 `Verify generated files overlay in the image` 步骤失败**：chroot 内执行 docker uci-defaults 后 `/var/lib/docker` 仍缺失/不可写（`/var`→tmpfs）。该行保持 🟡，下一步需在 QEMU 启动镜像验证 boot 后可写，或去掉该 chroot 字面断言 |
 | 9 | Feeds | 公开/私有 image feed set 正确生成并进 source offer | ✅ | 真实 preflight run 43709222330；feeds/source-offer 单测与 e2e |
 | 10 | Source sync | dllkids 自动采纳 + supplement 自动发布真实跑通一次 | 🟡 | supplement 构建→发布→staging→提升真实跑通；dllkids 自动采纳只有 fake clock/fetch 单测，未在在线站点采纳 |
 | 11 | Build ops | 队列并发、失败标记、产物下载、source offer、V1 计划只读 | 🟡 | 失败标记/下载/source offer/V1 只读有真实或 e2e 证据；队列只有单测，未做真实 GitHub 派发 |
@@ -108,7 +108,12 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
   - 包管理：24.10 使用 **opkg**，`/usr/lib/opkg/status` 共 **307** 个包。`docker 27.3.1-r1`、`dockerd 27.3.1-r3`、`containerd 1.7.22-r1`、`runc 1.1.14-r1`、`tini 0.19.0-r2`、`ca-bundle 20260816-r2`、`kmod-veth/kmod-br-netfilter/kmod-ipt-nat 6.6.159-r1`、`iptables-nft 1.8.10-r1`、`kernel 6.6.159~365a65b8…-r1` 全部为 `install ok installed`；`/etc/init.d/dockerd`（0755）与 `/etc/config/dockerd`（0600）存在。
   - 可写性：`/opt/docker` 存在（0755），在离线镜像副本上用 `debugfs -w` 执行 `mkdir /opt/docker/t16-write-test` 成功（随后 rmdir），证明 ext4 数据分区可写。镜像内 `/etc/config/dockerd` 的 `data_root` 是 **`/opt/docker/`**（包默认值）。
   - **未满足的断言**：镜像内 **没有 `/var/lib/docker`**；`/var` 是指向 `tmp` 的符号链接，因此 `/var/lib/docker` 即使创建也在 tmpfs 上。原因是 `source-build.yml` 只消费 `SourceRecipe`（`config`/`feedsConf`/`packages`），**没有写入计划的 `files`**：docker mode 生成的 uci-defaults（`mkdir -p /var/lib/docker`、设置 data root）以及 feed set 生成的 `/etc/apk/...` 文件都只进入 ImageBuilder payload，未进入源码构建。源码构建实际使用 stock 的 `/opt/docker`，且 24.10 是 opkg 而非 apk，V2 的 apk feed set 本来也不适用于这条源码线。
-  - 结论：源码构建、kernel 6.6.159、docker 包集、ext4 可写、dockerd init/config 均已验证；**`/var/lib/docker` 这一条按字面未通过**，根因是 source engine 不应用计划 generated files（见“未验证”表与给 lead 的报告）。
+  - 结论：源码构建、kernel 6.6.159、docker 包集、ext4 可写、dockerd init/config 均已验证；**`/var/lib/docker` 这一条按字面仍未通过**。
+- review 修复后复验 run [43891611647](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43891611647)（2026-11-16T14:59:30Z 起，ref `fix/v2-review`，branch 上跑，main 尚未包含该 workflow 版本）：
+  - `Write generated files overlay` 步骤执行成功，日志 `generated files in plan: 3`，说明 `SourceRecipe.files` 已进入源码树；
+  - `make` 成功产出镜像（`buildSeconds 4826`，kernel line 6.6）；
+  - 新增的 `Verify generated files overlay in the image` 步骤失败，结构化标记 `COMBINEWRT_FAILURE={"step":"verify-files",...}`，message `/var/lib/docker is missing or not writable after the docker uci-defaults ran`；
+  - 根因判断：镜像内 `/var` 是指向 `tmp` 的符号链接，chroot 里执行 uci-defaults 得到的 `/var/lib/docker` 落在宿主不可写的 tmpfs 视图上；该断言需要“启动后检查”而不是“挂载后 chroot 检查”。
 
 ### 9. Feeds 与 preflight
 
@@ -129,7 +134,8 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 | staging（元数据变化） | [43703141721](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43703141721) | **publish 成功 / deploy 被 Pages 环境规则拒绝**：build job 写好 `staging.json` 且 live 索引不变，deploy job 因 `github-pages` environment 只允许 `main` 而失败（run conclusion `failure`） |
 | staging → live 提升 | [43703283136](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43703283136) | **publish 成功 / deploy 被 Pages 环境规则拒绝**（`failure`）；build 记录 `promoted_from_staging=true`，gh-pages 有 frozen path，但 live 站点未更新 |
 | 项目密钥重签名 | [43726635531](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43726635531) | **publish 成功 / deploy 被 Pages 环境规则拒绝**（`failure`）；build job 6/6 apk + index `OK` |
-| V2 review 修复后的真实部署 | [43891341975](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43891341975) | `success`（branch `fix/v2-feedset`）：`/supplement/25.12.2/x86_64/packages.adb` 200，与 frozen 路径同 sha256 `20c4c3d4e2c026a09fd7fd1300a6e480ed427a0ac2d4133acb413099893c0d1a`，`apk verify` OK |
+| V2 review 修复后的真实部署 | [43891341975](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43891341975) | `success`（branch `fix/v2-feedset`）：`/supplement/25.12.2/x86_64/packages.adb` 200，与 frozen 路径同 sha256，`apk verify` OK |
+| **main 上正式发布（Pages 实际部署）** | [43907601591](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/43907601591) | `success`（`--ref main`，`feed_kind=supplement`，`publish_mode=live`）：deploy job 成功；线上 `/supplement/25.12.2/x86_64/packages.adb` **HTTP 200**，`sha256 9d201223c8c66badb24b87525c2bb063ae7fe8fde2c77f9b34ac580ffcaf1531`，与 frozen 目录 `19a44706…/packages.adb` **完全一致**；`/x86_64/packages.adb`、`/extension/25.12.2/x86_64/packages.adb`、`/staging.json` 均 200 |
 
 **dllkids（部分）**
 
@@ -158,6 +164,7 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 - **`client_payload` 嵌套（spec:108）**：source dispatch 顶层只保留 `buildId`/`schemaVersion`/`engine`/`baseVersion`/`profileId`/`artifactName`/`composition`（7 个），整套 recipe 嵌在 `composition` 下；`source-build.yml` 先归一化回扁平 recipe。单测同时断言 ImageBuilder（10 个）与 source 两条派发的顶层属性上限。
 - **dllkids 采纳在刷新中生效**：`refreshActiveCatalog` 先读 `source_pins`（`active`），配置常量只在没有 DB pin 时作为 seed；单测证明 DB 采纳值优先于过期的 env 值。
 - **extension watch（ADR 0008）**：调度器新增 `runExtensionWatchIfDue`，对 `config/sources/registry.json` 的 extension 条目观察 upstream head，变化只记 candidate（可审计、可缓存），不采纳、不发布。
+- **验证状态（2026-11-17 00:35，Asia/Shanghai）**：带 overlay 的源码构建 run [43891611647](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43891611647) 镜像构建成功（`buildSeconds 4826`）但 `Verify generated files overlay in the image` 步骤失败（`/var/lib/docker` 在 chroot 内缺失/不可写）；Docker 行维持 🟡，详见 §8。该 workflow 版本已同步到 build 仓 main `9f871da`，可在 main 上复跑。
 - **feed set URL 一致**：`feeds.ts` 与 preflight 都用 `/supplement/<baseVersion>/<target>/packages.adb`；feed 仓库发布流水线新增部署后断言（live pointer 与 frozen 路径同 sha256 + `apk verify`），分支真实 run 43891341975 证明该 URL 可下载且签名可验证。
 - **正确性护栏**：`migrate()` 断言版本严格递增且唯一，并拒绝排序在已应用版本之前的待应用版本；`openDatabase` 设置 `PRAGMA busy_timeout = 5000`；`isBuildPlanV2Form` 要求显式 `schemaVersion === 2` **且**有 `target`；删除 `source-build.yml` 的死 `push` 触发器；`workflow-yaml` 测试钉死 `--allow-untrusted` 的允许清单（仅 build.yml 的下载包 verify/mkndx 共 3 处）；被跳过的契约测试会打印跳过原因。
 
@@ -173,7 +180,7 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 | VMDK | [43866425386](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43866425386) | ✅ |
 | qcow2 | [43704727299](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43704727299) | ✅ |
 | source kernel | [43853764898](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43853764898)（暖）/ [43711004777](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43711004777)（冷） | ✅ |
-| Docker | [43866444618](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43866444618) | 🟡 源码构建与包集通过；`/var/lib/docker` 未通过（见 §8） |
+| Docker | [43866444618](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43866444618)（首验）/ [43891611647](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43891611647)（overlay 复验，验证步骤失败） | 🟡 源码构建、包集、overlay 写入均通过；`/var/lib/docker` 断言在 chroot 验证下未通过（见 §8） |
 
 ## 未验证 / 明确不在 V2.0 范围
 
@@ -191,8 +198,8 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 | IPv6/PPPoE/WiFi/switch-port 真机连通性 | 只验证生成与拒绝路径，无硬件启动测试 |
 | 队列真实派发 | 单测覆盖队列语义；没有“站点队列 → GitHub run”的真实链路证据 |
 | public vs private 镜像内 repository 文件 diff | 由单测覆盖生成逻辑，未对比两条真实镜像 |
-| Docker `/var/lib/docker` 字面路径 | 镜像内不存在；`/var`→tmpfs，stock data_root 是 `/opt/docker`。source engine 不应用 docker mode 的 generated files（见 §8） |
-| 源码构建的 feed set / mode generated files | `SourceRecipe` 不含 `files`，源码镜像没有 `/etc/apk/repositories.d/90-combinewrt.list` 或 docker/NAS/网络 uci-defaults；24.10 还是 opkg 而非 apk |
+| Docker `/var/lib/docker` 字面路径 | files overlay 已实现并写入镜像（run 43891611647 的 `Write generated files overlay` 成功），但 chroot 验证步骤失败：`/var`→tmpfs 使该目录在挂载态不可写。需 QEMU 启动后验证（见 §8） |
+| 源码构建镜像内 mode/feed 文件的运行期效果 | overlay 已在树上（run 43891611647 证明 `files` 被写入并参与构建），但“文件在运行中的系统里生效”只有 ImageBuilder 镜像路径的断言；源码镜像仍缺启动后验证（同上行） |
 | 在 Docker 容器/VM 中真正启动 dockerd 跑容器 | 只检查了镜像内容与 ext4 可写；未启动 dockerd 拉取/运行容器 |
 
 ## 本地可复现校验
@@ -210,7 +217,7 @@ npm run build        # 限资源包装见 deploy/README.md
 npm run test:e2e:only
 ```
 
-结果：`npm test` 80 文件 / **662 用例通过**；`npm run typecheck` 干净；`npm run lint` 干净；`capabilities:validate` = 2 targets / 2 profiles / 21 variants / 3 kernel lines / 16 modes；`sources:validate` = 14 packages（official 7 / dllkids 1 / supplement 1 / extension 5）、13 bundles、2 themes；`kernel-lines:validate` = 3 lines（2 source / 1 imagebuilder）；限资源 `npm run build` exit 0（Next.js 16.4.6，22/22 路由编译）；`npm run test:e2e:only` **11/11 passed（57.4s）**。
+结果：`npm test` 82 文件 / **689 用例通过**；`npm run typecheck` 干净；`npm run lint` 干净；`capabilities:validate` = 2 targets / 2 profiles / 21 variants / 3 kernel lines / 16 modes；`sources:validate` = 14 packages（official 7 / dllkids 1 / supplement 1 / extension 5）、13 bundles、2 themes；`kernel-lines:validate` = 3 lines（2 source / 1 imagebuilder）；限资源 `npm run build` exit 0（Next.js 16.4.6，22/22 路由编译）；`npm run test:e2e:only` **11/11 passed（57.4s）**。
 
 按 runbook 在临时端口启动（临时 DB、dummy secret/hash、`BUILD_ADAPTER=fake`）并请求 `/api/health`：`next start -p 3101`（`DATABASE_PATH=/tmp/t16-health.db`、dummy `SESSION_SECRET`/`ADMIN_PASSWORD_HASH`、`BUILD_ADAPTER=fake`）→ `✓ Ready in 131ms`，`curl -fsS http://127.0.0.1:3101/api/health` → `{"ok":true}`；进程随后关闭，临时 DB 已删除（未提交）。
 
