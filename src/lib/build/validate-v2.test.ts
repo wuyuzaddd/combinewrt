@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateBuildFormV2 } from "./validate";
+import { isBuildPlanV2Form, validateBuildFormV2 } from "./validate";
 
 const base = {
   profile: "generic",
@@ -68,3 +68,17 @@ describe("validateBuildFormV2", () => {
     expect(malformed.ok).toBe(false);
     if (!malformed.ok) expect(malformed.issues.join("\n")).toMatch(/removePackages/);
   });
+
+describe("isBuildPlanV2Form", () => {
+  it("requires an explicit schemaVersion 2 and a target id", () => {
+    expect(isBuildPlanV2Form({ schemaVersion: 2, target: "x86/64", profile: "generic" })).toBe(true);
+    // Field presence alone is not a declaration: these stay on the V1 path.
+    expect(isBuildPlanV2Form({ imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" } })).toBe(false);
+    expect(isBuildPlanV2Form({ kernelLine: "6.12", profile: "generic" })).toBe(false);
+    expect(isBuildPlanV2Form({ schemaVersion: 2, profile: "generic" })).toBe(false);
+    expect(isBuildPlanV2Form({ schemaVersion: 1, target: "x86/64" })).toBe(false);
+    expect(isBuildPlanV2Form({ schemaVersion: 2, target: "  " })).toBe(false);
+    expect(isBuildPlanV2Form(null)).toBe(false);
+    expect(isBuildPlanV2Form([])).toBe(false);
+  });
+});

@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrate, openDatabase } from "./db";
+import { migrate, openDatabase, validateMigrationOrder } from "./db";
+import type { Migration } from "./migrations";
 
 const dirs: string[] = [];
 
@@ -148,6 +149,41 @@ describe("database bootstrap", () => {
       )
       .run();
     expect(Number(otherTarget.lastInsertRowid)).toBeGreaterThan(7);
+    db.close();
+  });
+});
+
+describe("migration order contract", () => {
+  const migration = (version: string): Migration => ({ version, sql: "SELECT 1;" });
+
+  it("accepts the checked-in append-only list", () => {
+    expect(() => validateMigrationOrder([migration("011_source_watch"), migration("050_foo"), migration("120_bar")])).not.toThrow();
+  });
+
+  it("rejects duplicate versions and versions that do not sort after the previous one", () => {
+    expect(() => validateMigrationOrder([migration("011_a"), migration("011_a")])).toThrow(/duplicate/);
+    // Versions jump by ticket block; an out-of-order insert must be caught.
+    expect(() => validateMigrationOrder([migration("050_a"), migration("120_b"), migration("011_c")])).toThrow(/sort after/);
+    expect(() => validateMigrationOrder([migration("m1")])).toThrow(/000_name/);
+  });
+
+  it("refuses a pending migration that sorts before an already-applied one", () => {
+    const db = openDatabase(":memory:");
+    const migrations = [migration("010_a"), migration("020_b"), migration("030_c")];
+    const through = migrate(db, { migrations });
+    expect(through).toEqual(["010_a", "020_b", "030_c"]);
+    // Simulate merging a ticket block that was numbered earlier than a block a
+    // database already applied: 025_x is pending but sorts before 030_c.
+    expect(() =>
+      migrate(db, { migrations: [migration("010_a"), migration("020_b"), migration("025_x"), migration("030_c")] }),
+    ).toThrow(/sorts before the already-applied|must sort after/);
+    db.close();
+  });
+
+  it("waits on a busy database instead of failing immediately", () => {
+    const db = openDatabase(":memory:");
+    const row = db.prepare("PRAGMA busy_timeout").get() as { timeout: number };
+    expect(Number(row.timeout)).toBe(5000);
     db.close();
   });
 });
