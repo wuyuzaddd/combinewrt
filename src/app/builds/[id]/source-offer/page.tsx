@@ -118,6 +118,138 @@ export default async function SourceOfferPage({ params }: { params: Promise<{ id
         </div>
       </section>
 
+      {offer.v2 && (
+        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
+          <h2 className="font-medium">V2 构建组合</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            记录引擎、目标与内核线、镜像变体、模式栈与每个包的获取策略；V1 source offer 不显示此段。
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">引擎</p>
+              <p className="mt-1 font-mono text-slate-200">{offer.v2.engine}</p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">通道</p>
+              <p className="mt-1 font-mono text-slate-200">{offer.v2.channel}</p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">目标 / Profile</p>
+              <p className="mt-1 font-mono text-slate-200">
+                {offer.v2.target.id} · {offer.v2.deviceProfile.id}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">{offer.v2.deviceProfile.title}</p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">内核线</p>
+              <p className="mt-1 font-mono text-slate-200">
+                {offer.v2.kernelLine.id} · {offer.v2.kernelLine.engine}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">镜像变体</p>
+              <p className="mt-1 font-mono text-slate-200">
+                {offer.v2.imageVariant.boot} / {offer.v2.imageVariant.filesystem} /{" "}
+                {offer.v2.imageVariant.artifact}
+                {offer.v2.imageVariant.overlaySizeMb ? ` · overlay ${offer.v2.imageVariant.overlaySizeMb} MB` : ""}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+              <p className="text-xs uppercase tracking-wider text-slate-500">基础 preset</p>
+              <p className="mt-1 text-slate-200">
+                {offer.v2.basePreset.title}（{offer.v2.basePreset.id}）
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-xs uppercase tracking-wider text-slate-500">模式栈</p>
+            {offer.v2.overlays.length === 0 ? (
+              <p className="mt-1 text-xs text-slate-500">没有 overlay 模式。</p>
+            ) : (
+              <ul className="mt-1 flex flex-wrap gap-2">
+                {offer.v2.overlays.map((mode) => (
+                  <li
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      mode.experimental
+                        ? "border-amber-800 text-amber-200"
+                        : "border-slate-700 text-slate-300"
+                    }`}
+                    key={mode.id}
+                  >
+                    {mode.title}（{mode.id}）{mode.experimental ? " · 实验" : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {offer.v2.imageVariant && offer.modes && (
+              <p className="mt-2 text-xs text-slate-500">
+                生成文件：{offer.modes.generatedFiles.join(", ") || "（无）"}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <p className="text-xs uppercase tracking-wider text-slate-500">获取策略（strategy / fallback）</p>
+            <div className="mt-2 max-h-72 overflow-auto">
+              <table className="min-w-full divide-y divide-slate-800 text-xs">
+                <thead className="sticky top-0 bg-slate-900 text-left uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-2 py-2">包</th>
+                    <th className="px-2 py-2">来源</th>
+                    <th className="px-2 py-2">请求策略</th>
+                    <th className="px-2 py-2">实际策略</th>
+                    <th className="px-2 py-2">回退原因</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70">
+                  {offer.v2.strategies.map((strategy) => (
+                    <tr key={strategy.name}>
+                      <td className="px-2 py-1.5 font-mono text-slate-200">{strategy.name}</td>
+                      <td className="px-2 py-1.5 text-slate-400">{strategy.source ?? "unknown"}</td>
+                      <td className="px-2 py-1.5 font-mono text-slate-400">{strategy.requested}</td>
+                      <td
+                        className={`px-2 py-1.5 font-mono ${
+                          strategy.effective === "blocked" ? "text-rose-300" : "text-emerald-300"
+                        }`}
+                      >
+                        {strategy.effective}
+                      </td>
+                      <td className="px-2 py-1.5 text-slate-400">{strategy.fallbackReason ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-xs uppercase tracking-wider text-slate-500">镜像 feed set</p>
+            {offer.feedSet ? (
+              <div className="mt-1 space-y-1 text-xs text-slate-400">
+                <p>
+                  可见性 {offer.feedSet.visibility} · 官方源 {offer.feedSet.officialBaseUrl}
+                  {offer.feedSet.officialMirror ? ` · 镜像 ${offer.feedSet.officialMirror}` : ""}
+                </p>
+                <p>
+                  签名 key：{offer.feedSet.key.path} · 指纹 {offer.feedSet.key.fingerprint}
+                </p>
+                <ul className="space-y-1">
+                  {offer.feedSet.repositories.map((repository) => (
+                    <li className="break-all font-mono" key={repository.id}>
+                      {repository.id} · {repository.signed ? "signed" : "unsigned"} · {repository.condition} ·{" "}
+                      {repository.url}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">该计划没有记录 feed set（早于 ticket 09 的计划）。</p>
+            )}
+          </div>
+        </section>
+      )}
+
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm">
         <h2 className="font-medium">构建配置</h2>
         {offer.config ? (
