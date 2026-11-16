@@ -1,5 +1,7 @@
 export { writeCachedIndex, readCachedIndex, sourceCachePath } from "./cache";
 export { recordObservedCandidate } from "./candidates";
+export { checkExtensionRefs, extensionWatchEntries, runExtensionWatchIfDue } from "./extension";
+export type { ExtensionWatchEntry, ExtensionWatchResult } from "./extension";
 export { describePackageDiff, diffPackages, isPackageDiff } from "./diff";
 export {
   createDllkidsRepoRefWatcher,
