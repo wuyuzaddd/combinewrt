@@ -102,6 +102,7 @@ function toPackage(row: PackageRow): CatalogPackage {
 
 export interface CatalogStore {
   findSnapshot(baseVersion: string, feedCommit: string, target?: string): SnapshotMeta | null;
+  getSnapshot(snapshotId: number): SnapshotMeta | null;
   getActiveSnapshot(): SnapshotMeta | null;
   latestForBaseVersion(baseVersion: string, target?: string): number | null;
   activateSnapshot(snapshotId: number): boolean;
@@ -123,6 +124,13 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
     const row = db
       .prepare("SELECT * FROM catalog_snapshots WHERE base_version = ? AND target = ? AND feed_commit = ?")
       .get(baseVersion, target, feedCommit) as SnapshotRow | undefined;
+    return row ? toMeta(row) : null;
+  }
+
+  function getSnapshot(snapshotId: number): SnapshotMeta | null {
+    const row = db.prepare("SELECT * FROM catalog_snapshots WHERE id = ?").get(snapshotId) as
+      | SnapshotRow
+      | undefined;
     return row ? toMeta(row) : null;
   }
 
@@ -312,6 +320,7 @@ export function createCatalogStore(db: DatabaseSync): CatalogStore {
 
   return {
     findSnapshot,
+    getSnapshot,
     getActiveSnapshot,
     latestForBaseVersion,
     activateSnapshot,

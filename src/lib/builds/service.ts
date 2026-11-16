@@ -36,6 +36,8 @@ export interface BuildService {
   list(limit?: number, offset?: number): BuildRecord[];
   get(id: string): BuildRecord | null;
   count(): number;
+  /** 1-based FIFO position while the build waits for a dispatch slot; null otherwise. */
+  queuePosition(id: string): number | null;
   refresh(id: string): Promise<BuildRecord | null>;
   cancel(id: string): Promise<BuildRecord | null>;
   refreshActive(limit?: number): Promise<BuildRecord[]>;
@@ -244,6 +246,9 @@ export function createBuildService(options: {
     },
     count() {
       return store.count();
+    },
+    queuePosition(id) {
+      return store.queuePosition(id);
     },
 
     listActive(limit) {

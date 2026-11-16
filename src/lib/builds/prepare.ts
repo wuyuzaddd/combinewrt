@@ -86,7 +86,26 @@ export type PreparedPlanV2 =
 /** V2 counterpart of `preparePlanForForm`; never used for V1 plan requests. */
 export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<PreparedPlanV2> {
   const store = createCatalogStore(getDatabase());
-  const snapshot = store.getActiveSnapshot();
+  const active = store.getActiveSnapshot();
+  // The Simple form offers release-channel base versions. A request that names
+  // another release uses that release's newest catalog snapshot; the active
+  // snapshot stays the default when no baseVersion is sent.
+  let snapshot = active;
+  if (form.baseVersion && form.baseVersion !== active?.baseVersion) {
+    const snapshotId = store.latestForBaseVersion(form.baseVersion);
+    const requested = snapshotId === null ? null : store.getSnapshot(snapshotId);
+    if (!requested) {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          ok: false,
+          issues: [`baseVersion: no catalog snapshot is available for release ${form.baseVersion}`],
+        },
+      };
+    }
+    snapshot = requested;
+  }
   if (!snapshot) {
     return { ok: false, status: 409, body: { ok: false, error: "no active catalog snapshot" } };
   }

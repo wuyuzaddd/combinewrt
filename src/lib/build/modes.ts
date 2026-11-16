@@ -265,6 +265,20 @@ const BASE_PRESETS: Record<BasePresetId, BasePresetDefinition> = {
   },
 };
 
+/** Feature tokens each base preset satisfies, exported for the build UI (ticket 15). */
+export const BASE_PRESET_FEATURES: Record<BasePresetId, readonly string[]> = {
+  minimal: BASE_PRESETS.minimal.features,
+  common: BASE_PRESETS.common.features,
+  "router-default": BASE_PRESETS["router-default"].features,
+};
+
+/** Display titles of the base presets, in menu order. */
+export const BASE_PRESET_TITLES: Record<BasePresetId, string> = {
+  minimal: BASE_PRESETS.minimal.title,
+  common: BASE_PRESETS.common.title,
+  "router-default": BASE_PRESETS["router-default"].title,
+};
+
 const declarationCache = new Map<string, readonly ModeDeclaration[]>();
 
 function modeConfigDirectory(options: { directory?: string }): string {

@@ -46,6 +46,8 @@ export interface BuildFormInputV2 extends Omit<BuildFormInput, "imageType"> {
   target: string;
   kernelLine: string;
   imageVariant: ImageVariant;
+  /** Release channel base version requested by the Simple form; defaults to the active snapshot. */
+  baseVersion?: string;
   /** Base preset id; the composer defaults to `minimal`. */
   basePreset?: BasePresetId;
   /** Declared configuration modes that stack on the base preset (ticket 07). */
