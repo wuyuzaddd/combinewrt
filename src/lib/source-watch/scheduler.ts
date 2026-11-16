@@ -6,6 +6,8 @@ import { createCatalogStore } from "../catalog/store";
 import { getConfig } from "../config";
 import { getDatabase } from "../db";
 import { createDllkidsRepoRefWatcher } from "./dllkids";
+import { extensionWatchEntries, runExtensionWatchIfDue } from "./extension";
+import { loadSourceRegistry } from "../sources/registry";
 import { createSourceWatchService, type SourceWatchService } from "./service";
 import type { SourcePinRefreshInput } from "./types";
 
@@ -67,12 +69,31 @@ export function getSourceWatchService(): SourceWatchService {
 export function startSourceWatch(): void {
   if (timer) return;
   const service = getSourceWatchService();
+  const config = getConfig();
+  const db = getDatabase();
+  const entries = extensionWatchEntries(loadSourceRegistry());
   const tick = () => {
     void service.runIfDue().then((outcome) => {
       if (outcome.result?.error) {
         console.error(`[combinewrt] source watch failed: ${outcome.result.error}`);
       }
     });
+    // ADR 0008: extension registry refs are watched by the same scheduler. A
+    // moved ref only records a candidate rebuild; nothing is adopted or
+    // published here.
+    if (entries.length > 0) {
+      void runExtensionWatchIfDue({
+        db,
+        cacheDir: config.sourceCacheDir,
+        entries,
+        intervalMs: config.sourceWatchIntervalHours * 60 * 60 * 1000,
+        token: config.buildRepoToken,
+      }).catch((error: unknown) => {
+        console.error(
+          `[combinewrt] extension watch failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+    }
   };
   const first = setTimeout(tick, 45_000);
   first.unref();

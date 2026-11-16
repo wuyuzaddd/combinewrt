@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { artifactNameV2 } from "../build/artifact-name";
 import type { BuildPlan, BuildPlanV2 } from "../build/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
@@ -208,17 +208,48 @@ describe("buildDispatchRequest", () => {
     expect(request.eventType).toBe("combinewrt-source-build");
     const payload = request.payload as SourceDispatchPayload;
     expect(payload.buildId).toBe("s1");
-    expect(payload.schemaVersion).toBe(1);
+    expect(payload.schemaVersion).toBe(2);
     expect(payload.engine).toBe("source");
-    expect(payload.kernelLineId).toBe("6.6");
-    expect(payload.expectedKernel).toBe("6.6.159");
-    expect(payload.source.ref).toMatch(/^[0-9a-f]{40}$/);
-    expect(payload.config).toContain("CONFIG_TARGET_x86_64=y");
-    expect(payload.config).toContain("CONFIG_PACKAGE_luci=y");
-    expect(payload.feedsConf).toContain("src-git packages");
-    expect(payload.metadata.generatedAt).toBe("2026-01-02T03:04:05.000Z");
+    expect(payload.composition.schemaVersion).toBe(1);
+    expect(payload.composition.kernelLineId).toBe("6.6");
+    expect(payload.composition.expectedKernel).toBe("6.6.159");
+    expect(payload.composition.source.ref).toMatch(/^[0-9a-f]{40}$/);
+    expect(payload.composition.config).toContain("CONFIG_TARGET_x86_64=y");
+    expect(payload.composition.config).toContain("CONFIG_PACKAGE_luci=y");
+    expect(payload.composition.feedsConf).toContain("src-git packages");
+    expect(payload.composition.metadata.generatedAt).toBe("2026-01-02T03:04:05.000Z");
+    // The plan's controlled files overlay must reach the workflow (spec:106).
+    expect(payload.composition.files).toEqual(plan.files);
     // The ImageBuilder payload must never be produced for a source plan.
     expect(payload).not.toHaveProperty("imageBuilderCommand");
+  });
+
+  it("keeps both dispatch payloads at or below the ten top-level property rule", () => {
+    const variant: ImageVariant = { boot: "efi", filesystem: "ext4", artifact: "combined" };
+    const imageBuilder = buildDispatchRequest(
+      v2Plan(variant, { artifactName: artifactNameV2({ ...BASE, imageVariant: variant }) }),
+      { buildId: "b1", artifactName: artifactNameV2({ ...BASE, imageVariant: variant }) },
+    );
+    const source = buildDispatchRequest(
+      sourcePlan(),
+      { buildId: "s1", artifactName: "immortalwrt-24.10-SNAPSHOT-x86-64-generic-ext4-combined-efi.img.gz" },
+      { now: new Date("2026-01-02T03:04:05.000Z") },
+    );
+
+    // spec:108 / repository_dispatch: client_payload may have at most ten
+    // top-level properties. Everything else nests under composition/v2.
+    expect(Object.keys(imageBuilder.payload)).toHaveLength(10);
+    expect(Object.keys(source.payload).sort()).toEqual([
+      "artifactName",
+      "baseVersion",
+      "buildId",
+      "composition",
+      "engine",
+      "profileId",
+      "schemaVersion",
+    ]);
+    expect(Object.keys(source.payload).length).toBeLessThanOrEqual(10);
+    expect((source.payload as SourceDispatchPayload).composition.schemaVersion).toBe(1);
   });
 
   it("refuses an unmodelled source kernel line instead of falling back to ImageBuilder", () => {
@@ -229,5 +260,47 @@ describe("buildDispatchRequest", () => {
     expect(() => buildDispatchRequest(plan, { buildId: "s2", artifactName: plan.artifactName })).toThrow(
       /config\/kernel-lines\.json/,
     );
+  });
+});
+
+describe("dispatch logging", () => {
+  it("never logs the plan payload or its typed network secrets", () => {
+    const secret = "hunter2-pppoe-only";
+    const plan = v2Plan({ boot: "efi", filesystem: "ext4", artifact: "combined" }, {
+      modes: {
+        basePreset: { id: "router-default", layer: "file/board", title: "路由默认", experimental: false },
+        overlays: [],
+        experimental: [],
+        network: {
+          lan: { ipv4: "192.168.31.1", netmask: "255.255.255.0", dhcp: { enabled: true, start: 100, limit: 100, lease: "12h" } },
+          wan: { protocol: "pppoe", username: "user@isp", password: secret },
+          dns: ["223.5.5.5"],
+          ipv6: "disabled",
+          wifi: { ssid: "net", key: "wifi-psk", country: "CN", channel: 36, band: "5g" },
+          switchPort: null,
+          bypass: null,
+        },
+        secrets: [],
+        generatedFiles: [],
+      },
+      files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: `password='${secret}'`, mode: 0o755 }],
+      artifactName: artifactNameV2({ ...BASE, imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" } }),
+    });
+    const calls: unknown[][] = [];
+    for (const method of ["log", "info", "warn", "error", "debug"] as const) {
+      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
+    }
+    try {
+      buildDispatchRequest(plan, { buildId: "b1", artifactName: plan.artifactName });
+    } finally {
+      vi.restoreAllMocks();
+    }
+    // The workflow gets the secrets over the dispatch API; the site never
+    // prints them (the review found the payload reaching logs).
+    expect(JSON.stringify(calls)).not.toContain(secret);
+    expect(JSON.stringify(calls)).not.toContain("wifi-psk");
+    expect(calls).toHaveLength(0);
   });
 });

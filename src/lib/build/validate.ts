@@ -297,15 +297,17 @@ export function validateBuildFormV2(input: unknown): ValidationResultV2 {
 }
 
 /**
- * A request is V2 as soon as it names the V2 triple. The V1 form never sends
- * these fields, so the V1 route path stays byte-identical.
+ * A request is V2 only when it explicitly says so. The V2 form sends
+ * `schemaVersion: 2` plus the target id; the V1 form sends neither, so the V1
+ * route path stays byte-identical. Inferring V2 from a stray `imageVariant` or
+ * `kernelLine` field let a malformed V1 request take the V2 path with no target.
  */
 export function isBuildPlanV2Form(input: unknown): boolean {
-  if (typeof input !== "object" || input === null) return false;
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return false;
   const value = input as Record<string, unknown>;
   return (
-    value.schemaVersion === 2 ||
-    value.imageVariant !== undefined ||
-    value.kernelLine !== undefined
+    value.schemaVersion === 2 &&
+    typeof value.target === "string" &&
+    value.target.trim().length > 0
   );
 }

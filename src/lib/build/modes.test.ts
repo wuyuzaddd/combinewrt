@@ -487,6 +487,8 @@ describe("package and kernel presets (ticket 08)", () => {
     const file = result.files.find((item) => item.path === `files${DOCKER_UCI_PATH}`);
     expect(file?.mode).toBe(0o755);
     expect(file?.content).toContain("mkdir -p /var/lib/docker");
+    // spec:42 wants /var/lib/docker, not the stock /opt/docker data root.
+    expect(file?.content).toContain("uci -q set dockerd.globals.data_root='/var/lib/docker'");
     expect(file?.content).not.toMatch(/docker run|curl|wget/);
     expect(result.state.generatedFiles).toContain(DOCKER_UCI_PATH);
   });

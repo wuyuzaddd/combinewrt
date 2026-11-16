@@ -9,12 +9,34 @@ import { generateSourceRecipe, type KernelLineRegistry, type SourceModeFragment,
 import type { BuildPlanV2 } from "../domain/build-plan";
 
 /**
- * The `client_payload` of a `combinewrt-source-build` repository_dispatch event:
- * ticket 06's deterministic recipe plus the build id, so the workflow can name
- * the run and key its concurrency group on the build.
+ * The `client_payload` of a `combinewrt-source-build` repository_dispatch
+ * event. `repository_dispatch.client_payload` may have at most ten top-level
+ * properties (spec:108), so only the build identity stays at the top level and
+ * the whole recipe travels nested under `composition`, the same shape the
+ * ImageBuilder payload uses. The workflow normalises it back to a flat recipe
+ * before it builds.
  */
-export interface SourceDispatchPayload extends SourceRecipe {
+export interface SourceDispatchPayload {
   buildId: string;
+  /** Payload shape version (the recipe's own schemaVersion lives in `composition`). */
+  schemaVersion: 2;
+  engine: "source";
+  baseVersion: string;
+  profileId: string;
+  artifactName: string;
+  composition: SourceRecipe;
+}
+
+export function buildSourceDispatchPayload(recipe: SourceRecipe, buildId: string): SourceDispatchPayload {
+  return {
+    buildId,
+    schemaVersion: 2,
+    engine: "source",
+    baseVersion: recipe.baseVersion,
+    profileId: recipe.profileId,
+    artifactName: recipe.artifactName,
+    composition: recipe,
+  };
 }
 
 export interface SourceRecipeInputs extends KernelLineInputOptions {

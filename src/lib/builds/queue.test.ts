@@ -414,3 +414,89 @@ describe("build queue metadata", () => {
     expect(v2.status).toBe("running");
   });
 });
+
+describe("plan secrets at dispatch time", () => {
+  it("dispatches the full plan once, without persisting its secrets", async () => {
+    const db = database();
+    const store = createBuildStore(db);
+    const seen: BuildPlan[] = [];
+    const adapter: BuildAdapter = {
+      name: "fake",
+      async findRun() {
+        return null;
+      },
+      async dispatch(plan) {
+        seen.push(plan);
+        return { runId: "run-1" };
+      },
+      async getRun() {
+        return { status: "running", logTail: "" };
+      },
+      async downloadArtifact() {
+        throw new Error("not implemented");
+      },
+    };
+    const service = createBuildService({ store, adapter, maxConcurrentBuilds: 2 });
+    const plan = {
+      ...sourcePlan(),
+      files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: "root_password='$5$secret'", mode: 0o755 }],
+    } as BuildPlan;
+
+    await service.submit(plan);
+
+    // The workflow must receive the real overlay content ...
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.files[0]?.content).toBe("root_password='$5$secret'");
+    // ... while the stored row does not keep it.
+    const raw = db.prepare("SELECT plan_json FROM builds").get() as { plan_json: string };
+    expect(raw.plan_json).not.toContain("$5$secret");
+  });
+
+  it("fails a redacted plan restored after a restart instead of building without its overlay", async () => {
+    const db = database();
+    const store = createBuildStore(db);
+    const timestamp = "2026-11-11T00:00:00.000Z";
+    store.create({
+      id: "restored",
+      plan: {
+        ...sourcePlan(),
+        files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: "#!/bin/sh\nexit 0\n", mode: 0o755 }],
+      } as BuildPlan,
+      config: null,
+      status: "queued",
+      runId: null,
+      adapter: "fake",
+      logTail: "",
+      error: null,
+      artifactName: "image.tar.gz",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    let dispatched = 0;
+    const adapter: BuildAdapter = {
+      name: "fake",
+      async findRun() {
+        return null;
+      },
+      async dispatch() {
+        dispatched += 1;
+        return { runId: "run-restored" };
+      },
+      async getRun() {
+        return { status: "running", logTail: "" };
+      },
+      async downloadArtifact() {
+        throw new Error("not implemented");
+      },
+    };
+
+    const service = createBuildService({ store, adapter, maxConcurrentBuilds: 2 });
+    await service.pump();
+
+    expect(dispatched).toBe(0);
+    const record = store.get("restored");
+    expect(record?.status).toBe("failed");
+    expect(record?.failure?.step).toBe("dispatch");
+    expect(record?.error).toMatch(/内存|resubmit/);
+  });
+});

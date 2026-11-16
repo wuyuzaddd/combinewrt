@@ -174,6 +174,18 @@ describe("buildImageFeedSet", () => {
 });
 
 describe("createImagePreflight", () => {
+  it("validates the same version-frozen URL the image repository list names", () => {
+    // The review found the planner writing /supplement/<base>/<target>/packages.adb
+    // while the preflight still validated the legacy /x86_64/ URL. Both must be
+    // the frozen pointer the publish pipeline serves.
+    const feedSet = buildImageFeedSet(input());
+    const preflight = createImagePreflight(feedSet, ["luci"]);
+    expect(preflight.repositories).toContain(SUPPLEMENT_URL);
+    expect(feedSet.files[0]!.content).toContain(SUPPLEMENT_URL);
+    // The legacy flat project channel must not be the URL the preflight validates.
+    expect(preflight.repositories.join("\n")).not.toContain("https://wuyuzaddd.github.io/combinewrt-packages/x86_64/packages.adb");
+  });
+
   it("lists the exact final package set and repository set without weakening verification", () => {
     const feedSet = buildImageFeedSet(input({ visibility: "private" }));
     const preflight = createImagePreflight(feedSet, ["luci", "lucky", "luci-app-demo"]);

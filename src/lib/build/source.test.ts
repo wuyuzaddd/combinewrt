@@ -253,7 +253,11 @@ describe("generateSourceRecipe", () => {
       fragment: fragment66,
       now,
     });
-    expect(rootfs.imageGlob).toBe("*-rootfs.img.gz");
+    // The plan names a .tar.gz rootfs artifact; OpenWrt only writes that with
+    // CONFIG_TARGET_ROOTFS_TARGZ, so the glob and the config must agree.
+    expect(rootfs.imageGlob).toBe("*-rootfs.tar.gz");
+    expect(rootfs.config).toContain("CONFIG_TARGET_ROOTFS_TARGZ=y");
+    expect(rootfs.configChecks).toContain("CONFIG_TARGET_ROOTFS_TARGZ=y");
     expect(rootfs.config).toContain("# CONFIG_GRUB_IMAGES is not set");
     expect(rootfs.config).toContain("# CONFIG_GRUB_EFI_IMAGES is not set");
 
@@ -275,6 +279,80 @@ describe("generateSourceRecipe", () => {
     });
     expect(qcow2.imageGlob).toBe("*-ext4-combined-efi.qcow2");
     expect(qcow2.config).toContain("CONFIG_QCOW2_IMAGES=y");
+  });
+
+  it("carries the plan's controlled files overlay into the recipe", () => {
+    const files = [
+      { path: "files/etc/uci-defaults/90-combinewrt-modes", content: "#!/bin/sh\nmkdir -p /var/lib/docker\n", mode: 0o755 },
+      { path: "files/etc/apk/repositories.d/90-combinewrt.list", content: "https://example.invalid/supplement\n", mode: 0o644 },
+    ];
+    const recipe = generateSourceRecipe({
+      plan: planV2({ imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" }, files }),
+      line: line66,
+      fragment: fragment66,
+      now,
+    });
+
+    // spec:106 / matrix rows 7-8: the source engine used to drop these, so
+    // docker/NAS/network modes were inert on 6.6/6.18. The recipe must carry
+    // them verbatim; the workflow writes them into `<source>/files/`.
+    expect(recipe.files).toEqual(files);
+    expect(recipe.modes).toEqual([]);
+  });
+
+  it("refuses generated files that escape the files/ overlay", () => {
+    const badPath = [
+      { path: "files/../../etc/passwd", content: "x", mode: 0o644 },
+      { path: "etc/passwd", content: "x", mode: 0o644 },
+      { path: "/etc/passwd", content: "x", mode: 0o644 },
+    ];
+    for (const file of badPath) {
+      expect(() =>
+        generateSourceRecipe({
+          plan: planV2({ files: [file] }),
+          line: line66,
+          fragment: fragment66,
+          now,
+        }),
+      ).toThrow(/files\/ overlay path|generated file/i);
+    }
+    expect(() =>
+      generateSourceRecipe({
+        plan: planV2({ files: [{ path: "files/etc/uci-defaults/x", content: "x", mode: 0o1000 }] }),
+        line: line66,
+        fragment: fragment66,
+        now,
+      }),
+    ).toThrow(/mode/i);
+  });
+
+  it("summarises the feed set without a second copy of the generated files", () => {
+    const feedSet = {
+      visibility: "public",
+      baseVersion: "24.10-SNAPSHOT",
+      targetId: "x86/64",
+      feedTarget: "x86_64",
+      officialBaseUrl: "https://downloads.immortalwrt.org",
+      officialMirror: null,
+      officialRepositories: ["https://downloads.immortalwrt.org/releases/24.10-SNAPSHOT/packages/x86_64/base/packages.adb"],
+      key: {
+        path: "/etc/apk/keys/combinewrt-feed.pub.pem",
+        url: "https://wuyuzaddd.github.io/combinewrt-packages/keys/combinewrt-feed.pub.pem",
+        fingerprint: "f".repeat(64),
+      },
+      repositories: [],
+      files: [{ path: "files/etc/apk/repositories.d/90-combinewrt.list", content: "x", mode: 0o644 }],
+    } as const;
+    const recipe = generateSourceRecipe({
+      plan: planV2({ feedSet }),
+      line: line66,
+      fragment: fragment66,
+      now,
+    });
+
+    expect(recipe.feedSet?.key.url).toBe(feedSet.key.url);
+    expect(recipe.feedSet).not.toHaveProperty("files");
+    expect(recipe.feedSet?.key.fingerprint).toBe("f".repeat(64));
   });
 
   it("is deterministic", () => {

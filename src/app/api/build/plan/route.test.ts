@@ -202,6 +202,9 @@ describe("POST /api/build/plan", () => {
 
 const validFormV2 = {
   ...validForm,
+  // The V2 form states its schema explicitly; the route must not infer V2 from
+  // field presence (a stray imageVariant no longer flips the V1 path).
+  schemaVersion: 2,
   target: "x86/64",
   kernelLine: "6.12",
   imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" },

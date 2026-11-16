@@ -20,6 +20,14 @@ async function qemuAvailable(): Promise<boolean> {
 
 const hasQemu = await qemuAvailable();
 
+// A green run must not hide a skipped contract test: say why the qemu-img
+// integration test below is not running.
+if (!hasQemu) {
+  console.warn(
+    "[test] skipping qemu-img conversion integration test: qemu-img is not installed in this environment",
+  );
+}
+
 async function sha256(path: string): Promise<string> {
   const { readFile } = await import("node:fs/promises");
   return createHash("sha256").update(await readFile(path)).digest("hex");
