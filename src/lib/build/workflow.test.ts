@@ -18,6 +18,14 @@ const workflow = readFileSync(workflowPath, "utf8");
 const canRunScripts =
   spawnSync("bash", ["-c", "command -v jq >/dev/null 2>&1"], { stdio: "ignore" }).status === 0;
 
+// A green run must not hide a skipped contract test: say why the shell-script
+// integration tests below are not running.
+if (!canRunScripts) {
+  console.warn(
+    "[test] skipping variant-config.sh / fail.sh contract tests: bash + jq are unavailable in this environment",
+  );
+}
+
 const BASE = { baseVersion: "25.12.2", targetId: "x86/64", profileId: "generic" } as const;
 
 function planFor(variant: ImageVariant): string {
@@ -84,6 +92,7 @@ describe("build-workflow/build.yml", () => {
       "Configure ImageBuilder",
       "Download pinned third-party packages",
       "Write files",
+      "Redact plan file",
       "Install feed key and preflight packages",
       "Build image",
       "Assert top-level packages",

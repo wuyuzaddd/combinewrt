@@ -15,9 +15,12 @@ type Workflow = {
 
 const FEED_STEP = "Install feed key and preflight packages";
 
+function readFile(name: string): string {
+  return readFileSync(new URL(`../../../build-workflow/${name}`, import.meta.url), "utf8");
+}
+
 function readWorkflow(): Workflow {
-  const source = readFileSync(new URL("../../../build-workflow/build.yml", import.meta.url), "utf8");
-  return yaml.load(source) as Workflow;
+  return yaml.load(readFile("build.yml")) as Workflow;
 }
 
 describe("build workflow", () => {
@@ -75,7 +78,7 @@ describe("extension workflow", () => {
 });
 
 describe("source-build workflow", () => {
-  const source = readFileSync(new URL("../../../build-workflow/source-build.yml", import.meta.url), "utf8");
+  const source = readFile("source-build.yml");
   const workflow = yaml.load(source) as Workflow;
 
   it("keeps the repository_dispatch event type the site sends", () => {
@@ -88,5 +91,70 @@ describe("source-build workflow", () => {
     expect(workflow.concurrency?.["cancel-in-progress"]).toBe(false);
     expect(workflow.concurrency?.group).toContain("client_payload.buildId");
     expect(workflow.concurrency?.group).toContain("inputs.build_id");
+  });
+});
+
+
+describe("source-build recipe payload", () => {
+  const source = readFile("source-build.yml");
+
+  it("writes the plan's files overlay into the source tree before make", () => {
+    // spec:106: the source engine used to drop plan.files, so docker/NAS/network
+    // modes were inert on 6.6/6.18. The workflow must write them into
+    // <source>/files, which OpenWrt applies from $(TOPDIR)/files.
+    expect(source).toContain("- name: Write generated files overlay");
+    expect(source).toContain("jq -c '.files[]'");
+    expect(source).toContain('mkdir -p "$(dirname "$path")"');
+    expect(source).toContain("files/etc/apk/keys/combinewrt-feed.pub.pem");
+    expect(source).toContain("- name: Verify generated files overlay in the image");
+    const write = source.indexOf("- name: Write generated files overlay");
+    const build = source.indexOf("- name: Build image");
+    expect(write).toBeGreaterThanOrEqual(0);
+    expect(build).toBeGreaterThan(write);
+  });
+
+  it("reads the nested repository_dispatch payload shape", () => {
+    // The dispatch nests the recipe under composition to stay inside the ten
+    // top-level property rule; the workflow normalises it back to a flat recipe.
+    expect(source).toContain(".composition | type == \"object\"");
+    expect(source).toContain(".composition + {buildId");
+  });
+
+  it("does not keep the dead ticket-branch push trigger", () => {
+    expect((yaml.load(source) as { on: Record<string, unknown> }).on).not.toHaveProperty("push");
+    expect(source).not.toContain("v2/ticket-06");
+  });
+});
+
+describe("workflow signature allow-list", () => {
+  // ADR 0007: the default apk path never weakens signature checking. The only
+  // `--allow-untrusted` uses are the downloaded-prebuilt verification and the
+  // two mkndx calls that index exactly those pinned apks. Pin the exact list so
+  // a future edit has to justify itself in this test.
+  const ALLOWED: Record<string, number> = {
+    "build.yml": 3,
+    "extension.yml": 0,
+    "source-build.yml": 0,
+  };
+
+  for (const [name, allowed] of Object.entries(ALLOWED)) {
+    it(`keeps ${name} at ${allowed} executable --allow-untrusted use(s)`, () => {
+      const lines = readFile(name)
+        .split("\n")
+        .filter((line) => line.includes("--allow-untrusted") && !line.trimStart().startsWith("#"));
+      expect(lines).toHaveLength(allowed);
+    });
+  }
+
+  it("uses --allow-untrusted only for the pinned third-party package steps", () => {
+    const source = readFile("build.yml");
+    const start = source.indexOf("- name: Download pinned third-party packages");
+    const end = source.indexOf("- name: Write files");
+    const region = source.slice(start, end);
+    expect(region.split("--allow-untrusted")).toHaveLength(4);
+    // The feed preflight resolves real repositories with the project key and
+    // must never pass the flag.
+    const preflight = source.slice(source.indexOf(`- name: ${FEED_STEP}`), source.indexOf("- name: Build image"));
+    expect(preflight).not.toContain("--allow-untrusted");
   });
 });
