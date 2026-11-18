@@ -407,8 +407,9 @@ jobs:
           set -euo pipefail
           source .github/scripts/fail.sh
           cd source
-          expected=$(jq -r '.files[] | .path | sub("^files/"; "")' "$GITHUB_WORKSPACE/plan.json")
-          if [ -z "$expected" ]; then
+          plan="$GITHUB_WORKSPACE/plan.json"
+          count=$(jq '.files | length' "$plan")
+          if [ "$count" -eq 0 ]; then
             echo "plan carries no generated files; nothing to verify"
             exit 0
           fi
@@ -417,12 +418,15 @@ jobs:
             fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "No image matched ${IMAGE_GLOB} for the files overlay check."
           fi
           ROOT=$(mktemp -d)
+          WORK=$(mktemp -d)
           LOOP=""
+          VAR_MOUNT=""
           cleanup() {
             set +e
+            if [ -n "$VAR_MOUNT" ] && mountpoint -q "$VAR_MOUNT"; then sudo umount "$VAR_MOUNT"; fi
             if mountpoint -q "$ROOT"; then sudo umount "$ROOT"; fi
             if [ -n "$LOOP" ]; then sudo losetup -d "$LOOP"; fi
-            rm -rf "$ROOT"
+            rm -rf "$ROOT" "$WORK"
           }
           trap cleanup EXIT
           case "$image" in
@@ -430,8 +434,24 @@ jobs:
               tar -xzf "$image" -C "$ROOT"
               ;;
             *)
-              RAW=$(mktemp --suffix=.img)
-              gzip -dc "$image" > "$RAW"
+              RAW="$WORK/image.img"
+              # The x86 disk images carry padding after the gzip member, so gzip verifies
+              # the stream CRC and exits 2 with only "trailing garbage ignored". That is
+              # the same padding "Package image and manifest" already accepts; any other
+              # gzip failure is real damage. Tolerating the warning here is required: with
+              # set -e a bare `gzip -dc` aborts the step before any check runs.
+              set +e
+              gzip -dc "$image" > "$RAW" 2> "$WORK/gzip.err"
+              gzip_status=$?
+              set -e
+              if [ "$gzip_status" -ne 0 ]; then
+                if [ "$gzip_status" -eq 2 ] && grep -q "trailing garbage ignored" "$WORK/gzip.err"; then
+                  echo "gzip: stream verified; padding after the gzip member ignored"
+                else
+                  cat "$WORK/gzip.err" >&2
+                  fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "gzip could not decompress ${ARTIFACT_NAME} for the files overlay check"
+                fi
+              fi
               LOOP=$(sudo losetup -Pf --show "$RAW")
               MOUNTED=""
               for part in "$LOOP"p*; do
@@ -450,35 +470,89 @@ jobs:
               echo "rootfs partition: $MOUNTED"
               ;;
           esac
+          # Every planned file must be inside the image with the mode the plan recorded.
           missing=0
-          while IFS= read -r path; do
-            [ -z "$path" ] && continue
-            if [ ! -e "$ROOT/$path" ]; then
-              echo "MISSING from the image: /$path"
+          for ((i = 0; i < count; i++)); do
+            rel=$(jq -r --argjson i "$i" '.files[$i].path | sub("^files/"; "")' "$plan")
+            mode=$(jq -r --argjson i "$i" '.files[$i].mode // 420' "$plan")
+            want=$(printf '%o' "$mode")
+            if [ ! -e "$ROOT/$rel" ]; then
+              echo "MISSING from the image: /$rel"
               missing=$((missing + 1))
-            else
-              echo "present in the image: /$path"
+              continue
             fi
-          done <<< "$expected"
+            got=$(stat -c '%a' "$ROOT/$rel")
+            if [ "$got" != "$want" ]; then
+              echo "MODE MISMATCH in the image: /$rel is 0$got, the plan recorded 0$want"
+              missing=$((missing + 1))
+              continue
+            fi
+            echo "present in the image: /$rel (mode 0$got)"
+          done
           if [ "$missing" -gt 0 ]; then
-            fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "${missing} generated file(s) from the plan are missing from the image"
+            fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "${missing} planned generated file(s) are missing from the image or have the wrong mode"
           fi
-          # spec:42 Docker row: /var/lib/docker must exist and be writable after
-          # boot. /var is a tmpfs, so first-boot uci-defaults create it; run the
-          # same script inside a chroot of the image to prove the assertion.
-          if jq -e '.modes | index("docker")' "$GITHUB_WORKSPACE/plan.json" > /dev/null; then
-            if [ ! -f "$ROOT/etc/uci-defaults/91-combinewrt-docker" ]; then
+          # spec:42 Docker row: /var/lib/docker must exist and be writable after boot.
+          # /var is a symlink to /tmp on the x86 images and first boot mounts a tmpfs
+          # there, so the directory cannot be in the image: the docker uci-defaults creates
+          # it at boot. Model that boot here instead of asserting on the mounted image.
+          if jq -e '.modes | index("docker")' "$plan" > /dev/null; then
+            uci_file="$ROOT/etc/uci-defaults/91-combinewrt-docker"
+            if [ ! -f "$uci_file" ]; then
               fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "docker mode is selected but its uci-defaults file is not in the image"
             fi
+            for needle in "mkdir -p /var/lib/docker" "chmod 0711 /var/lib/docker" "data_root='/var/lib/docker'"; do
+              if ! sudo grep -qF "$needle" "$uci_file"; then
+                fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "the docker uci-defaults in the image does not contain: ${needle}"
+              fi
+            done
+            echo "docker uci-defaults ships the data-root setup: mkdir /var/lib/docker, mode 0711, dockerd data_root"
+            if [ ! -f "$ROOT/etc/config/dockerd" ]; then
+              fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "docker mode is selected but /etc/config/dockerd is not in the image"
+            fi
+            # /etc/config/dockerd is a 0600 root:root opkg conffile, so read it through sudo
+            # (run 44294935617 failed only because a plain grep could not open it).
+            echo "dockerd data_root before first boot: $(sudo sed -n "s/^[[:space:]]*option data_root '\(.*\)'/\1/p" "$ROOT/etc/config/dockerd" | head -1)"
+            # Resolve /var inside the image (a symlink -> tmp today, possibly absolute),
+            # then put a small tmpfs on the resolved directory: that is the /var the
+            # uci-defaults sees at first boot.
+            var_host="$ROOT/var"
+            for _ in 1 2 3 4; do
+              if [ -L "$var_host" ]; then
+                target=$(readlink "$var_host")
+                case "$target" in
+                  /*) var_host="$ROOT$target" ;;
+                  *) var_host="$(dirname "$var_host")/$target" ;;
+                esac
+              else
+                break
+              fi
+            done
+            case "$var_host" in
+              "$ROOT"/*) ;;
+              *) fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "the image's /var resolves outside the image root (${var_host#"$ROOT"})" ;;
+            esac
+            echo "image /var resolves to ${var_host#"$ROOT"} (mounted as tmpfs for the boot-equivalent check)"
+            if [ ! -d "$var_host" ]; then sudo mkdir -p "$var_host"; fi
+            sudo mount -t tmpfs -o size=16m,mode=1777 tmpfs "$var_host"
+            VAR_MOUNT="$var_host"
             sudo chroot "$ROOT" /bin/sh /etc/uci-defaults/91-combinewrt-docker
-            if [ ! -d "$ROOT/var/lib/docker" ] || [ ! -w "$ROOT/var/lib/docker" ]; then
-              fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "/var/lib/docker is missing or not writable after the docker uci-defaults ran"
+            if [ ! -d "$var_host/lib/docker" ]; then
+              fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "/var/lib/docker does not exist after the docker uci-defaults ran with a tmpfs /var"
+            fi
+            # test -w is always true for root; prove writability by creating and deleting
+            # a file through the same chroot the boot would use.
+            if ! sudo chroot "$ROOT" /bin/sh -c 'f=/var/lib/docker/.combinewrt-write-test; : > "$f" && rm -f "$f" && [ ! -e "$f" ]'; then
+              fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "/var/lib/docker is not writable after the docker uci-defaults ran with a tmpfs /var"
             fi
             data_root=$(sudo chroot "$ROOT" /bin/sh -c '. /lib/functions.sh; config_load dockerd; config_get root globals data_root ""; echo "$root"')
             if [ "$data_root" != "/var/lib/docker" ]; then
               fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "dockerd data_root is '${data_root}', expected /var/lib/docker"
             fi
-            echo "docker data root verified: /var/lib/docker (writable, data_root matches)"
+            if ! sudo grep -qF "option data_root '/var/lib/docker'" "$ROOT/etc/config/dockerd"; then
+              fail verify-files "" "$SOURCE_REF" "$KERNEL_LINE" "/etc/config/dockerd does not carry data_root /var/lib/docker after the docker uci-defaults ran"
+            fi
+            echo "docker data root verified at first boot: /var/lib/docker exists on the tmpfs-backed /var, is writable, and dockerd data_root matches"
           fi
           echo "generated files overlay verified in the image"
 

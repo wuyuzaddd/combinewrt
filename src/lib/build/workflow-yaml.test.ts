@@ -126,6 +126,65 @@ describe("source-build recipe payload", () => {
   });
 });
 
+describe("source-build overlay verification (docker data root)", () => {
+  const workflow = yaml.load(readFile("source-build.yml")) as Workflow;
+  const verify =
+    workflow.jobs.build.steps.find(
+      (step) => step.name === "Verify generated files overlay in the image",
+    )?.run ?? "";
+
+  it("tolerates gzip's padding warning instead of dying before any check", () => {
+    // Run 43891611647 aborted inside `gzip -dc`: the image carries padding after
+    // the gzip member, gzip verifies the stream and exits 2 with only
+    // "trailing garbage ignored", and `set -e` killed the step before it mounted
+    // anything. The fix has to keep accepting exactly that case.
+    expect(verify).toContain("trailing garbage ignored");
+    expect(verify).toContain("gzip_status=$?");
+    expect(verify).toContain('[ "$gzip_status" -ne 0 ]');
+    expect(verify).toContain("gzip could not decompress");
+    // The tolerance branch runs before the image is loop-mounted and checked.
+    const gzipStatus = verify.indexOf("gzip_status=$?");
+    const mountLoop = verify.indexOf("LOOP=$(sudo losetup");
+    expect(gzipStatus).toBeGreaterThan(0);
+    expect(mountLoop).toBeGreaterThan(gzipStatus);
+  });
+
+  it("asserts every planned file exists with the mode the plan recorded", () => {
+    expect(verify).toContain("stat -c '%a'");
+    expect(verify).toContain("MODE MISMATCH");
+    expect(verify).toContain(".files[$i].mode // 420");
+    expect(verify).toContain("planned generated file(s) are missing from the image");
+  });
+
+  it("proves the docker uci-defaults on a writable /var instead of the mounted root", () => {
+    expect(verify).toContain('.modes | index("docker")');
+    expect(verify).toContain("mkdir -p /var/lib/docker");
+    expect(verify).toContain("chmod 0711 /var/lib/docker");
+    expect(verify).toContain('readlink "$var_host"');
+    expect(verify).toContain("sudo mount -t tmpfs");
+    expect(verify).toContain('sudo chroot "$ROOT" /bin/sh /etc/uci-defaults/91-combinewrt-docker');
+    expect(verify).toContain(".combinewrt-write-test");
+    expect(verify).toContain("option data_root '/var/lib/docker'");
+    // /etc/config/dockerd is a 0600 root:root conffile; reading it without sudo
+    // is what failed run 44294935617 after every other check had passed.
+    expect(verify).toContain('sudo grep -qF "option data_root \'/var/lib/docker\'"');
+    expect(verify).toContain("sudo sed -n");
+    expect(verify).toContain("docker data root verified at first boot");
+    // The tmpfs has to be mounted before the uci-defaults runs, otherwise the
+    // check would model the read-only mounted image again.
+    expect(verify.indexOf("mount -t tmpfs")).toBeLessThan(
+      verify.indexOf('sudo chroot "$ROOT" /bin/sh /etc/uci-defaults/91-combinewrt-docker'),
+    );
+    // root can always write, so `test -w` must never be the assertion.
+    expect(verify).not.toContain('[ ! -w "$ROOT/var/lib/docker" ]');
+  });
+
+  it("stays skippable when the plan carries no generated files", () => {
+    expect(verify).toContain("plan carries no generated files; nothing to verify");
+    expect(verify).toContain("fail verify-files");
+  });
+});
+
 describe("workflow signature allow-list", () => {
   // ADR 0007: the default apk path never weakens signature checking. The only
   // `--allow-untrusted` uses are the downloaded-prebuilt verification and the
