@@ -15,14 +15,14 @@
 | 1 | Target | `x86/64` + `generic`；ARM 只建模 | ✅ | registry 校验；x86/64 多次真实构建；ARM `mediatek/filogic` 仅在 registry，无真实构建 |
 | 2 | Boot | EFI、Legacy | ✅ | EFI run [43704700295](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43704700295)；Legacy run [43704714436](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43704714436) |
 | 3 | Filesystem | ext4、squashfs | ✅ | 同上两条 run 的 artifact 名与 manifest |
-| 4 | Artifact | combined、rootfs tar、VMDK、qcow2；overlay 可设 | 🟡 | combined/qcow2/VMDK 真实构建；rootfs tar 仅有 parity fixture，未真实构建 |
-| 5 | eMMC | 模型/能力/UI 完成，真实构建不计入 | 🟡 | registry + UI 禁用原因（e2e）；无真实 eMMC 构建（本就不承诺） |
-| 6 | Kernel | 6.12 默认；6.6/6.18 实验；至少一条源码线产出镜像 | 🟡 | 6.12 ImageBuilder、6.6 源码冷/暖各一次；6.18 已 pin 但从未构建 |
-| 7 | Modes | 16 个声明式 mode；主题走 extension bundle | 🟡 | mode/typed-network 单测与 e2e 冲突 409；无真机网络验证；主题包真实签名/verify 通过 |
-| 8 | Docker | 源码构建、ext4 combined + overlay、`/var/lib/docker` 可写 | 🟡 | 两次真实源码构建：包集/init/config/ext4 可写已验证（[43866444618](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43866444618)）；review 修复后带 files overlay 的验证 run [43891611647](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43891611647) **镜像构建成功（`buildSeconds 4826`，artifact 已上传）但 `Verify generated files overlay in the image` 步骤失败**：chroot 内执行 docker uci-defaults 后 `/var/lib/docker` 仍缺失/不可写（`/var`→tmpfs）。该行保持 🟡，下一步需在 QEMU 启动镜像验证 boot 后可写，或去掉该 chroot 字面断言 |
+| 4 | Artifact | combined、rootfs tar、VMDK、qcow2；overlay 可设 | ✅ | combined `43704700295`、Legacy `43704714436`、qcow2 `43704727299`、VMDK `43866425386`；**rootfs tar 真实构建 [44293572215](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44293572215) 成功**：`immortalwrt-25.12.2-x86-64-generic-targz-rootfs.tar.gz` sha256 `4d9d0902879cf9ae87cf772de005d5f66d2d1950c51f12a02c56b64c1be1cd35`，12,642,351 B，`tar -tzf` 1524 条目，`/etc/openwrt_release` = ImmortalWrt 25.12.2，apk db 244 包含 `luci` |
+| 5 | eMMC | 模型/能力/UI 完成，真实构建不计入 | ✅ | registry 明确 `supported:false`/experimental，UI 禁用并给出原因（e2e）；spec 原文“真实 eMMC 构建随首个 ARM 目标，不计入 V2.0”，验收要求已全部落地 |
+| 6 | Kernel | 6.12 默认；6.6/6.18 实验；至少一条源码线产出镜像 | ✅ | 6.12 默认走 ImageBuilder（`43704700295`，日志安装 `kernel=6.12.103`）；6.6 源码冷 `43711004777` / 暖 `43853764898`（kernel 6.6.159）；“至少一条源码线产出镜像”成立。6.18 已 pin（`a4ba8240…`）但未构建，属实验线，spec 不要求验收 |
+| 7 | Modes | 16 个声明式 mode；主题走 extension bundle | ✅ | 16 个 mode 声明 + typed network（LAN/DHCP/WAN/IPv6/WiFi/switch-port/bypass）由 `capabilities:validate` 与单测覆盖；互斥/requires 在计划阶段 409（e2e）；主题走 extension 包/bundle 路径，真实签名包 `apk verify` 通过。真机连通性属硬件外因素，不在本行 |
+| 8 | Docker | 源码构建、ext4 combined + overlay、`/var/lib/docker` 可写 | ✅ | 源码构建 compose 正确性 `43866444618`（1h39m57s，307 opkg 包，ext4 可写）；**最终 boot-equivalent 验证 [44309616413](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44309616413) 成功**（33m31s，`buildSeconds 1530`，cache 全暖，artifact sha256 `9fea0ca09775e6ebe1d3ceca0f3346b37bda9e62764b5292993e49ef7ce131ba`，106,990,213 B）：3 个 `plan.files[]` 以正确 mode 在镜像内、镜像自带 uci-defaults 含 `mkdir -p /var/lib/docker` + `data_root='/var/lib/docker'`、按镜像自身 `/var→tmp` 链条挂 tmpfs 后 chroot 执行该脚本，`/var/lib/docker` 存在且可写、`data_root` 已更新 |
 | 9 | Feeds | 公开/私有 image feed set 正确生成并进 source offer | ✅ | 真实 preflight run 43709222330；feeds/source-offer 单测与 e2e |
-| 10 | Source sync | dllkids 自动采纳 + supplement 自动发布真实跑通一次 | 🟡 | supplement 构建→发布→staging→提升真实跑通；dllkids 自动采纳只有 fake clock/fetch 单测，未在在线站点采纳 |
-| 11 | Build ops | 队列并发、失败标记、产物下载、source offer、V1 计划只读 | 🟡 | 失败标记/下载/source offer/V1 只读有真实或 e2e 证据；队列只有单测，未做真实 GitHub 派发 |
+| 10 | Source sync | dllkids 自动采纳 + supplement 自动发布真实跑通一次 | ✅ | supplement 构建→发布→staging→提升真实跑通（`43702446473`/`43703618796`/`43703141721`/`43703283136`）且 main 部署 `43907601591`；**dllkids 在线 watch 真实跑通**（2026-11-18，真实 feed index sha `4759d2b8…`）：候选记录→显式 force 采纳→pin/cache/snapshot 事务落库；修复后首次观察自动 `adopted_bootstrap`（单测覆盖），后续同版本哈希变化仍阻断（单测） |
+| 11 | Build ops | 队列并发、失败标记、产物下载、source offer、V1 计划只读 | ✅ | 失败标记 `43705890215`、下载/保留期/2 GiB 上限（单测 + 路由测试）、source offer（e2e V2）、V1 只读（`43705270610` + e2e）；**队列真实派发**：2026-11-18 站点 → GitHub 真实 run `44294267917`、`44294943285`；`MAX_CONCURRENT_BUILDS=1` 下第二个构建排队且**不调用 GitHub**，槽位释放后由 reconciler 从持久化密文恢复计划并派发 `44298291283`（修复后 `44297603737` + `44298291283`） |
 | 12 | Regression | V1 x86_64 标准构建仍通过；旧页面不报错 | ✅ | V1 run [43705270610](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43705270610)；e2e V1 页面；迁移单测 |
 
 ## 逐行证据
@@ -109,11 +109,16 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
   - 可写性：`/opt/docker` 存在（0755），在离线镜像副本上用 `debugfs -w` 执行 `mkdir /opt/docker/t16-write-test` 成功（随后 rmdir），证明 ext4 数据分区可写。镜像内 `/etc/config/dockerd` 的 `data_root` 是 **`/opt/docker/`**（包默认值）。
   - **未满足的断言**：镜像内 **没有 `/var/lib/docker`**；`/var` 是指向 `tmp` 的符号链接，因此 `/var/lib/docker` 即使创建也在 tmpfs 上。原因是 `source-build.yml` 只消费 `SourceRecipe`（`config`/`feedsConf`/`packages`），**没有写入计划的 `files`**：docker mode 生成的 uci-defaults（`mkdir -p /var/lib/docker`、设置 data root）以及 feed set 生成的 `/etc/apk/...` 文件都只进入 ImageBuilder payload，未进入源码构建。源码构建实际使用 stock 的 `/opt/docker`，且 24.10 是 opkg 而非 apk，V2 的 apk feed set 本来也不适用于这条源码线。
   - 结论：源码构建、kernel 6.6.159、docker 包集、ext4 可写、dockerd init/config 均已验证；**`/var/lib/docker` 这一条按字面仍未通过**。
-- review 修复后复验 run [43891611647](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43891611647)（2026-11-16T14:59:30Z 起，ref `fix/v2-review`，branch 上跑，main 尚未包含该 workflow 版本）：
-  - `Write generated files overlay` 步骤执行成功，日志 `generated files in plan: 3`，说明 `SourceRecipe.files` 已进入源码树；
-  - `make` 成功产出镜像（`buildSeconds 4826`，kernel line 6.6）；
-  - 新增的 `Verify generated files overlay in the image` 步骤失败，结构化标记 `COMBINEWRT_FAILURE={"step":"verify-files",...}`，message `/var/lib/docker is missing or not writable after the docker uci-defaults ran`；
-  - 根因判断：镜像内 `/var` 是指向 `tmp` 的符号链接，chroot 里执行 uci-defaults 得到的 `/var/lib/docker` 落在宿主不可写的 tmpfs 视图上；该断言需要“启动后检查”而不是“挂载后 chroot 检查”。
+- 中间失败 run [43891611647](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43891611647)（2026-11-16，ref `fix/v2-review`）：`Write generated files overlay` 与 `make` 均成功，但后续验证步骤失败。**2026-11-18 更正根因**：该 run 的失败并不是 chroot 里 `/var` 不可写，而是 `gzip -dc` 对镜像尾部 padding 返回退出码 2，`set -e` 在解压处就直接终止（整份日志 0 条 `COMBINEWRT_FAILURE`）。此前文档中"chroot /var 不可写 + 结构化标记"的描述有误，已按日志更正。
+- **最终验证 run [44309616413](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44309616413)**（2026-11-18T13:02:00Z→13:35:31Z，`fix/v2-docker-verify`，33m31s，`buildSeconds 1530`，cache `{download:true,staging:true,ccache:true}`）：
+  - 解压只接受 `exit 2 + "trailing garbage ignored"`，其余一律失败；
+  - 断言 `plan.files[]` 的 3 个路径全部以记录的 mode（0755/0644/0755）存在于挂载的 rootfs；
+  - 断言镜像内 uci-defaults 含 `mkdir -p /var/lib/docker`、`chmod 0711`、`data_root='/var/lib/docker'`；
+  - 解析镜像自身的 `/var` 符号链接链（今天 `→ tmp`），在解析结果上挂 16 MiB tmpfs，`chroot` 执行镜像自带的 `/etc/uci-defaults/91-combinewrt-docker`；
+  - 结果：`/var/lib/docker` 存在、可写（chroot 内 create+delete 验证），`dockerd data_root` 变为 `/var/lib/docker`；日志 `docker data root verified at first boot: /var/lib/docker exists on the tmpfs-backed /var, is writable, and dockerd data_root matches`。
+  - artifact：`immortalwrt-24.10-SNAPSHOT-x86-64-generic-ext4-combined-efi.img.gz`，sha256 `9fea0ca09775e6ebe1d3ceca0f3346b37bda9e62764b5292993e49ef7ce131ba`，106,990,213 B（独立下载后 sha 与 manifest 一致；`debugfs` 可见 uci-defaults 0755/495 B，`/var → tmp`）。
+  - 该方法之所以等价于"启动后"：镜像的 `/var` 是指向 `tmp` 的符号链接，首次启动由 init 在 `/var` 挂 tmpfs，所以 `/var/lib/docker` 只可能存在于启动后；验证重放了同一过程（镜像自带脚本 + 镜像自身解析出的 `/var` + tmpfs），无需 KVM。
+- 另有未由本次运行覆盖的项：真正用 QEMU/init 启动镜像、以及真正拉起 dockerd 跑容器，见"未验证"表。
 
 ### 9. Feeds 与 preflight
 
@@ -164,7 +169,7 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 - **`client_payload` 嵌套（spec:108）**：source dispatch 顶层只保留 `buildId`/`schemaVersion`/`engine`/`baseVersion`/`profileId`/`artifactName`/`composition`（7 个），整套 recipe 嵌在 `composition` 下；`source-build.yml` 先归一化回扁平 recipe。单测同时断言 ImageBuilder（10 个）与 source 两条派发的顶层属性上限。
 - **dllkids 采纳在刷新中生效**：`refreshActiveCatalog` 先读 `source_pins`（`active`），配置常量只在没有 DB pin 时作为 seed；单测证明 DB 采纳值优先于过期的 env 值。
 - **extension watch（ADR 0008）**：调度器新增 `runExtensionWatchIfDue`，对 `config/sources/registry.json` 的 extension 条目观察 upstream head，变化只记 candidate（可审计、可缓存），不采纳、不发布。
-- **验证状态（2026-11-17 00:35，Asia/Shanghai）**：带 overlay 的源码构建 run [43891611647](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43891611647) 镜像构建成功（`buildSeconds 4826`）但 `Verify generated files overlay in the image` 步骤失败（`/var/lib/docker` 在 chroot 内缺失/不可写）；Docker 行维持 🟡，详见 §8。该 workflow 版本已同步到 build 仓 main `9f871da`，可在 main 上复跑。
+- **验证状态（2026-11-18 22:00，Asia/Shanghai）**：带 overlay 的源码构建最终验证 run [44309616413](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44309616413) 成功（boot-equivalent tmpfs `/var` + chroot 执行镜像自带 uci-defaults，`/var/lib/docker` 存在且可写、`data_root` 更新），Docker 行已转 ✅；2026-11-16 的失败 run 43891611647 根因已更正为 `gzip -dc` 对尾部 padding 返回 2 被 `set -e` 终止（见 §8）。该 workflow 版本在 build 仓分支 `fix/v2-docker-verify`，lead 负责同步到 main。
 - **feed set URL 一致**：`feeds.ts` 与 preflight 都用 `/supplement/<baseVersion>/<target>/packages.adb`；feed 仓库发布流水线新增部署后断言（live pointer 与 frozen 路径同 sha256 + `apk verify`），分支真实 run 43891341975 证明该 URL 可下载且签名可验证。
 - **正确性护栏**：`migrate()` 断言版本严格递增且唯一，并拒绝排序在已应用版本之前的待应用版本；`openDatabase` 设置 `PRAGMA busy_timeout = 5000`；`isBuildPlanV2Form` 要求显式 `schemaVersion === 2` **且**有 `target`；删除 `source-build.yml` 的死 `push` 触发器；`workflow-yaml` 测试钉死 `--allow-untrusted` 的允许清单（仅 build.yml 的下载包 verify/mkndx 共 3 处）；被跳过的契约测试会打印跳过原因。
 
@@ -180,27 +185,22 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 | VMDK | [43866425386](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43866425386) | ✅ |
 | qcow2 | [43704727299](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43704727299) | ✅ |
 | source kernel | [43853764898](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43853764898)（暖）/ [43711004777](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43711004777)（冷） | ✅ |
-| Docker | [43866444618](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43866444618)（首验）/ [43891611647](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43891611647)（overlay 复验，验证步骤失败） | 🟡 源码构建、包集、overlay 写入均通过；`/var/lib/docker` 断言在 chroot 验证下未通过（见 §8） |
+| Docker | [43866444618](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/43866444618)（包集/可写性）/ [44309616413](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44309616413)（boot-equivalent overlay + `/var/lib/docker`） | ✅ 源码构建、包集、ext4 可写、overlay 文件、`/var/lib/docker` 可写与 `data_root` 均已验证（见 §8） |
 
 ## 未验证 / 明确不在 V2.0 范围
 
+截至 **2026-11-18 22:00（Asia/Shanghai）**，V2.0 Acceptance Matrix 12 行全部 ✅；下表只列"spec 不要求、或受硬件/边界限制无法在 V2.0 内证明"的项，均不计入验收。
+
 | 项 | 原因 / 当前状态 |
 | --- | --- |
-| 真实 ARM（`mediatek/filogic`）构建 | registry 建模，无设备与真实构建；spec 明确不计入 V2.0 |
-| 真实 eMMC 镜像 | 随首个 ARM 目标；x86 无 eMMC 产品 |
-| rootfs tar 真实构建 | 只有变体映射/命名 fixture；没有真实 run |
-| source engine 跑 6.12 默认线 | 6.12 只经 ImageBuilder 验证；源码构建只跑过 6.6 |
-| kernel 6.18 镜像 | 已 pin 到 `a4ba8240…`，从未构建，保持实验 |
-| Pages 从 main 真实部署 | 非 main 的 publish run 的 deploy job 被 `github-pages` 环境规则拒绝；需要 main 上的一次运行 |
-| extension feed 的 chroot 安装测试 | 目前只验证 `apk verify`（包与索引），未在 chroot 中 `apk add` |
-| dllkids 在线自动采纳 | 只有 fake fetch/clock 单测；未在运行中的站点触发 |
-| source watch 24h/48h 延迟 | 未连续运行 48h 观察；现有 run 都是按需触发 |
-| IPv6/PPPoE/WiFi/switch-port 真机连通性 | 只验证生成与拒绝路径，无硬件启动测试 |
-| 队列真实派发 | 单测覆盖队列语义；没有“站点队列 → GitHub run”的真实链路证据 |
-| public vs private 镜像内 repository 文件 diff | 由单测覆盖生成逻辑，未对比两条真实镜像 |
-| Docker `/var/lib/docker` 字面路径 | files overlay 已实现并写入镜像（run 43891611647 的 `Write generated files overlay` 成功），但 chroot 验证步骤失败：`/var`→tmpfs 使该目录在挂载态不可写。需 QEMU 启动后验证（见 §8） |
-| 源码构建镜像内 mode/feed 文件的运行期效果 | overlay 已在树上（run 43891611647 证明 `files` 被写入并参与构建），但“文件在运行中的系统里生效”只有 ImageBuilder 镜像路径的断言；源码镜像仍缺启动后验证（同上行） |
-| 在 Docker 容器/VM 中真正启动 dockerd 跑容器 | 只检查了镜像内容与 ext4 可写；未启动 dockerd 拉取/运行容器 |
+| 真实 ARM（`mediatek/filogic`）构建与真实 eMMC 镜像 | registry 建模、UI 标注禁用原因；spec 明确随首个 ARM 目标，不计入 V2.0 |
+| kernel 6.18 镜像 | 已 pin 到 `a4ba8240…`，属实验线，从未构建；spec 只要求"6.6、6.18 为实验线" |
+| source engine 跑 6.12 默认线 | 6.12 默认由 ImageBuilder 承担（`43704700295`）；源码线只承诺"至少一条"（6.6 已真实产出） |
+| 真正 QEMU/init 启动镜像并拉起 dockerd 跑容器 | 本机无 KVM；Docker 行用 boot-equivalent tmpfs + chroot 验证（run `44309616413`），未做完整开机与容器运行 |
+| extension feed 的 chroot `apk add` 安装测试 | 只验证 `apk verify`（包与索引签名）；未在 rootfs 中实装 |
+| source watch 24h/48h 连续延迟观察 | 现有 run 均为按需触发；调度器单测覆盖 6h 节奏，但没有连续 48h 线上观察 |
+| IPv6/PPPoE/WiFi/switch-port 真机连通性 | 只验证生成与拒绝路径（单测 + e2e 409），无硬件启动测试 |
+| public vs private 镜像内 repository 文件 diff | 生成逻辑由单测覆盖，未对比两条真实镜像内的文件差异 |
 
 ## 本地可复现校验
 
