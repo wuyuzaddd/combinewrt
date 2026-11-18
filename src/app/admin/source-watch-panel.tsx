@@ -12,6 +12,7 @@ import type {
 const REASON_LABELS: Record<PinEventReason, string> = {
   adopted: "自动采纳",
   adopted_forced: "强制采纳",
+  adopted_bootstrap: "首次观察，引导采纳",
   blocked_same_version_hash: "同版本哈希变化，已阻止",
   blocked_baseline_missing: "缺少基线缓存，已阻止",
   adoption_rolled_back: "刷新失败，已回滚",
