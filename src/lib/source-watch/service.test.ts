@@ -51,7 +51,7 @@ interface Harness {
   failRefresh(fail: boolean): void;
 }
 
-function harness(): Harness {
+function harness(options: { seedPin?: string } = {}): Harness {
   const db = openDatabase(":memory:");
   migrate(db);
   const cacheDir = tempDir();
@@ -93,6 +93,7 @@ function harness(): Harness {
         return dump;
       },
     }),
+    seedPin: options.seedPin,
     refresh,
     intervalMs: 6 * 60 * 60 * 1000,
     now: () => clock,
@@ -165,6 +166,9 @@ describe("source watch service", () => {
     expect(h.refreshLog).toHaveLength(1);
     expect(h.refreshLog[0].pin).toBe(pinB);
     expect(sha256Hex(h.refreshLog[0].indexBytes)).toBe(pinB);
+    // A change observed with a real baseline follows the normal adoption path,
+    // never the one-time fresh-deployment bootstrap.
+    expect(events(h.db, "adopted_bootstrap")).toHaveLength(0);
 
     const overview = h.service.readOverview();
     expect(overview.active?.value).toBe(pinB);
@@ -205,29 +209,70 @@ describe("source watch service", () => {
     expect(events(h.db, "adopted_forced")).toHaveLength(1);
   });
 
-  it("blocks a change when no cached baseline exists to compare", async () => {
-    const h = harness();
-    // A config-seeded pin with no cached bytes cannot serve as a diff baseline.
-    const pinA = h.setPayload(payloadA());
-    h.seedActive(pinA);
+  it("bootstrap-adopts the first observation on a fresh deployment with no baseline", async () => {
+    // The config seed only carries a pin hash, so a fresh DB has no cached
+    // baseline bytes to diff against. The first observation must still start
+    // automatic adoption instead of blocking forever.
+    const h = harness({ seedPin: HEX_A });
+    const pinB = h.setPayload(dumpOf([{ name: "luci", version: "1.1", sha: HEX_B }]));
 
-    const pinB = h.setPayload(dumpOf([{ name: "luci", version: "1.0", sha: HEX_B }]));
+    const result = await h.service.check();
+
+    expect(result.status).toBe("adopted");
+    expect(result.activePin).toBe(pinB);
+    expect(result.diff).toBeNull();
+    expect(h.refreshLog).toHaveLength(1);
+    expect(h.refreshLog[0].pin).toBe(pinB);
+    expect(h.service.readOverview().active?.value).toBe(pinB);
+    expect(h.service.readOverview().candidate).toBeNull();
+    expect(events(h.db, "adopted_bootstrap")).toHaveLength(1);
+    expect(h.service.readOverview().history[0]).toMatchObject({
+      fromPin: HEX_A,
+      toPin: pinB,
+      reason: "adopted_bootstrap",
+      snapshotId: expect.any(Number),
+    });
+  });
+
+  it("does not adopt a second time when the index is unchanged after the bootstrap", async () => {
+    const h = harness({ seedPin: HEX_A });
+    const pinB = h.setPayload(payloadA());
+
+    expect((await h.service.check()).status).toBe("adopted");
+    const second = await h.service.check();
+
+    expect(second.status).toBe("unchanged");
+    expect(second.activePin).toBe(pinB);
+    expect(events(h.db, "adopted_bootstrap")).toHaveLength(1);
+    expect(h.refreshLog).toHaveLength(1);
+    expect(events(h.db)).toHaveLength(1);
+    expect(h.service.readOverview().candidate).toBeNull();
+  });
+
+  it("blocks a later change when the baseline cache was lost after an adoption", async () => {
+    const h = harness();
+    await baseline(h);
+    const pinB = h.setPayload(dumpOf([{ name: "luci", version: "1.1", sha: HEX_B }]));
+    expect((await h.service.check()).status).toBe("adopted");
+    expect(events(h.db, "adopted")).toHaveLength(1);
+
+    // Simulate a lost cache after adoption history exists: the same-version
+    // hash guard cannot run, and this is no longer the fresh-deployment case.
+    h.db
+      .prepare(
+        "UPDATE source_pins SET cache_path = NULL, cache_sha256 = NULL WHERE source = 'dllkids' AND status = 'active'",
+      )
+      .run();
+    const pinC = h.setPayload(dumpOf([{ name: "luci", version: "1.2", sha: HEX_C }]));
     const result = await h.service.check();
 
     expect(result.status).toBe("blocked");
     expect(result.reason).toBe("baseline_missing");
     expect(result.diff).toBeNull();
-    expect(h.service.readOverview().active?.value).toBe(pinA);
-    expect(h.service.readOverview().candidate?.value).toBe(pinB);
-    expect(h.refreshLog).toHaveLength(0);
-    expect(events(h.db, "blocked_baseline_missing")).toHaveLength(1);
-
-    const refused = await h.service.adopt();
-    expect(refused).toMatchObject({ ok: false, blocked: true, reason: "baseline_missing" });
-
-    const forced = await h.service.adopt({ force: true });
-    expect(forced.ok).toBe(true);
     expect(h.service.readOverview().active?.value).toBe(pinB);
+    expect(h.service.readOverview().candidate?.value).toBe(pinC);
+    expect(h.refreshLog).toHaveLength(1);
+    expect(events(h.db, "blocked_baseline_missing")).toHaveLength(1);
   });
 
   it("rejects a partial parse and keeps the current pin", async () => {

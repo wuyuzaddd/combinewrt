@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { BuildPlan } from "../build/types";
-import type { BuildStore } from "./store";
+import type { DispatchPayloadCodec } from "./dispatch-payload";
 import { isRedactedPlan } from "./redact";
+import type { BuildStore } from "./store";
 import type { BuildAdapter, BuildRecord } from "./types";
 import { buildEngineOf, buildTargetOf } from "./types";
 
@@ -12,6 +13,12 @@ import { buildEngineOf, buildTargetOf } from "./types";
  * slot, `running` means the build was claimed and a GitHub run is (or will
  * shortly be) recorded. `builds` is the single source of truth; there is no
  * in-memory queue, so a restart loses nothing.
+ *
+ * The full dispatch plan is sealed into `builds.dispatch_payload` at enqueue
+ * time (`dispatch-payload.ts`) and opened only here, at dispatch time. A build
+ * that is claimed later by the reconciler pump — a different module instance or
+ * a fresh process — therefore still dispatches with its generated files and
+ * typed network secrets, while `builds.plan_json` stays redacted.
  */
 export interface BuildQueue {
   /** Configured concurrency cap (`MAX_CONCURRENT_BUILDS`). */
@@ -25,8 +32,19 @@ export interface BuildQueue {
 }
 
 export interface BuildQueueOptions {
-  store: Pick<BuildStore, "create" | "get" | "update" | "claimNextQueued" | "countRunning">;
+  store: Pick<
+    BuildStore,
+    | "create"
+    | "get"
+    | "update"
+    | "claimNextQueued"
+    | "countRunning"
+    | "readDispatchPayload"
+    | "clearDispatchPayload"
+  >;
   adapter: BuildAdapter;
+  /** Seals/opens the full plan at rest; keyed from SESSION_SECRET in production. */
+  dispatchPayload: DispatchPayloadCodec;
   /** Defaults to the ticket contract value, 2. */
   maxConcurrent?: number;
   now?: () => Date;
@@ -35,71 +53,108 @@ export interface BuildQueueOptions {
 
 /** Build records are immutable snapshots; re-read after a claim. */
 export function createBuildQueue(options: BuildQueueOptions): BuildQueue {
-  const { store, adapter, maxConcurrent = 2, now = () => new Date(), logger = console } = options;
+  const {
+    store,
+    adapter,
+    dispatchPayload,
+    maxConcurrent = 2,
+    now = () => new Date(),
+    logger = console,
+  } = options;
   const cap = Math.max(1, Math.trunc(maxConcurrent));
   // `pump()` calls are serialised through this promise chain: the claim/count
   // check stays consistent inside one process, and the store transaction covers
   // the same guarantee across processes.
   let tail: Promise<void> = Promise.resolve();
-  // `builds.plan_json` is redacted at rest (secrets only live at dispatch time);
-  // the in-flight copy keeps the full plan for the dispatch that follows
-  // `enqueue()` in the same process.
-  const pendingPlans = new Map<string, BuildPlan>();
 
   function enqueue(plan: BuildPlan): BuildRecord {
     const id = randomUUID();
     const timestamp = now().toISOString();
-    store.create({
-      id,
-      plan,
-      config: plan.config ?? null,
-      status: "queued",
-      runId: null,
-      adapter: adapter.name,
-      logTail: "",
-      error: null,
-      artifactName: null,
-      artifactSha256: null,
-      artifactSize: null,
-      engine: buildEngineOf(plan),
-      target: buildTargetOf(plan),
-      dispatchedAt: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    pendingPlans.set(id, plan);
+    store.create(
+      {
+        id,
+        plan,
+        config: plan.config ?? null,
+        status: "queued",
+        runId: null,
+        adapter: adapter.name,
+        logTail: "",
+        error: null,
+        artifactName: null,
+        artifactSha256: null,
+        artifactSize: null,
+        engine: buildEngineOf(plan),
+        target: buildTargetOf(plan),
+        dispatchedAt: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      // Sealed before the row is written, so a crash right after COMMIT still
+      // leaves a dispatcherable build behind.
+      dispatchPayload.seal(plan),
+    );
     const created = store.get(id);
     if (!created) throw new Error(`build ${id} disappeared after insert`);
     return created;
   }
 
-  async function dispatchOne(record: BuildRecord): Promise<void> {
-    // A plan restored from the database lost its generated file contents and
-    // network secrets; dispatching it would produce an image without the files
-    // overlay. Fail it loudly instead.
-    const plan = pendingPlans.get(record.id) ?? record.plan;
-    if (!pendingPlans.has(record.id) && isRedactedPlan(plan)) {
-      const latest = store.get(record.id);
-      if (!latest || latest.status !== "running") return;
-      store.update(
-        record.id,
-        {
-          status: "failed",
-          error:
-            "构建计划的生成文件与网络密钥只在派发时保存在内存中，进程重启后无法重建；请重新提交该构建",
-          failure: {
-            step: "dispatch",
-            package: null,
-            source: null,
-            version: null,
-            message: "plan secrets are not persisted; resubmit the build",
-          },
-        },
-        latest.updatedAt,
-        "dispatch",
-      );
+  /** Fail a claimed build whose payload is gone or cannot be opened, loudly. */
+  function failWithoutPayload(record: BuildRecord, message: string): void {
+    const latest = store.get(record.id);
+    if (!latest || latest.status !== "running") {
+      store.clearDispatchPayload(record.id);
       return;
     }
+    store.update(
+      record.id,
+      {
+        status: "failed",
+        error:
+          "构建计划的加密派发载荷缺失或无法解密，无法安全派发；请重新提交该构建",
+        failure: {
+          step: "dispatch",
+          package: null,
+          source: null,
+          version: null,
+          message,
+        },
+      },
+      latest.updatedAt,
+      "dispatch",
+    );
+    // `update()` already zeroes terminal rows; keep this call explicit so a
+    // future status-handling change cannot silently retain the ciphertext.
+    store.clearDispatchPayload(record.id);
+  }
+
+  async function dispatchOne(record: BuildRecord): Promise<void> {
+    const sealed = store.readDispatchPayload(record.id);
+    let plan: BuildPlan;
+    if (sealed) {
+      try {
+        plan = dispatchPayload.open(sealed);
+      } catch (error) {
+        failWithoutPayload(
+          record,
+          `dispatch payload cannot be decrypted: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return;
+      }
+    } else if (isRedactedPlan(record.plan)) {
+      // Legacy or manually created row: the secrets only existed in memory.
+      // Never dispatch it, or the image would silently lose its files overlay.
+      failWithoutPayload(record, "plan secrets are not persisted; resubmit the build");
+      return;
+    } else {
+      // A secret-free plan needs no encrypted payload; `plan_json` is complete.
+      plan = record.plan;
+    }
+
+    if (isRedactedPlan(plan)) {
+      failWithoutPayload(record, "decrypted dispatch payload is still redacted; resubmit the build");
+      return;
+    }
+
     let runId: string | null = null;
     try {
       const result = await adapter.dispatch(plan, {
@@ -108,7 +163,7 @@ export function createBuildQueue(options: BuildQueueOptions): BuildQueue {
       });
       runId = result.runId;
     } catch (error) {
-      pendingPlans.delete(record.id);
+      store.clearDispatchPayload(record.id);
       const message = error instanceof Error ? error.message : String(error);
       const latest = store.get(record.id);
       // A cancel during the dispatch call wins: it is already terminal.
@@ -126,7 +181,9 @@ export function createBuildQueue(options: BuildQueueOptions): BuildQueue {
       return;
     }
 
-    pendingPlans.delete(record.id);
+    // The dispatch call consumed the secret; zero the ciphertext even while the
+    // build stays `running` until the run id is observed.
+    store.clearDispatchPayload(record.id);
     if (!runId) {
       // The dispatch call succeeded but GitHub has not exposed the run yet; the
       // reconciler resolves it through findRun and fails the build if the run

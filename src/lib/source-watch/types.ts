@@ -15,6 +15,7 @@ export type PinStatus = "active" | "candidate";
 export type PinEventReason =
   | "adopted"
   | "adopted_forced"
+  | "adopted_bootstrap"
   | "blocked_same_version_hash"
   | "blocked_baseline_missing"
   | "adoption_rolled_back"

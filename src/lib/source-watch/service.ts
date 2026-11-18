@@ -16,6 +16,7 @@ import { observeRepoRef, sha256Hex } from "./observe";
 import { diffPackages, isPackageDiff } from "./diff";
 import {
   deleteSourcePin,
+  hasSourcePinAdoptionHistory,
   inTransaction,
   insertSourcePinEvent,
   listSourcePinEvents,
@@ -164,6 +165,8 @@ export function createSourceWatchService(options: SourceWatchServiceOptions): So
   async function adoptCandidate(input: {
     force: boolean;
     adoptedBy: string;
+    /** Distinguishes the one-time fresh-deployment bootstrap from a normal auto-adopt. */
+    reason?: "adopted" | "adopted_forced" | "adopted_bootstrap";
   }): Promise<AdoptPinResult> {
     const candidate = readSourcePin(db, SOURCE, "candidate");
     if (!candidate) {
@@ -258,7 +261,7 @@ export function createSourceWatchService(options: SourceWatchServiceOptions): So
           source: SOURCE,
           fromPin: previous?.value ?? null,
           toPin: candidate.value,
-          reason: input.force ? "adopted_forced" : "adopted",
+          reason: input.reason ?? (input.force ? "adopted_forced" : "adopted"),
           snapshotId: refreshed.snapshotId,
           createdAt: nowIso(),
         });
@@ -438,16 +441,21 @@ export function createSourceWatchService(options: SourceWatchServiceOptions): So
 
     const baseline = await parseActiveBaseline(activeBefore);
     // Without the previous index bytes the same-version hash guard cannot run.
-    // Adopting anyway would silently skip the anomaly check, so the change is
-    // recorded as blocked until an operator reviews and forces it.
+    // A fresh deployment has no history at all (the config seed carries only a
+    // pin hash), so its *first* observation is allowed to bootstrap-adopt: the
+    // seed pin has nothing to compare against and refusing forever would mean
+    // automatic adoption never starts. After that one bootstrap, a missing
+    // baseline is a real anomaly and blocks until an operator reviews it.
     const baselineMissing = activeBefore !== null && baseline === null;
+    const bootstrapEligible =
+      baselineMissing && !hasSourcePinAdoptionHistory(db, SOURCE);
     const diff = baseline ? diffPackages(baseline.packages, observation.parsed.packages) : null;
     const sameVersionChange = Boolean(diff && diff.sameVersionHashChanges.length > 0);
-    const blocked = baselineMissing || sameVersionChange;
-    const blockedReason = baselineMissing
-      ? "baseline_missing"
-      : sameVersionChange
-        ? "same_version_hash_changed"
+    const blocked = (baselineMissing && !bootstrapEligible) || sameVersionChange;
+    const blockedReason = sameVersionChange
+      ? "same_version_hash_changed"
+      : baselineMissing
+        ? "baseline_missing"
         : null;
 
     upsertSourcePin(db, {
@@ -463,6 +471,7 @@ export function createSourceWatchService(options: SourceWatchServiceOptions): So
         diff,
         blocked,
         blockedReason,
+        ...(bootstrapEligible ? { bootstrap: true } : {}),
       },
     });
     patchSourceWatchState(
@@ -496,7 +505,11 @@ export function createSourceWatchService(options: SourceWatchServiceOptions): So
       };
     }
 
-    const adopted = await adoptCandidate({ force: false, adoptedBy });
+    const adopted = await adoptCandidate({
+      force: false,
+      adoptedBy,
+      reason: bootstrapEligible ? "adopted_bootstrap" : undefined,
+    });
     if (!adopted.ok) {
       return {
         ...baseResult("error"),

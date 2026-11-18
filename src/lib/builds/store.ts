@@ -23,6 +23,7 @@ interface BuildRow {
   dispatched_at: string | null;
   created_at: string;
   updated_at: string;
+  dispatch_payload: string | null;
 }
 
 function toRecord(row: BuildRow): BuildRecord {
@@ -54,7 +55,16 @@ function nextUpdatedAt(previous: string, timestamp: string): string {
 }
 
 export interface BuildStore {
-  create(build: BuildRecord): void;
+  /**
+   * Insert a queued build. `dispatchPayload` is the sealed full plan (see
+   * `dispatch-payload.ts`); it is kept out of `BuildRecord` so it never reaches
+   * an API response or a detail page.
+   */
+  create(build: BuildRecord, dispatchPayload?: string | null): void;
+  /** Read the sealed dispatch payload, or null when the row has none. */
+  readDispatchPayload(id: string): string | null;
+  /** Zero the sealed payload once it has been dispatched or is no longer needed. */
+  clearDispatchPayload(id: string): void;
   get(id: string): BuildRecord | null;
   list(limit?: number, offset?: number): BuildRecord[];
   count(): number;
@@ -126,12 +136,12 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
   }
 
   return {
-    create(build) {
+    create(build, dispatchPayload = null) {
       db.exec("BEGIN IMMEDIATE");
       try {
         db.prepare(
-          `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, failure_json, artifact_name, artifact_sha256, artifact_size, engine, target, dispatched_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, failure_json, artifact_name, artifact_sha256, artifact_size, engine, target, dispatched_at, created_at, updated_at, dispatch_payload)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           build.id,
           JSON.stringify(redactPlanForStorage(build.plan)),
@@ -150,6 +160,7 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
           build.dispatchedAt ?? null,
           build.createdAt,
           build.updatedAt,
+          dispatchPayload,
         );
         insertEvent(build.id, null, build.status, "create", build.createdAt);
         db.exec("COMMIT");
@@ -159,6 +170,15 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
       }
     },
     get,
+    readDispatchPayload(id) {
+      const row = db
+        .prepare("SELECT dispatch_payload FROM builds WHERE id = ?")
+        .get(id) as { dispatch_payload: string | null } | undefined;
+      return row?.dispatch_payload ?? null;
+    },
+    clearDispatchPayload(id) {
+      db.prepare("UPDATE builds SET dispatch_payload = NULL WHERE id = ?").run(id);
+    },
     list(limit = 20, offset = 0) {
       const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 20;
       const safeOffset = Number.isFinite(offset) ? Math.max(Math.trunc(offset), 0) : 0;
@@ -269,6 +289,11 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
         }
         if (next.status !== current.status) {
           insertEvent(id, current.status, next.status, source, next.updatedAt);
+        }
+        // A terminal build never needs its sealed dispatch payload again; keep
+        // the ciphertext out of backups as soon as the build stops moving.
+        if (next.status === "succeeded" || next.status === "failed" || next.status === "cancelled") {
+          db.prepare("UPDATE builds SET dispatch_payload = NULL WHERE id = ?").run(id);
         }
         db.exec("COMMIT");
         return next;

@@ -35,6 +35,7 @@ describe("database bootstrap", () => {
       "050_supplement_publish",
       "120_build_queue",
       "130_artifact_cache",
+      "140_build_dispatch_payload",
     ]);
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -92,6 +93,7 @@ describe("database bootstrap", () => {
       "050_supplement_publish",
       "120_build_queue",
       "130_artifact_cache",
+      "140_build_dispatch_payload",
     ]);
 
     const snapshot = db.prepare("SELECT * FROM catalog_snapshots WHERE id = 7").get() as Record<string, unknown>;

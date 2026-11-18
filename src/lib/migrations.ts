@@ -339,4 +339,14 @@ export const MIGRATIONS: Migration[] = [
         ON artifact_cache_entries (updated_at);
     `,
   },
+  {
+    version: "140_build_dispatch_payload",
+    // Row 11 fix (2026-11-18): a build that waits behind MAX_CONCURRENT_BUILDS
+    // must dispatch from the reconciler pump, possibly in a fresh process. The
+    // full plan (generated file contents + typed network secrets) is sealed
+    // with AES-256-GCM under a key derived from SESSION_SECRET; `plan_json`
+    // stays redacted. Legacy rows have NULL here and are either secret-free or
+    // fail loudly at dispatch instead of building without their overlay.
+    sql: `ALTER TABLE builds ADD COLUMN dispatch_payload TEXT;`,
+  },
 ];

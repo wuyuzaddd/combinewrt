@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -7,6 +7,7 @@ import type { BuildPlan } from "../build/types";
 import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError, assertArtifactSize } from "../image/postprocess";
 import type { ArtifactCache } from "./artifact-cache";
 import type { ArtifactCacheEntry } from "./artifact-store";
+import { createDispatchPayloadCodec, type DispatchPayloadCodec } from "./dispatch-payload";
 import { createBuildQueue } from "./queue";
 import type { BuildStore } from "./store";
 import type { ArtifactDownload, BuildAdapter, BuildRecord, BuildStatus } from "./types";
@@ -89,6 +90,14 @@ export function createBuildService(options: {
   cache?: ArtifactCache;
   /** Concurrency cap from MAX_CONCURRENT_BUILDS; defaults to 2. */
   maxConcurrentBuilds?: number;
+  /**
+   * Encrypts the full plan for later (possibly cross-process) dispatch.
+   * `getBuildService()` passes `SESSION_SECRET`; tests may omit it and get a
+   * process-local key, which is enough for same-instance queue semantics.
+   */
+  sessionSecret?: string;
+  /** Test seam for a pre-created codec (e.g. a fixed key across two instances). */
+  dispatchPayload?: DispatchPayloadCodec;
 }): BuildService {
   const {
     store,
@@ -102,7 +111,19 @@ export function createBuildService(options: {
   } = options;
   const inFlight = new Map<string, Promise<BuildRecord | null>>();
   const lastPoll = new Map<string, number>();
-  const queue = createBuildQueue({ store, adapter, maxConcurrent: maxConcurrentBuilds, now });
+  // `SESSION_SECRET` is required in production (getBuildService passes it). A
+  // process-local key keeps unit-test instances independent; a queued build
+  // that crosses processes without a shared secret fails loudly at dispatch.
+  const dispatchPayload =
+    options.dispatchPayload ??
+    createDispatchPayloadCodec(options.sessionSecret ?? randomBytes(32).toString("hex"));
+  const queue = createBuildQueue({
+    store,
+    adapter,
+    dispatchPayload,
+    maxConcurrent: maxConcurrentBuilds,
+    now,
+  });
 
   function engineOf(record: BuildRecord): ReturnType<typeof buildEngineOf> {
     return record.engine ?? buildEngineOf(record.plan);

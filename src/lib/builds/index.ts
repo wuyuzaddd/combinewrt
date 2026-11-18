@@ -29,6 +29,7 @@ export function getBuildService(): BuildService {
     store: createBuildStore(getDatabase()),
     adapter: createAdapter(getConfig()),
     maxConcurrentBuilds: getConfig().maxConcurrentBuilds,
+    sessionSecret: getConfig().sessionSecret,
     pollIntervalMs: 5_000,
     cacheDir: getConfig().artifactCacheDir,
     cache: artifactCache(),

@@ -171,6 +171,27 @@ export function insertSourcePinEvent(
   return Number(result.lastInsertRowid);
 }
 
+/**
+ * True once this source has ever adopted or rolled back a pin. The first
+ * observation on a fresh deployment has no cached baseline bytes (the config
+ * seed only carries a hash), so it is allowed to bootstrap-adopt exactly once;
+ * after that, a missing baseline is a real anomaly again.
+ */
+export function hasSourcePinAdoptionHistory(
+  db: DatabaseSync,
+  source: WatchSourceId,
+): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 AS found FROM source_pin_events
+        WHERE source = ?
+          AND reason IN ('adopted', 'adopted_forced', 'adopted_bootstrap', 'rolled_back', 'adoption_rolled_back')
+        LIMIT 1`,
+    )
+    .get(source) as { found: number } | undefined;
+  return row !== undefined;
+}
+
 export function listSourcePinEvents(
   db: DatabaseSync,
   source: WatchSourceId,
