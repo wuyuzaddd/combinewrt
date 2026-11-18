@@ -306,7 +306,13 @@ describe("build queue restart recovery", () => {
     migrate(first);
     const h = harness();
     const store = createBuildStore(first);
-    const service = createBuildService({ store, adapter: h.adapter, maxConcurrentBuilds: 2 });
+    const secret = "r".repeat(48);
+    const service = createBuildService({
+      store,
+      adapter: h.adapter,
+      maxConcurrentBuilds: 2,
+      sessionSecret: secret,
+    });
 
     const a = await service.submit(plan());
     const b = await service.submit(plan());
@@ -318,7 +324,12 @@ describe("build queue restart recovery", () => {
     migrate(reopened);
     const h2 = harness();
     const restartedStore = createBuildStore(reopened);
-    const restarted = createBuildService({ store: restartedStore, adapter: h2.adapter, maxConcurrentBuilds: 2 });
+    const restarted = createBuildService({
+      store: restartedStore,
+      adapter: h2.adapter,
+      maxConcurrentBuilds: 2,
+      sessionSecret: secret,
+    });
 
     // Nothing is re-dispatched, and the recorded run ids survive the restart.
     expect(restartedStore.get(a.id)?.runId).toBe(a.runId);
@@ -497,6 +508,211 @@ describe("plan secrets at dispatch time", () => {
     const record = store.get("restored");
     expect(record?.status).toBe("failed");
     expect(record?.failure?.step).toBe("dispatch");
-    expect(record?.error).toMatch(/内存|resubmit/);
+    expect(record?.error).toMatch(/重新提交|resubmit/);
+  });
+});
+
+describe("encrypted dispatch payload across the queue", () => {
+  const SECRET = "s".repeat(48);
+  const OTHER_SECRET = "t".repeat(48);
+
+  function planWithSecret(secret: string): BuildPlan {
+    return {
+      ...plan(),
+      files: [
+        {
+          path: "files/etc/uci-defaults/99-combinewrt",
+          mode: 0o755,
+          content: `root_password='${secret}'\n`,
+        },
+      ],
+    } as BuildPlan;
+  }
+
+  function recordingAdapter(seen: BuildPlan[]) {
+    let calls = 0;
+    const adapter: BuildAdapter = {
+      name: "fake",
+      async findRun() {
+        return null;
+      },
+      async dispatch(plan, meta) {
+        calls += 1;
+        seen.push(plan);
+        return { runId: `run-${meta.buildId}` };
+      },
+      async getRun() {
+        return { status: "running", logTail: "" };
+      },
+      async downloadArtifact() {
+        throw new Error("not implemented");
+      },
+    };
+    return { adapter, calls: () => calls };
+  }
+
+  it("dispatches a build queued by the cap after the slot frees (same process)", async () => {
+    const db = database();
+    const store = createBuildStore(db);
+    const seen: BuildPlan[] = [];
+    const recorder = recordingAdapter(seen);
+    const service = createBuildService({
+      store,
+      adapter: recorder.adapter,
+      maxConcurrentBuilds: 1,
+      sessionSecret: SECRET,
+    });
+
+    const first = await service.submit(planWithSecret("first"));
+    const waiting = await service.submit(planWithSecret("second"));
+    expect(waiting.status).toBe("queued");
+    expect(recorder.calls()).toBe(1);
+
+    store.update(first.id, { status: "succeeded" });
+    await service.pump();
+
+    expect(recorder.calls()).toBe(2);
+    // The dispatcher opened the sealed payload: the generated file content is
+    // the one submitted with the queued build, not a redacted placeholder.
+    expect(seen[1]?.files[0]?.content).toBe("root_password='second'\n");
+    expect(service.get(waiting.id)?.status).toBe("running");
+    expect(service.get(waiting.id)?.runId).toBe(`run-${waiting.id}`);
+  });
+
+  it("dispatches a queued build from a fresh service instance with the same SESSION_SECRET", async () => {
+    const path = databasePath();
+    const first = openDatabase(path);
+    migrate(first);
+    const h1 = harness();
+    const serviceA = createBuildService({
+      store: createBuildStore(first),
+      adapter: h1.adapter,
+      maxConcurrentBuilds: 1,
+      sessionSecret: SECRET,
+    });
+
+    const running = await serviceA.submit(planWithSecret("first"));
+    const queued = await serviceA.submit(planWithSecret("second"));
+    expect(queued.status).toBe("queued");
+    first.close();
+
+    const reopened = openDatabase(path);
+    migrate(reopened);
+    const storeB = createBuildStore(reopened);
+    const seen: BuildPlan[] = [];
+    const recorder = recordingAdapter(seen);
+    const serviceB = createBuildService({
+      store: storeB,
+      adapter: recorder.adapter,
+      maxConcurrentBuilds: 1,
+      sessionSecret: SECRET,
+    });
+
+    // The running build is not re-dispatched; freeing its slot lets the pump
+    // claim the queued row and decrypt its payload in the new instance.
+    storeB.update(running.id, { status: "succeeded" });
+    await serviceB.pump();
+
+    expect(recorder.calls()).toBe(1);
+    expect(seen[0]?.files[0]?.content).toBe("root_password='second'\n");
+    expect(storeB.get(queued.id)?.status).toBe("running");
+    expect(storeB.get(queued.id)?.runId).toBe(`run-${queued.id}`);
+    // Once dispatched, the ciphertext is gone.
+    expect(storeB.readDispatchPayload(queued.id)).toBeNull();
+  });
+
+  it("keeps plan_json redacted and stores only ciphertext until dispatch", async () => {
+    const db = database();
+    const store = createBuildStore(db);
+    const h = harness();
+    const service = createBuildService({
+      store,
+      adapter: h.adapter,
+      maxConcurrentBuilds: 1,
+      sessionSecret: SECRET,
+    });
+
+    await service.submit(planWithSecret("in-flight"));
+    const queued = await service.submit(planWithSecret("at-rest-secret"));
+
+    const row = db
+      .prepare("SELECT plan_json, dispatch_payload FROM builds WHERE id = ?")
+      .get(queued.id) as { plan_json: string; dispatch_payload: string | null };
+    expect(row.plan_json).not.toContain("at-rest-secret");
+    expect(row.plan_json).toContain("<redacted at rest>");
+    expect(row.dispatch_payload).toBeTruthy();
+    expect(row.dispatch_payload).not.toContain("at-rest-secret");
+    expect(row.dispatch_payload).not.toContain("root_password");
+  });
+
+  it("fails a queued build whose payload cannot be decrypted with this SESSION_SECRET", async () => {
+    const path = databasePath();
+    const first = openDatabase(path);
+    migrate(first);
+    const h = harness();
+    const serviceA = createBuildService({
+      store: createBuildStore(first),
+      adapter: h.adapter,
+      maxConcurrentBuilds: 1,
+      sessionSecret: SECRET,
+    });
+    const running = await serviceA.submit(planWithSecret("first"));
+    const queued = await serviceA.submit(planWithSecret("second"));
+    first.close();
+
+    const reopened = openDatabase(path);
+    migrate(reopened);
+    const storeB = createBuildStore(reopened);
+    const seen: BuildPlan[] = [];
+    const recorder = recordingAdapter(seen);
+    const serviceB = createBuildService({
+      store: storeB,
+      adapter: recorder.adapter,
+      maxConcurrentBuilds: 1,
+      sessionSecret: OTHER_SECRET,
+    });
+    storeB.update(running.id, { status: "succeeded" });
+    await serviceB.pump();
+
+    const failed = storeB.get(queued.id)!;
+    expect(recorder.calls()).toBe(0);
+    expect(failed.status).toBe("failed");
+    expect(failed.failure?.step).toBe("dispatch");
+    expect(failed.failure?.message).toContain("cannot be decrypted");
+    expect(failed.error).toContain("重新提交");
+    expect(storeB.readDispatchPayload(queued.id)).toBeNull();
+  });
+
+  it("fails a queued build whose stored payload was tampered with", async () => {
+    const db = database();
+    const store = createBuildStore(db);
+    const h = harness();
+    const service = createBuildService({
+      store,
+      adapter: h.adapter,
+      maxConcurrentBuilds: 1,
+      sessionSecret: SECRET,
+    });
+    const running = await service.submit(planWithSecret("first"));
+    const queued = await service.submit(planWithSecret("second"));
+
+    const row = db
+      .prepare("SELECT dispatch_payload FROM builds WHERE id = ?")
+      .get(queued.id) as { dispatch_payload: string };
+    const envelope = JSON.parse(row.dispatch_payload) as { data: string };
+    const bytes = Buffer.from(envelope.data, "base64");
+    bytes[0] ^= 0xff;
+    db.prepare("UPDATE builds SET dispatch_payload = ? WHERE id = ?").run(
+      JSON.stringify({ ...envelope, data: bytes.toString("base64") }),
+      queued.id,
+    );
+
+    store.update(running.id, { status: "succeeded" });
+    await service.pump();
+
+    const failed = store.get(queued.id)!;
+    expect(failed.status).toBe("failed");
+    expect(failed.failure?.message).toContain("cannot be decrypted");
+    expect(store.readDispatchPayload(queued.id)).toBeNull();
   });
 });
