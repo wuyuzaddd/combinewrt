@@ -53,7 +53,10 @@ export function PlanPreview({ plan, conflicts, mode, form, dispatching, onDispat
                 <p>
                   变体：{plan.imageVariant.boot} / {plan.imageVariant.filesystem} / {plan.imageVariant.artifact}
                 </p>
-                <p>通道：{plan.channel}</p>
+                <p>
+                  通道：{plan.channel}
+                  {plan.channel === "snapshot" ? "（实验/滚动）" : ""}
+                </p>
               </div>
             ) : null}
             <p className="mt-3 text-xs text-slate-500">直接选择（{selectedEntries.length}）</p>

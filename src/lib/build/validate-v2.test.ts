@@ -82,3 +82,37 @@ describe("isBuildPlanV2Form", () => {
     expect(isBuildPlanV2Form([])).toBe(false);
   });
 });
+
+describe("validateBuildFormV2 base-version channel (ticket 11)", () => {
+  it("accepts a release base version and keeps the requested visibility", () => {
+    const result = validateBuildFormV2({ ...base, baseVersion: "25.12.2", visibility: "public" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.visibility).toBe("public");
+  });
+
+  it.each(["24.10-SNAPSHOT", "25.12.3-snapshot"])(
+    "accepts snapshot base version %s and forces private visibility",
+    (baseVersion) => {
+      const result = validateBuildFormV2({ ...base, baseVersion, visibility: "public" });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.visibility).toBe("private");
+      expect(result.value.baseVersion).toBe(baseVersion);
+    },
+  );
+
+  it("defaults a snapshot plan to private even with no visibility field", () => {
+    const result = validateBuildFormV2({ ...base, baseVersion: "24.10-SNAPSHOT" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.visibility).toBe("private");
+  });
+
+  it.each(["25.12", "v25.12.2", "25.12.2-SNAPSHOT2", "snapshot"])(
+    "still rejects the malformed base version %s",
+    (baseVersion) => {
+      const result = validateBuildFormV2({ ...base, baseVersion });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.issues.join("\n")).toMatch(/baseVersion/);
+    },
+  );
+});

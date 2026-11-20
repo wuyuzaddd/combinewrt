@@ -17,7 +17,7 @@ import { getSourceWatchService } from "@/lib/source-watch";
 import { readSourcePin } from "@/lib/source-watch/store";
 import { getSupplementWatchService } from "@/lib/supplement-watch";
 import { BuildForm } from "./build-form";
-import type { InitialBuildConfig, ReleaseOption } from "./form-model";
+import { releaseOptions, type InitialBuildConfig } from "./form-model";
 import type { SourceWatchSummary } from "./source-watch-panel";
 
 function safeRead<T>(read: () => T, fallback: T): T {
@@ -27,19 +27,6 @@ function safeRead<T>(read: () => T, fallback: T): T {
     console.error("[combinewrt] build page read failed", error);
     return fallback;
   }
-}
-
-function releaseOptions(baseVersions: ReturnType<ReturnType<typeof createBaseVersionStore>["list"]>, active: string, availableVersion: string): ReleaseOption[] {
-  const versions = baseVersions.filter((entry) => entry.channel === "release");
-  const usable = versions.length > 0 ? versions : baseVersions.filter((entry) => entry.version === active);
-  const mapped = usable.map((entry) => ({
-    version: entry.version,
-    active: entry.version === active,
-    snapshotAvailable: entry.version === availableVersion || entry.version === active ? true : false,
-  }));
-  return mapped.length > 0
-    ? mapped
-    : [{ version: availableVersion, active: true, snapshotAvailable: true }];
 }
 
 export default async function BuildPage({

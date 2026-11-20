@@ -8,7 +8,8 @@
  */
 import type { NetworkInput } from "@/lib/build/types";
 import { variantForImageType } from "@/lib/build/artifact-name";
-import type { BasePresetId } from "@/lib/domain/types";
+import type { BasePresetId, BaseChannel } from "@/lib/domain/types";
+import { channelForVersion, resolveChannel } from "@/lib/build/channel";
 import type {
   BuildUiOptions,
   BundleOption,
@@ -26,6 +27,48 @@ export interface ReleaseOption {
   version: string;
   active: boolean;
   snapshotAvailable: boolean;
+  /**
+   * Channel of this base version (ticket 11). The Simple list only offers
+   * release rows; a snapshot option can only appear as the labelled fallback
+   * of a snapshot-only deployment, and selects an experimental plan.
+   */
+  channel?: BaseChannel;
+}
+
+/**
+ * Simple-mode release list (ticket 11). Only release-channel base versions are
+ * offered, so a rolling snapshot is never one dropdown away from a daily
+ * build. When the deployment has no release row at all (a snapshot-only test
+ * instance) the active row, or the catalog snapshot's own base version, is the
+ * fallback; it keeps `channel: "snapshot"` and the UI labels it 实验.
+ */
+export function releaseOptions(
+  baseVersions: readonly { version: string; channel?: BaseChannel }[],
+  active: string,
+  availableVersion: string,
+): ReleaseOption[] {
+  const channelOf = (entry: { version: string; channel?: BaseChannel }): BaseChannel =>
+    resolveChannel(entry.version, entry);
+  const toOption = (entry: { version: string; channel?: BaseChannel }): ReleaseOption => ({
+    version: entry.version,
+    active: entry.version === active,
+    snapshotAvailable: entry.version === availableVersion || entry.version === active,
+    channel: channelOf(entry),
+  });
+
+  const releases = baseVersions.filter((entry) => channelOf(entry) === "release");
+  if (releases.length > 0) return releases.map(toOption);
+
+  const activeRow = baseVersions.find((entry) => entry.version === active);
+  if (activeRow) return [toOption(activeRow)];
+  return [
+    {
+      version: availableVersion,
+      active: true,
+      snapshotAvailable: true,
+      channel: channelForVersion(availableVersion),
+    },
+  ];
 }
 
 export interface BuildFormState {
