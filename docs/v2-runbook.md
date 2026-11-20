@@ -61,7 +61,7 @@ feed 仓的 `gh-pages` 历史是审计记录：不要 force-push 覆盖已发布
 ### 1.4 升级/部署回滚
 
 站点升级失败时：`git -C /opt/combinewrt log --oneline -3` 找到上一个可用 commit，`git checkout <sha>`，
-`npm ci && npm run build`，重启服务；数据库迁移是只追加的，旧代码可以打开新库（多出的表/列被忽略），
+`npm ci && npm run build`，重启服务；数据库迁移的规则是**不删除 V1 数据；允许 FK 保护下的表重建，需在迁移注释写明理由**（当前唯一例子是 `010_v2_domain` 在 `disableForeignKeys` 下重建 `catalog_snapshots`，注释写明了理由）。旧代码可以打开新库（多出的表/列被忽略），
 但不要在新代码已写入 V2 pin 后长期回退到不认识这些表的极旧版本。
 
 ## 2. dllkids 同版本哈希异常
