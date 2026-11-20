@@ -59,3 +59,19 @@ export function imageTypeForVariant(variant: ImageVariant): ImageFormatId {
   if (variant.artifact === "rootfs") return "rootfs-tar";
   return variant.filesystem === "squashfs" ? "squashfs-efi" : "ext4-efi";
 }
+
+/**
+ * Inverse of `imageTypeForVariant`, used only to read a legacy V1 form. A
+ * `rootfs-tar` build has no boot/filesystem choice, so it maps to the canonical
+ * squashfs EFI rootfs variant the V2 planner supports.
+ */
+export function variantForImageType(imageType: ImageFormatId): ImageVariant {
+  switch (imageType) {
+    case "ext4-efi":
+      return { boot: "efi", filesystem: "ext4", artifact: "combined" };
+    case "squashfs-efi":
+      return { boot: "efi", filesystem: "squashfs", artifact: "combined" };
+    case "rootfs-tar":
+      return { boot: "efi", filesystem: "squashfs", artifact: "rootfs" };
+  }
+}

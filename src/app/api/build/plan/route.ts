@@ -11,8 +11,9 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
 
-  // V2 requests name the target/kernel-line/image-variant triple. Everything
-  // else keeps the V1 form, composer and plan JSON untouched.
+  // V2 requests name the target/kernel-line/image-variant triple. A V1 form
+  // request keeps its input shape but is mapped onto the implicit V2 defaults
+  // (ADR 0009 ruling 3), so it also returns a schemaVersion 2 plan.
   if (isBuildPlanV2Form(body)) {
     const validation = validateBuildFormV2(body);
     if (!validation.ok) {
@@ -45,8 +46,8 @@ export async function POST(request: Request) {
     const prepared = await preparePlanForForm(validation.value);
     if (!prepared.ok) return NextResponse.json(prepared.body, { status: prepared.status });
 
-    if (prepared.plan.conflicts.length > 0) {
-      return NextResponse.json({ ok: false, conflicts: prepared.plan.conflicts, plan: prepared.plan }, { status: 409 });
+    if (prepared.conflicts.length > 0) {
+      return NextResponse.json({ ok: false, conflicts: prepared.conflicts, plan: prepared.plan }, { status: 409 });
     }
     return NextResponse.json({ ok: true, plan: prepared.plan });
   } catch (error) {

@@ -81,7 +81,7 @@ function post(body: unknown = form) {
 
 beforeEach(() => {
   state.session = { sub: "admin", iat: 0, exp: 0 };
-  state.prepared = { ok: true, plan };
+  state.prepared = { ok: true, plan, conflicts: [] };
   state.preparedV2 = { ok: true, plan: { ...plan, schemaVersion: 2 }, conflicts: [] };
   state.build = { id: "b1", status: "queued" };
   state.listed = [];
@@ -109,6 +109,7 @@ describe("POST /api/builds", () => {
     state.prepared = {
       ok: true,
       plan: { ...plan, conflicts: [{ names: ["dnsmasq", "dnsmasq-full"], message: "冲突" }] },
+      conflicts: [{ names: ["dnsmasq", "dnsmasq-full"], message: "冲突" }],
     };
     const response = await POST(post());
     expect(response.status).toBe(409);
