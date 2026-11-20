@@ -8,6 +8,7 @@ import { preparePlanForForm } from "../builds/prepare";
 import { createCatalogStore } from "../catalog/store";
 import { refreshCatalog } from "../catalog/service";
 import { createConfiguredImmortalWrtSource } from "../catalog/configured";
+import { activeSourceConfig } from "../catalog/refresh-active";
 import { createImmortalWrtSource } from "../catalog/source";
 import { createBaseVersionService, type BaseVersionService } from "./service";
 import { createBaseVersionStore } from "./store";
@@ -27,7 +28,7 @@ function createService(): BaseVersionService {
     activateSnapshot: (snapshotId) => catalogStore.activateSnapshot(snapshotId),
     async refresh(baseVersion) {
       const result = await refreshCatalog({
-        source: createImmortalWrtSource(createConfiguredImmortalWrtSource(config, baseVersion)),
+        source: createImmortalWrtSource(createConfiguredImmortalWrtSource(activeSourceConfig(db, config), baseVersion)),
         db,
       });
       catalogStore.activateSnapshot(result.snapshot.id);

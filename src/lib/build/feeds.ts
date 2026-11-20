@@ -24,12 +24,20 @@ export const DEFAULT_DLLKIDS_FEED_URL = "https://down.dllkids.xyz/openwrt-feed/2
  * Last-resort seed for a fresh installation that has no adopted database pin.
  *
  * ADR 0009 ruling 1: the `source_pins` row is authoritative. This constant
- * (and the `DLLKIDS_INDEX_SHA256` env override) only seeds the first pin; a
- * plan may use it only when the database has nothing, and must then mark it as
- * a seed (`indexSha256Source` on the feed repository).
+ * (and the `DLLKIDS_INDEX_SHA256_SEED` / legacy `DLLKIDS_INDEX_SHA256` env
+ * override) only seeds the first pin; a plan may use it only when the database
+ * has nothing, and must then mark it as a seed (`indexSha256Source` on the feed
+ * repository). Keeping "env" out of the name is deliberate: environment
+ * configuration is not a live authority.
  */
-export const DEFAULT_DLLKIDS_INDEX_SHA256 =
+export const DEFAULT_DLLKIDS_INDEX_SHA256_SEED =
   "04a549ed7028b126218002b126cbc60eb3a4bdc3463f15425bce3ba6b91a04ba";
+
+/**
+ * @deprecated Prefer {@link DEFAULT_DLLKIDS_INDEX_SHA256_SEED}. The old name is
+ * kept so downstream imports keep compiling; it has the same seed semantics.
+ */
+export const DEFAULT_DLLKIDS_INDEX_SHA256 = DEFAULT_DLLKIDS_INDEX_SHA256_SEED;
 
 /** Where a feed's `indexSha256` came from. */
 export type IndexSha256Source = "snapshot" | "database" | "config-seed";
@@ -128,7 +136,7 @@ export const DEFAULT_IMAGE_FEED_OPTIONS: ResolvedImageFeedOptions = {
   supplementIndexSha256: null,
   extensionIndexSha256: null,
   dllkidsFeedUrl: DEFAULT_DLLKIDS_FEED_URL,
-  dllkidsIndexSha256: DEFAULT_DLLKIDS_INDEX_SHA256,
+  dllkidsIndexSha256: DEFAULT_DLLKIDS_INDEX_SHA256_SEED,
 };
 
 export interface ImageFeedPlanInput {

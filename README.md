@@ -116,7 +116,7 @@ npm run dev
 | `IMMORTALWRT_BASE_VERSION` | 否 | 首次启动写入基线的 ImmortalWrt 版本，默认 `25.12.2` |
 | `IMMORTALWRT_MIRROR` | 否 | 覆盖官方 feed base 的镜像 URL；留空使用 `https://downloads.immortalwrt.org` |
 | `DLLKIDS_FEED_URL` | 否 | dllkids 包索引目录 |
-| `DLLKIDS_INDEX_SHA256` | 否 | dllkids `packages.adb` 的 sha256 pin |
+| `DLLKIDS_INDEX_SHA256_SEED` | 否 | 首次安装的 dllkids `packages.adb` sha256 seed；采纳后以数据库 `source_pins` 为准。旧名 `DLLKIDS_INDEX_SHA256` 仍兼容 |
 | `COMBINEWRT_FEED_BASE_URL` | 否 | 项目签名 feed 站点根（supplement/extension 的版本冻结路径由此拼接） |
 | `SUPPLEMENT_FEED_URL` | 否 | supplement 当前索引目录，默认按 base version 拼接 |
 | `SUPPLEMENT_KEY_URL` | 否 | 项目 feed 公钥地址 |

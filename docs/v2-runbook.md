@@ -87,7 +87,9 @@ feed 仓的 `gh-pages` 历史是审计记录：不要 force-push 覆盖已发布
 3. 人工审查变的是哪些包、上游是否发布了同版本重建公告、license/ABI 是否仍匹配。不要只看版本号。
 4. 只有在确认安全后，才在面板点“强制采纳”（或 `POST /api/admin/source-watch` 的 force 路径）。
    强制采纳会记录事件；之后刷新目录。
-5. 如果无法确认：保持阻断，等上游 bump 版本；或把 `DLLKIDS_INDEX_SHA256` 固定在已知安全值，
+5. 如果无法确认：保持阻断，等上游 bump 版本；或把 `DLLKIDS_INDEX_SHA256_SEED`（旧名
+   `DLLKIDS_INDEX_SHA256` 仍兼容）设为已知安全值，并清除数据库里的 dllkids active/candidate pin，
+   让站点重新做首次观察；只有 seed 不会覆盖已采纳的 `source_pins`。
    关闭 `SUPPLEMENT_WATCH_ENABLED` 不会影响 dllkids 目录刷新，但会停止 supplement 自动构建。
 6. 回滚：面板“回滚”恢复上一 active pin 与快照；缓存不足时用 `SOURCE_CACHE_DIR` 中的基线重新采纳。
 

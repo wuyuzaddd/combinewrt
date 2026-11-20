@@ -2,7 +2,7 @@ import { dirname, join } from "node:path";
 import { PASSWORD_HASH_PATTERN } from "./auth/password-format";
 import {
   DEFAULT_DLLKIDS_FEED_URL,
-  DEFAULT_DLLKIDS_INDEX_SHA256,
+  DEFAULT_DLLKIDS_INDEX_SHA256_SEED,
   DEFAULT_FEED_BASE_URL,
   DEFAULT_FEED_KEY_FINGERPRINT,
   DEFAULT_FEED_KEY_URL,
@@ -19,6 +19,11 @@ export interface AppConfig {
   apkBin: string;
   baseVersion: string;
   dllkidsFeedUrl: string;
+  /**
+   * First-install seed for the dllkids pin. Once the source watch has adopted a
+   * pin, the `source_pins` row is authoritative (ADR 0008/0009); this value is
+   * not a second authority.
+   */
   dllkidsIndexSha256: string;
   supplementFeedUrl: string;
   supplementKeyUrl: string;
@@ -122,9 +127,17 @@ function parseImageFeedConfig(
   if (!/^https?:\/\//.test(dllkidsFeedUrl)) {
     issues.push("DLLKIDS_FEED_URL must be an http:// or https:// URL");
   }
-  const dllkidsIndexSha256 = env.DLLKIDS_INDEX_SHA256?.trim() || DEFAULT_DLLKIDS_INDEX_SHA256;
+  // ADR 0008/0009: configuration only seeds the first pin. Prefer the explicit
+  // `..._SEED` name; the legacy `DLLKIDS_INDEX_SHA256` is still accepted so
+  // existing deployments keep working. When both are set the seed name wins.
+  const dllkidsIndexSha256 =
+    env.DLLKIDS_INDEX_SHA256_SEED?.trim() ||
+    env.DLLKIDS_INDEX_SHA256?.trim() ||
+    DEFAULT_DLLKIDS_INDEX_SHA256_SEED;
   if (!/^[0-9a-f]{64}$/.test(dllkidsIndexSha256)) {
-    issues.push("DLLKIDS_INDEX_SHA256 must be a 64 character lowercase sha256");
+    issues.push(
+      "DLLKIDS_INDEX_SHA256_SEED (or legacy DLLKIDS_INDEX_SHA256) must be a 64 character lowercase sha256",
+    );
   }
 
   return {
