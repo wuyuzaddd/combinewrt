@@ -265,8 +265,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const baseVersion = env.IMMORTALWRT_BASE_VERSION?.trim() || "25.12.2";
   const dllkidsFeedUrl = imageFeed.dllkidsFeedUrl;
   const dllkidsIndexSha256 = imageFeed.dllkidsIndexSha256;
-  // Live supplement channel: version-scoped, but always the current index for
-  // this base version. The feed repo also keeps the V1 flat `/x86_64/` copy.
+  // Canonical, version-frozen supplement channel: the live index for this base
+  // version. The flat `/x86_64/` path is a V1 compatibility mirror only and must
+  // never be the default for a new deployment (ADR 0009 conflict 2).
   const supplementFeedUrl =
     env.SUPPLEMENT_FEED_URL?.trim() ||
     `https://wuyuzaddd.github.io/combinewrt-packages/supplement/${baseVersion}/x86_64`;

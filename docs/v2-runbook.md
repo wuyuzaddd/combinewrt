@@ -210,3 +210,60 @@ V1 计划/构建应只读可打开。若页面报错，先确认迁移是否完�
 
 这些约束是工作流 `Prepare plan` / `Assert top-level packages` 的真实行为，2026-11-16 的同步冒烟
 （run `43868727061`）在 main 上逐步骤通过，可作为对照。
+
+## 7. V1 兼容发布核对
+
+supplement 与 extension 的规范路径是版本冻结的 `/supplement/<baseVersion>/<target>/` 与
+`/extension/<baseVersion>/<target>/`（ADR 0007）。站点根下扁平的 `/x86_64/` 只是 supplement 索引的
+**V1 兼容镜像**：留给旧镜像的 repository 行与旧部署里显式配置的扁平 URL，永远不作为新部署默认。
+新部署、新建计划与 source offer 一律使用版本冻结路径。
+
+**什么时候还要核对扁平路径**：
+
+- 发布流程仍会同步写 `/x86_64/`（兼容承诺，见 ADR 0009 冲突 2）。它必须与冻结索引**逐字节一致**，
+  否则旧镜像会装到旧包。
+- 迁移旧部署前先证明两处一致，再把 `SUPPLEMENT_FEED_URL` 改成冻结路径；不要反过来迁到扁平路径。
+- 扁平索引不参与新 pin：`SUPPLEMENT_INDEX_SHA256` 必须等于冻结索引的 sha256。
+- extension 没有扁平镜像，只有版本冻结路径；核对时只比对 supplement 的扁平副本。
+
+**核对命令**（`BASE` / `TARGET` 按实际部署填写；不一致即退出，不要继续发布）：
+
+```bash
+BASE=25.12.2
+TARGET=x86_64
+FEED=https://wuyuzaddd.github.io/combinewrt-packages
+work=$(mktemp -d)
+
+# 1) 扁平副本 vs 版本冻结 live 指针
+curl -fsSL "$FEED/x86_64/packages.adb" -o "$work/flat.adb"
+curl -fsSL "$FEED/supplement/$BASE/$TARGET/packages.adb" -o "$work/frozen.adb"
+sha256sum "$work/flat.adb" "$work/frozen.adb"
+cmp -s "$work/flat.adb" "$work/frozen.adb" \
+  && echo "flat == frozen" \
+  || { echo "flat != frozen: do not publish, do not move the pin"; exit 1; }
+
+# 2) 与冻结 commit 目录（publish.json 审计里的 frozenPath）交叉核对；<commit> 换成该目录名
+curl -fsSL "$FEED/supplement/$BASE/$TARGET/<commit>/packages.adb" -o "$work/commit.adb"
+sha256sum "$work/commit.adb"
+
+# 3) extension 只有冻结路径，与站点 pin 比对
+curl -fsSL "$FEED/extension/$BASE/$TARGET/packages.adb" -o "$work/extension.adb"
+sha256sum "$work/extension.adb"
+grep -E '^(SUPPLEMENT|EXTENSION)_INDEX_SHA256=' /etc/combinewrt.env
+
+# 4) 两处索引的签名仍由项目公钥验证
+mkdir -p "$work/keys"
+curl -fsSL "$FEED/keys/combinewrt-feed.pub.pem" -o "$work/keys/combinewrt-feed.pub.pem"
+APK=${APK_BIN:-apk}
+$APK verify --keys-dir "$work/keys" "$work/flat.adb"
+$APK verify --keys-dir "$work/keys" "$work/frozen.adb"
+$APK verify --keys-dir "$work/keys" "$work/extension.adb"
+```
+
+**判定与处置**：
+
+- sha256 一致且签名通过 → 扁平副本只是同一份索引的 V1 别名，可继续保留；把核对日期写进发布记录。
+- `flat != frozen` → 扁平副本过期。不要改站点 pin、不要发布；在 feed 仓用 `publish_mode=live`
+  重跑 `publish.yml`（`feed_kind=supplement`）让它重写扁平副本，然后重跑上面的核对。
+- 只有扁平副本 404 而冻结索引 200 → 兼容镜像已停止同步，旧镜像会装包失败；先恢复扁平副本再发布，
+  不要用“删掉旧路径”收尾。
