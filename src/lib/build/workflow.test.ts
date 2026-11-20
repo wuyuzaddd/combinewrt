@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { REDACTED_VALUE } from "../builds/redact";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
 import type { ImageVariant } from "../domain/types";
 import { shellCommand } from "../image/postprocess";
@@ -114,7 +115,9 @@ describe("build-workflow/build.yml", () => {
 
   it("never prints plan file contents", () => {
     expect(workflow).not.toMatch(/^\s*cat plan\.json\s*$/m);
-    expect(workflow).toContain("<redacted;");
+    // The placeholder and temp+mv rewrite live in the shared script now.
+    expect(readFileSync(join(workflowDir, "redact-plan.sh"), "utf8")).toContain("<redacted at rest>");
+    expect(workflow).toContain("redact_plan plan.json");
   });
 
   it("references only scripts that exist in build-workflow/", () => {
@@ -241,5 +244,88 @@ describe.skipIf(!canRunScripts)("fail.sh", () => {
       version: null,
       message: "qemu-img convert failed",
     });
+  });
+});
+
+describe.skipIf(!canRunScripts)("redact-plan.sh", () => {
+  const scriptPath = join(workflowDir, "redact-plan.sh");
+
+  function redact(plan: string) {
+    const dir = mkdtempSync(join(tmpdir(), "combinewrt-redact-"));
+    tempDirs.push(dir);
+    const file = join(dir, "plan.json");
+    writeFileSync(file, plan);
+    const result = spawnSync("bash", ["-c", `source ${JSON.stringify(scriptPath)}; redact_plan ${JSON.stringify(file)}`], {
+      encoding: "utf8",
+    });
+    return { dir, file, result };
+  }
+
+  it("uses the same placeholder constant as the site's storage redaction", () => {
+    // One wording for the plan at rest: the workflow shell and redact.ts must
+    // not drift into "<redacted; N bytes>" again.
+    expect(readFileSync(scriptPath, "utf8")).toContain(`REDACTED_AT_REST='${REDACTED_VALUE}'`);
+  });
+
+  it("replaces every generated file body with the at-rest placeholder by temp+mv", () => {
+    const plan = {
+      schemaVersion: 2,
+      artifactName: "immortalwrt-x86-64-generic-squashfs-combined.img.gz",
+      config: "CONFIG_TARGET_x86=y\n",
+      files: [
+        { path: "files/etc/shadow", mode: 384, content: "root:$1$salt$hash:0:0:99999:7:::" },
+        { path: "files/etc/config/network", mode: 384, content: "config interface 'wan'\n\toption password 'pppoe-secret'\n" },
+      ],
+    };
+    const { dir, file, result } = redact(JSON.stringify(plan));
+    expect(result.status, result.stderr).toBe(0);
+    const rewritten = JSON.parse(readFileSync(file, "utf8")) as {
+      files: Array<{ path: string; mode: number; content: string }>;
+      config: string;
+    };
+    expect(rewritten.files.map((entry) => entry.content)).toEqual(["<redacted at rest>", "<redacted at rest>"]);
+    // Everything the build still needs survives the rewrite.
+    expect(rewritten.files.map((entry) => entry.path)).toEqual(plan.files.map((entry) => entry.path));
+    expect(rewritten.files.map((entry) => entry.mode)).toEqual([384, 384]);
+    expect(rewritten.config).toBe(plan.config);
+    // No temporary file is left behind and no secret byte remains.
+    expect(readFileSync(file, "utf8")).not.toContain("pppoe-secret");
+    expect(readFileSync(file, "utf8")).not.toContain("root:$1$salt$hash");
+    expect(existsSync(join(dir, "plan.json.redacted"))).toBe(false);
+  });
+
+  it("chmods the plan to 600 and keeps the placeholder free of byte counts", () => {
+    const { file, result } = redact(
+      JSON.stringify({ files: [{ path: "files/etc/uci-defaults/99-combinewrt", mode: 493, content: "secret\n" }] }),
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const mode = (statSync(file).mode & 0o777).toString(8);
+    expect(mode).toBe("600");
+    expect(readFileSync(file, "utf8")).not.toMatch(/redacted[^"]*\d+ bytes/);
+    expect(readFileSync(file, "utf8")).toContain('"<redacted at rest>"');
+  });
+
+  it("fails without clobbering the plan when the JSON cannot be parsed", () => {
+    const { dir, file, result } = redact("{not json");
+    expect(result.status).not.toBe(0);
+    expect(readFileSync(file, "utf8")).toBe("{not json");
+    expect(existsSync(join(dir, "plan.json.redacted"))).toBe(false);
+  });
+});
+
+describe("workflow scripts", () => {
+  it("references only scripts that exist in build-workflow/ for both engines", () => {
+    for (const name of ["build.yml", "source-build.yml"]) {
+      const text = readFileSync(join(workflowDir, name), "utf8");
+      const referenced = new Set(
+        [...text.matchAll(/\.github\/scripts\/([A-Za-z0-9._-]+\.sh)/g)].map((match) => match[1]),
+      );
+      expect(referenced.size, name).toBeGreaterThan(0);
+      for (const script of referenced) {
+        expect(existsSync(join(workflowDir, script)), `missing build-workflow/${script} called by ${name}`).toBe(
+          true,
+        );
+      }
+    }
   });
 });

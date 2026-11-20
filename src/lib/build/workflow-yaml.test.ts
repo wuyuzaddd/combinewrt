@@ -217,3 +217,38 @@ describe("workflow signature allow-list", () => {
     expect(preflight).not.toContain("--allow-untrusted");
   });
 });
+
+describe("shared plan-file redaction", () => {
+  const build = readFile("build.yml");
+  const source = readFile("source-build.yml");
+
+  it("sources the shared redact-plan.sh from both engines", () => {
+    // Ticket 06: both engines must run the same shell, so the redaction cannot
+    // drift again the way it did when only build.yml had it.
+    for (const [name, text] of [["build.yml", build], ["source-build.yml", source]] as const) {
+      expect(text, name).toContain("source .github/scripts/redact-plan.sh");
+      expect(text, name).toMatch(/redact_plan\b/);
+    }
+  });
+
+  it("redacts the source-build plan after the files overlay and before make", () => {
+    const steps = (yaml.load(source) as Workflow).jobs.build.steps;
+    const names = steps.map((step) => step.name ?? "");
+    const write = names.indexOf("Write generated files overlay");
+    const redact = names.indexOf("Redact plan file");
+    const buildStep = names.indexOf("Build image");
+    expect(write).toBeGreaterThanOrEqual(0);
+    expect(redact).toBeGreaterThan(write);
+    expect(buildStep).toBeGreaterThan(redact);
+    expect(steps[redact].run).toContain('redact_plan "$GITHUB_WORKSPACE/plan.json"');
+  });
+
+  it("keeps the temp+mv rewrite and chmod 600 in the shared script, not the YAML", () => {
+    // The YAML only calls the script; the at-rest mechanics exist once.
+    for (const text of [build, source]) {
+      expect(text).not.toContain("plan.json.redacted");
+      expect(text).not.toContain("<redacted");
+      expect(text).not.toContain("chmod 600 plan.json");
+    }
+  });
+});
