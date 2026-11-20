@@ -350,6 +350,48 @@ describe("createBuildPlanV2", () => {
     expect(plan.preflight?.repositories.join("\n")).not.toContain("dllkids.xyz");
   });
 
+  it("takes the dllkids feed sha from the adopted database pin, not the config seed", async () => {
+    const dbPin = "d".repeat(64);
+    const seed = "e".repeat(64);
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2(),
+        contextV2({
+          sourcePins: { ...pins, dllkids: dbPin },
+          dllkidsPinSource: "database",
+          feedOptions: { dllkidsIndexSha256: seed },
+        }),
+      ),
+    );
+
+    const dllkids = plan.feedSet?.repositories.find((repository) => repository.id === "dllkids");
+    expect(dllkids?.indexSha256).toBe(dbPin);
+    expect(dllkids?.indexSha256Source).toBe("database");
+    expect(plan.sourcePins.dllkids).toBe(dbPin);
+  });
+
+  it("uses and marks the config seed when no database pin exists", async () => {
+    const seed = "e".repeat(64);
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2(),
+        contextV2({
+          sourcePins: { ...pins, dllkids: null },
+          dllkidsPinSource: "config-seed",
+          feedOptions: { dllkidsIndexSha256: seed },
+        }),
+      ),
+    );
+
+    const dllkids = plan.feedSet?.repositories.find((repository) => repository.id === "dllkids");
+    expect(dllkids?.indexSha256).toBe(seed);
+    expect(dllkids?.indexSha256Source).toBe("config-seed");
+    expect(dllkids?.condition).toContain("seed");
+    // The plan's own pin list carries the same single value, so a source offer
+    // rendered from it cannot disagree with the feed set.
+    expect(plan.sourcePins.dllkids).toBe(seed);
+  });
+
   it("records the actually used mirror in the feed set", async () => {
     const mirror = "https://mirror.example.test/immortalwrt";
     const plan = planOf(

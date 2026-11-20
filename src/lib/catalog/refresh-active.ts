@@ -7,6 +7,32 @@ import { refreshCatalog, type RefreshResult } from "./service";
 import { createCatalogStore } from "./store";
 import { createImmortalWrtSource } from "./source";
 
+/** Where the effective dllkids pin came from. */
+export type DllkidsPinSource = "database" | "config-seed";
+
+export interface ResolvedDllkidsPin {
+  value: string;
+  source: DllkidsPinSource;
+}
+
+/**
+ * The dllkids pin a new plan or catalog refresh must use, together with its
+ * authority.
+ *
+ * ADR 0009 ruling 1: the `source_pins` row is authoritative. The configured
+ * value (`DLLKIDS_INDEX_SHA256`, whose default lives in `feeds.ts`) is only the
+ * first-install seed; when the database has no adopted pin yet the value is
+ * returned but named `config-seed`, so plans and source offers can mark it.
+ */
+export function resolveActiveDllkidsPin(
+  db: Pick<DatabaseSync, "prepare">,
+  config: Pick<AppConfig, "dllkidsIndexSha256">,
+): ResolvedDllkidsPin {
+  const adopted = readSourcePin(db as DatabaseSync, "dllkids", "active");
+  if (adopted) return { value: adopted.value, source: "database" };
+  return { value: config.dllkidsIndexSha256, source: "config-seed" };
+}
+
 /**
  * The dllkids pin the next catalog refresh must use.
  *
@@ -19,7 +45,7 @@ export function activeDllkidsPin(
   db: Pick<DatabaseSync, "prepare">,
   config: Pick<AppConfig, "dllkidsIndexSha256">,
 ): string {
-  return readSourcePin(db as DatabaseSync, "dllkids", "active")?.value ?? config.dllkidsIndexSha256;
+  return resolveActiveDllkidsPin(db, config).value;
 }
 
 export function activeSourceConfig(
