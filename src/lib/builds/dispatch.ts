@@ -1,6 +1,7 @@
 import type { ImageFeedSet, ImagePreflight } from "../build/feeds";
 import type { SourceRecipe } from "../build/source";
 import type { ImageFormatId, SourcePins } from "../catalog/types";
+import { assertSafeGeneratedFiles } from "../build/dispatch-files";
 import type { DownloadEntry, GeneratedFile, ModeState } from "../build/types";
 import type { BuildPlan, BuildPlanV2 } from "../domain/build-plan";
 import { isBuildPlanV2 } from "../domain/build-plan";
@@ -96,6 +97,11 @@ function planV2Payload(plan: BuildPlanV2, mapping: ImageVariantMapping): Dispatc
 }
 
 export function buildDispatchPayload(plan: BuildPlan, meta: DispatchMeta): DispatchPayload {
+  // Ticket 05: the workflow is the trust boundary, but the site must never hand
+  // it a files[] entry that escapes the overlay or carries an unexpected mode.
+  // V1 and V2 plans go through the same predicate.
+  assertSafeGeneratedFiles(plan.files);
+
   const payload: DispatchPayload = {
     buildId: meta.buildId,
     baseVersion: plan.baseVersion,
