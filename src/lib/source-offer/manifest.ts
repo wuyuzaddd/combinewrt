@@ -1,6 +1,7 @@
 import type { BaseVersion } from "../base/types";
+import { imageTypeForPlan } from "../build/artifact-name";
 import type { ImageFeedSet } from "../build/feeds";
-import type { AppliedMode, BuildConfig, BuildPlan, AppliedPatch, BuildVisibility } from "../build/types";
+import type { AppliedMode, BuildConfig, BuildConfigV2, BuildPlan, AppliedPatch, BuildVisibility } from "../build/types";
 import type { BuildRecord, BuildStatus } from "../builds/types";
 import {
   EMPTY_SOURCE_PINS,
@@ -104,7 +105,7 @@ export interface SourceOfferManifest {
   feedSet: SourceOfferFeedSet | null;
   packages: SourceOfferPackage[];
   patches: AppliedPatch[];
-  config: BuildConfig | null;
+  config: BuildConfig | BuildConfigV2 | null;
   generatedFiles: string[];
   modes?: SourceOfferModes;
   /** Present only for `schemaVersion: 2` plans. V1 offers stay unchanged. */
@@ -273,7 +274,8 @@ export function createSourceOffer(
       artifactName: plan.artifactName,
       profileId: plan.profileId,
       profileTitle: plan.profileTitle,
-      imageType: plan.imageType,
+      // V1-compatible offer field: derived from the variant for V2 plans.
+      imageType: imageTypeForPlan(plan),
     },
     openwrtTag: `v${plan.baseVersion}`,
     baseVersion: plan.baseVersion,

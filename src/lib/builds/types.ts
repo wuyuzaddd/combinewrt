@@ -1,4 +1,4 @@
-import type { BuildConfig, BuildPlan } from "../build/types";
+import type { BuildConfig, BuildConfigV2, BuildPlan } from "../build/types";
 import type { PackageSource } from "../catalog/types";
 import type { BuildEngine } from "../domain/types";
 
@@ -54,7 +54,8 @@ export interface BuildFailure {
 export interface BuildRecord {
   id: string;
   plan: BuildPlan;
-  config?: BuildConfig | null;
+  /** V1 rows keep `imageType`; V2 rows store the variant-only config. */
+  config?: BuildConfig | BuildConfigV2 | null;
   status: BuildStatus;
   runId: string | null;
   adapter: "github" | "fake";

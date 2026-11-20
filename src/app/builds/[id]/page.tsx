@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { imageTypeForPlan } from "@/lib/build/artifact-name";
 import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
@@ -59,7 +60,7 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-400">build</p>
           <h1 className="mt-2 break-all font-mono text-lg font-semibold">{build.plan.artifactName}</h1>
           <p className="mt-1 text-xs text-slate-500">
-            {build.plan.profileTitle} · {build.plan.imageType} · 产物 {artifactKind} ·{" "}
+            {build.plan.profileTitle} · {imageTypeForPlan(build.plan)} · 产物 {artifactKind} ·{" "}
             {(build.plan.visibility ?? "private") === "public" ? "公开分发" : "自用"} · {build.adapter} · run{" "}
             {build.runId ?? "—"}
           </p>
@@ -188,7 +189,7 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
             <div><dt className="inline text-slate-500">hostname：</dt><dd className="inline font-mono">{build.config.hostname}</dd></div>
             <div><dt className="inline text-slate-500">时区：</dt><dd className="inline font-mono">{build.config.timezone}</dd></div>
             <div><dt className="inline text-slate-500">LAN：</dt><dd className="inline font-mono">{build.config.lanIp} / {build.config.netmask}</dd></div>
-            <div><dt className="inline text-slate-500">镜像：</dt><dd className="inline font-mono">{build.config.imageType}</dd></div>
+            <div><dt className="inline text-slate-500">镜像：</dt><dd className="inline font-mono">{imageTypeForPlan(build.plan)}</dd></div>
           </dl>
         ) : (
           <p className="mt-2 text-xs text-slate-500">旧记录没有保存表单配置。</p>

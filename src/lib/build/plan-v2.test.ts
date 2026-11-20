@@ -140,7 +140,8 @@ describe("createBuildPlanV2", () => {
     expect(plan.visibility).toBe("public");
     expect(plan.basePreset).toEqual({ id: "minimal", layer: "file/board" });
     expect(plan.overlays).toEqual([]);
-    expect(plan.imageType).toBe("ext4-efi");
+    // ADR 0009 ruling 4: a V2 plan never stores the V1 image format.
+    expect(plan).not.toHaveProperty("imageType");
     expect(plan.modes?.basePreset).toMatchObject({ id: "minimal", title: "Minimal" });
     expect(plan.modes?.overlays).toEqual([]);
     expect(plan.modes?.network.wan).toMatchObject({ protocol: "dhcp", device: "default" });
@@ -288,7 +289,7 @@ describe("createBuildPlanV2", () => {
     );
 
     expect(plan.imageVariant.overlaySizeMb).toBeUndefined();
-    expect(plan.imageType).toBe("rootfs-tar");
+    expect(JSON.stringify(plan)).not.toContain("imageType");
   });
 
   it("stacks requested modes on an explicit base preset", async () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { imageTypeForPlan } from "@/lib/build/artifact-name";
 import type { BuildConflict, BuildPlan } from "@/lib/build/types";
 import type { BuildFormState, FormMode } from "./form-model";
 import { sourceLabel } from "./form-model";
@@ -41,7 +42,7 @@ export function PlanPreview({ plan, conflicts, mode, form, dispatching, onDispat
             <p className="mt-1 break-all font-mono text-emerald-300">{plan.artifactName}</p>
             <p className="mt-3 text-xs text-slate-500">设备 · 格式</p>
             <p className="text-slate-200">
-              {plan.profileTitle} · {plan.imageType}
+              {plan.profileTitle} · {imageTypeForPlan(plan)}
             </p>
             {plan.schemaVersion === 2 ? (
               <div className="mt-2 grid gap-x-4 gap-y-1 text-xs text-slate-400 sm:grid-cols-2">

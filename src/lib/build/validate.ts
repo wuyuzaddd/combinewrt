@@ -3,7 +3,6 @@ import type { BuildFormInput, BuildFormInputV2, BuildVisibility } from "./types"
 import type { ImageFormatId } from "../catalog/types";
 import { IMAGE_FORMATS } from "../catalog/profiles";
 import { BASE_PRESET_IDS, type BasePresetId, type ImageVariant } from "../domain/types";
-import { imageTypeForVariant } from "./artifact-name";
 
 const HOSTNAME_LABEL = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
@@ -229,7 +228,6 @@ export type ValidationResultV2 =
   | {
       ok: true;
       value: BuildFormInputV2 & {
-        imageType: ImageFormatId;
         imageVariant: ImageVariant;
         visibility: BuildVisibility;
       };
@@ -287,7 +285,6 @@ export function validateBuildFormV2(input: unknown): ValidationResultV2 {
     value: {
       ...parsed.data,
       imageVariant,
-      imageType: imageTypeForVariant(imageVariant),
       packages,
       ...(removePackages ? { removePackages } : {}),
       visibility: parsed.data.visibility ?? "private",

@@ -1,7 +1,7 @@
-import { IMAGE_FORMATS } from "../catalog/profiles";
 import type { CatalogProfile, SourcePins } from "../catalog/types";
 import { EMPTY_SOURCE_PINS } from "../catalog/types";
 import { createComplianceReport } from "../compliance";
+import { artifactNameV1 } from "./artifact-name";
 import { buildDownloadManifest, collectRequests, findSourceConflicts } from "./composition";
 import { findConflicts } from "./conflicts";
 import { APPLIED_PATCHES } from "./patches";
@@ -28,12 +28,6 @@ export interface PlanContext {
   lookupAll?: PackageLookupAll;
   hashPassword: (password: string) => Promise<string>;
   now?: Date;
-}
-
-export function artifactName(baseVersion: string, profileId: string, imageType: BuildFormInput["imageType"]): string {
-  const format = IMAGE_FORMATS.find((item) => item.id === imageType);
-  if (!format) throw new Error(`unknown image type: ${imageType}`);
-  return `immortalwrt-${baseVersion}-x86-64-${profileId}${format.suffix}`;
 }
 
 export function imageBuilderCommand(profileId: string, packages: string[]): string {
@@ -123,7 +117,7 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
     compliance,
     patches: APPLIED_PATCHES,
     files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: uci, mode: 0o755 }],
-    artifactName: artifactName(context.baseVersion, context.profile.id, form.imageType),
+    artifactName: artifactNameV1(form.imageType, { baseVersion: context.baseVersion, profileId: context.profile.id }),
     imageBuilderCommand: imageBuilderCommand(context.profile.id, names),
     createdAt: (context.now ?? new Date()).toISOString(),
   };

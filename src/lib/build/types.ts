@@ -38,11 +38,10 @@ export interface BuildFormInput {
 /**
  * Input of the V2 planner. V1 fields remain readable so a V1 form (or a stored
  * V1 plan's config) can still be loaded; the target/profile/variant triple is
- * what makes a form V2. `imageType` is optional because the composer derives it
- * from the image variant.
+ * what makes a form V2. There is deliberately no `imageType`: the V2 planner
+ * models the image as an `ImageVariant` (ADR 0009 ruling 4).
  */
 export interface BuildFormInputV2 extends Omit<BuildFormInput, "imageType"> {
-  imageType?: ImageFormatId;
   target: string;
   kernelLine: string;
   imageVariant: ImageVariant;
@@ -182,9 +181,9 @@ export interface PackageLookupEntry {
 export type PackageLookup = (name: string) => PackageLookupEntry | null;
 export type PackageLookupAll = (name: string) => PackageLookupEntry[];
 
-export interface BuildConfig {
+/** The form configuration stored beside a build; V1 and V2 share these fields. */
+export interface BuildConfigBase {
   profile: string;
-  imageType: ImageFormatId;
   hostname: string;
   timezone: string;
   lanIp: string;
@@ -192,6 +191,17 @@ export interface BuildConfig {
   packages: string[];
   visibility?: BuildVisibility;
 }
+
+/** V1 configuration keeps the single-image model's `imageType`. */
+export interface BuildConfig extends BuildConfigBase {
+  imageType: ImageFormatId;
+}
+
+/**
+ * V2 configuration. The variant is the image model, so a V2 plan never writes
+ * an `ImageFormatId` into its config (ADR 0009 ruling 4).
+ */
+export type BuildConfigV2 = BuildConfigBase;
 
 export interface ResolvedEntry {
   name: string;

@@ -15,14 +15,14 @@ const base = {
 };
 
 describe("validateBuildFormV2", () => {
-  it("defaults visibility to private and derives the V1 image type", () => {
+  it("defaults visibility to private and never hands the V1 image type to the planner", () => {
     const result = validateBuildFormV2(base);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.visibility).toBe("private");
-    expect(result.value.imageType).toBe("ext4-efi");
     expect(result.value.imageVariant).toEqual(base.imageVariant);
+    expect(result.value).not.toHaveProperty("imageType");
   });
 
   it("keeps a requested public visibility", () => {
@@ -31,13 +31,13 @@ describe("validateBuildFormV2", () => {
     if (result.ok) expect(result.value.visibility).toBe("public");
   });
 
-  it("derives the rootfs image type from the artifact", () => {
+  it("accepts a legacy-boot rootfs variant without inventing an image type", () => {
     const result = validateBuildFormV2({
       ...base,
       imageVariant: { boot: "legacy", filesystem: "squashfs", artifact: "rootfs" },
     });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.imageType).toBe("rootfs-tar");
+    if (result.ok) expect(result.value.imageVariant).toEqual({ boot: "legacy", filesystem: "squashfs", artifact: "rootfs" });
   });
 
   it("requires target, kernel line and image variant", () => {

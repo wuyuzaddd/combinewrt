@@ -1,5 +1,6 @@
 import type { ImageFeedSet, ImagePreflight } from "../build/feeds";
 import type { SourceRecipe } from "../build/source";
+import { imageTypeForPlan } from "../build/artifact-name";
 import type { ImageFormatId, SourcePins } from "../catalog/types";
 import { assertSafeGeneratedFiles } from "../build/dispatch-files";
 import type { DownloadEntry, GeneratedFile, ModeState } from "../build/types";
@@ -107,7 +108,10 @@ export function buildDispatchPayload(plan: BuildPlan, meta: DispatchMeta): Dispa
     baseVersion: plan.baseVersion,
     feedCommit: plan.feedCommit,
     profileId: plan.profileId,
-    imageType: plan.imageType,
+    // V1-compatible payload: the workflow still asserts this field. It is
+    // derived from the variant for V2 plans, never stored on the plan itself
+    // (ADR 0009 ruling 4).
+    imageType: imageTypeForPlan(plan),
     packages: plan.packages,
     composition: {
       topLevelPackages: plan.topLevelPackages,
