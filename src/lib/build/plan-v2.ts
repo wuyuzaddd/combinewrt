@@ -10,6 +10,7 @@ import { commonPackageSelectionConflicts, type CommonPreset } from "../presets/c
 import { expandBundleTokens } from "../extension/bundles";
 import type { ExtensionBundle } from "../extension/types";
 import { artifactNameV2 } from "./artifact-name";
+import { checkDependencyClosure } from "./closure";
 import {
   DEFAULT_DLLKIDS_INDEX_SHA256_SEED,
   buildImageFeedSet,
@@ -219,7 +220,7 @@ export async function createBuildPlanV2(
     if (!entry.packageSource) {
       strategyConflicts.push({
         names: [entry.name],
-        message: `Package "${entry.name}" has no registered package source (unknown), so the V2 planner cannot select an acquisition strategy.`,
+        message: `Package "${entry.name}" (source: unknown) has no registered package source, so the V2 planner cannot select an acquisition strategy.`,
       });
       return {
         ...entry,
@@ -316,6 +317,12 @@ export async function createBuildPlanV2(
     }
   }
 
+  // Catalogue-level dependency closure (ticket 12 hardening). The workflow
+  // preflight remains the authority for a concrete image; this check only
+  // turns a snapshot-decidable known gap into a 409 and leaves everything else
+  // as a warning.
+  const closure = checkDependencyClosure({ entries: resolved, lookup: context.lookup, sources });
+
   const removalConflicts = findRemovalDependencyConflicts({
     removals: removal.removed,
     requests: parsedRequested.filter((item) => !removedNames.has(item.name)),
@@ -338,6 +345,7 @@ export async function createBuildPlanV2(
     ...bundleExpansion.conflicts,
     ...basePlan.conflicts,
     ...strategyConflicts,
+    ...closure.conflicts,
     ...extensionPinConflicts,
     ...publicAllowedConflicts,
     ...modeResolution.conflicts,
@@ -409,7 +417,7 @@ export async function createBuildPlanV2(
     engine,
     feedSet,
     preflight,
-    warnings: [...(basePlan.warnings ?? []), ...removal.warnings],
+    warnings: [...(basePlan.warnings ?? []), ...removal.warnings, ...closure.warnings],
     kernelConfig: modeResolution.kernelConfig,
     ...(modeResolution.docker ? { docker: modeResolution.docker } : {}),
     artifactName: artifactNameV2({

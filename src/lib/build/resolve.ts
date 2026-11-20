@@ -2,7 +2,7 @@ import type { PackageLookup, PackageLookupAll, RequestedPackage, ResolvedEntry }
 
 // Skips negative dependencies, version constraints, and virtual provides
 // (`so:`, `cmd:`, `PACKAGE_x:y`) that the ImageBuilder resolves at build time.
-function parseDependency(raw: string): string[] {
+export function parseDependency(raw: string): string[] {
   return raw
     .split("|")
     .map((candidate) => candidate.trim())
