@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { migrate, openDatabase } from "../db";
 import { upsertSourcePin } from "../source-watch/store";
-import { activeDllkidsPin, activeSourceConfig, resolveActiveDllkidsPin } from "./refresh-active";
+import {
+  activeDllkidsPin,
+  activeSourceConfig,
+  resolveActiveDllkidsPin,
+  resolvePlanDllkidsPin,
+} from "./refresh-active";
 
 const ENV_SEED = "1".repeat(64);
 const ADOPTED = "2".repeat(64);
@@ -24,6 +29,36 @@ describe("active dllkids pin", () => {
     migrate(db);
     expect(activeDllkidsPin(db, { dllkidsIndexSha256: ENV_SEED })).toBe(ENV_SEED);
     expect(resolveActiveDllkidsPin(db, { dllkidsIndexSha256: ENV_SEED })).toEqual({
+      value: ENV_SEED,
+      source: "config-seed",
+    });
+    db.close();
+  });
+
+  it("keeps the resolved snapshot pin for a plan even when the DB has moved on", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    upsertSourcePin(db, { source: "dllkids", status: "active", value: ADOPTED, metadata: { adoptedBy: "auto" } });
+
+    // The snapshot's package entries carry SNAPSHOT_PIN; the plan pin must be
+    // that value, not the live DB pin, or the composition check hard-blocks.
+    const SNAPSHOT_PIN = "dllkids-index-sha";
+    expect(resolvePlanDllkidsPin(db, { dllkidsIndexSha256: ENV_SEED }, SNAPSHOT_PIN)).toEqual({
+      value: SNAPSHOT_PIN,
+      source: "snapshot",
+    });
+    // No snapshot pin: fall back to the DB-adopted pin, then the seed.
+    expect(resolvePlanDllkidsPin(db, { dllkidsIndexSha256: ENV_SEED }, null)).toEqual({
+      value: ADOPTED,
+      source: "database",
+    });
+    db.close();
+  });
+
+  it("falls back to the config seed and marks it when neither snapshot nor DB has a pin", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    expect(resolvePlanDllkidsPin(db, { dllkidsIndexSha256: ENV_SEED }, null)).toEqual({
       value: ENV_SEED,
       source: "config-seed",
     });

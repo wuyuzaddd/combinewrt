@@ -7,7 +7,13 @@ import { DLLKIDS_WRAPPER_PATH, IMAGE_FEED_LIST_PATH, feedPlanPath } from "./feed
 import { parseCommonPreset } from "../presets/common";
 import { DOCKER_UCI_PATH } from "./modes";
 import { createBuildPlanV2, type PlanV2Context, type PlanV2Success } from "./plan-v2";
-import type { BuildFormInput, BuildFormInputV2, PackageLookup, PackageLookupEntry } from "./types";
+import type {
+  BuildFormInput,
+  BuildFormInputV2,
+  PackageLookup,
+  PackageLookupAll,
+  PackageLookupEntry,
+} from "./types";
 
 function entry(name: string, overrides: Partial<PackageLookupEntry> = {}): PackageLookupEntry {
   return {
@@ -348,6 +354,40 @@ describe("createBuildPlanV2", () => {
     expect(wrapper?.mode).toBe(0o755);
     expect(wrapper?.content).toContain("apk --allow-untrusted");
     expect(plan.preflight?.repositories.join("\n")).not.toContain("dllkids.xyz");
+  });
+
+  it("uses the resolved snapshot dllkids pin even when the DB/seed has a different value", async () => {
+    // Regression for the three-source preview: the snapshot recorded
+    // `dllkids-index-sha` and its package entries carry it; the DB/seed has
+    // moved on to the default index sha. The plan must keep the snapshot value
+    // so the composition check does not hard-block the preview.
+    const SNAPSHOT_PIN = "dllkids-index-sha";
+    const DB_PIN = "04a549ed7028b126218002b126cbc60eb3a4bdc3463f15425bce3ba6b91a04ba";
+    const snapshotLookup: PackageLookup = (name) =>
+      name === "lucky" ? { ...dllkidsLucky, sourcePin: SNAPSHOT_PIN } : official[name] ?? null;
+    const snapshotLookupAll: PackageLookupAll = (name) =>
+      name === "lucky" ? [{ ...dllkidsLucky, sourcePin: SNAPSHOT_PIN }] : official[name] ? [official[name]] : [];
+
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2({ packages: ["lucky"] }),
+        contextV2({
+          sourcePins: { ...pins, dllkids: SNAPSHOT_PIN },
+          dllkidsPinSource: "snapshot",
+          feedOptions: { dllkidsIndexSha256: DB_PIN },
+          lookup: snapshotLookup,
+          lookupAll: snapshotLookupAll,
+        }),
+      ),
+    );
+
+    expect(plan.conflicts.map((conflict) => conflict.message).join("\n")).not.toContain(
+      "dllkids pin 与快照不一致",
+    );
+    expect(plan.sourcePins.dllkids).toBe(SNAPSHOT_PIN);
+    const dllkids = plan.feedSet?.repositories.find((repository) => repository.id === "dllkids");
+    expect(dllkids?.indexSha256).toBe(SNAPSHOT_PIN);
+    expect(dllkids?.indexSha256Source).toBe("snapshot");
   });
 
   it("takes the dllkids feed sha from the adopted database pin, not the config seed", async () => {

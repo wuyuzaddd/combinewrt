@@ -7,8 +7,14 @@ import { refreshCatalog, type RefreshResult } from "./service";
 import { createCatalogStore } from "./store";
 import { createImmortalWrtSource } from "./source";
 
-/** Where the effective dllkids pin came from. */
-export type DllkidsPinSource = "database" | "config-seed";
+/**
+ * Where the effective dllkids pin came from.
+ *
+ * `snapshot` is the normal case for a plan: the catalog snapshot it resolved
+ * already recorded the pin it was built from. `database`/`config-seed` are the
+ * fallback for a snapshot that predates dllkids pin capture.
+ */
+export type DllkidsPinSource = "snapshot" | "database" | "config-seed";
 
 export interface ResolvedDllkidsPin {
   value: string;
@@ -31,6 +37,25 @@ export function resolveActiveDllkidsPin(
   const adopted = readSourcePin(db as DatabaseSync, "dllkids", "active");
   if (adopted) return { value: adopted.value, source: "database" };
   return { value: config.dllkidsIndexSha256, source: "config-seed" };
+}
+
+/**
+ * Resolve the dllkids pin for a plan that is being composed from an already
+ * resolved catalog snapshot.
+ *
+ * ADR 0009 ruling 1 makes the pin list authoritative *per snapshot*: the
+ * snapshot was itself created from an adopted pin, and its package entries
+ * carry that pin. The DB active pin governs future refreshes, so it must not
+ * overwrite a snapshot that already has a dllkids pin. Only a snapshot with no
+ * pin falls back to the live DB pin / configured seed.
+ */
+export function resolvePlanDllkidsPin(
+  db: Pick<DatabaseSync, "prepare">,
+  config: Pick<AppConfig, "dllkidsIndexSha256">,
+  snapshotPin: string | null,
+): ResolvedDllkidsPin {
+  if (snapshotPin) return { value: snapshotPin, source: "snapshot" };
+  return resolveActiveDllkidsPin(db, config);
 }
 
 /**

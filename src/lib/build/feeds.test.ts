@@ -109,6 +109,13 @@ describe("buildImageFeedSet", () => {
     expect(adopted.repositories.find((repository) => repository.id === "dllkids")!.indexSha256Source).toBe(
       "database",
     );
+
+    const snapshot = buildImageFeedSet(
+      input({ visibility: "private", dllkidsIndexSha256Source: "snapshot" }),
+    );
+    const snapshotDllkids = snapshot.repositories.find((repository) => repository.id === "dllkids")!;
+    expect(snapshotDllkids.indexSha256Source).toBe("snapshot");
+    expect(snapshotDllkids.condition).toContain("snapshot");
   });
 
   it("only lets the explicit wrapper use --allow-untrusted", () => {
