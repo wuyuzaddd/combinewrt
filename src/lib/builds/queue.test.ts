@@ -8,7 +8,7 @@ import { migrate, openDatabase } from "../db";
 import type { BuildPlanV2 } from "../domain/build-plan";
 import type { ImageVariant } from "../domain/types";
 import { createBuildService } from "./service";
-import { createBuildStore } from "./store";
+import { createBuildStore, type BuildStore } from "./store";
 import type { BuildAdapter, RunUpdate } from "./types";
 
 const dirs: string[] = [];
@@ -714,5 +714,155 @@ describe("encrypted dispatch payload across the queue", () => {
     expect(failed.status).toBe("failed");
     expect(failed.failure?.message).toContain("cannot be decrypted");
     expect(store.readDispatchPayload(queued.id)).toBeNull();
+  });
+});
+
+describe("atomic dispatch bookkeeping (ticket 07)", () => {
+  const SECRET = "s".repeat(48);
+
+  function secretPlan(): BuildPlan {
+    return {
+      ...plan(),
+      files: [{ path: "files/etc/uci-defaults/99-combinewrt", content: "root_password='$5$x'", mode: 0o755 }],
+    } as BuildPlan;
+  }
+
+  it("writes the run id and drops the sealed payload in one store call", async () => {
+    const db = database();
+    const real = createBuildStore(db);
+    let legacyClears = 0;
+    const store: BuildStore = {
+      ...real,
+      clearDispatchPayload() {
+        legacyClears += 1;
+        throw new Error("the run-id path must not rely on the separate payload clear");
+      },
+    };
+    const h = harness();
+    const service = createBuildService({ store, adapter: h.adapter, maxConcurrentBuilds: 2, sessionSecret: SECRET });
+
+    const build = await service.submit(secretPlan());
+
+    expect(build.status).toBe("running");
+    expect(build.runId).toBe(h.runFor(build.id));
+    // The old code cleared the payload in a write of its own; if that path is
+    // ever reintroduced this store would throw and the test would fail.
+    expect(legacyClears).toBe(0);
+    expect(real.readDispatchPayload(build.id)).toBeNull();
+  });
+
+  it("keeps a recoverable row when the run-id write dies (crash injection)", async () => {
+    const db = database();
+    const real = createBuildStore(db);
+    let attempts = 0;
+    const store: BuildStore = {
+      ...real,
+      recordDispatchRun() {
+        attempts += 1;
+        // Simulates the process dying (or the disk write failing) exactly at the
+        // statement that used to be "write the run id, after clearing payload".
+        throw new Error("disk I/O error: simulated crash at the run-id write");
+      },
+    };
+    const h = harness();
+    const clock = { value: new Date("2026-11-20T00:00:00.000Z") };
+    const service = createBuildService({
+      store,
+      adapter: h.adapter,
+      maxConcurrentBuilds: 2,
+      sessionSecret: SECRET,
+      now: () => new Date(clock.value),
+    });
+
+    const build = await service.submit(secretPlan());
+
+    expect(attempts).toBe(1);
+    const row = real.get(build.id)!;
+    // The unrecoverable shape ticket 07 forbids: running with neither payload
+    // nor run id. The atomic statement never committed, so the sealed plan is
+    // still there and the reconciler can resolve the run through findRun.
+    expect(row.status === "running" && !row.runId && real.readDispatchPayload(row.id) === null).toBe(false);
+    expect(row.status).toBe("running");
+    expect(row.runId).toBeNull();
+    expect(real.readDispatchPayload(row.id)).not.toBeNull();
+
+    // Restart + reconciler: once the dispatch grace expires, the build is
+    // claimed by the run id that findRun resolves from the build hash.
+    clock.value = new Date(Date.parse(row.dispatchedAt as string) + 3 * 60_000);
+    let finds = 0;
+    const recoverAdapter: BuildAdapter = {
+      name: "fake",
+      async findRun(buildId) {
+        finds += 1;
+        return `run-recovered-${buildId}`;
+      },
+      async dispatch() {
+        throw new Error("a running build must never be re-dispatched");
+      },
+      async getRun() {
+        return { status: "running", logTail: "" };
+      },
+      async downloadArtifact() {
+        throw new Error("not implemented");
+      },
+    };
+    const restarted = createBuildService({
+      store: real,
+      adapter: recoverAdapter,
+      maxConcurrentBuilds: 2,
+      sessionSecret: SECRET,
+      now: () => new Date(clock.value),
+    });
+
+    const claimed = await restarted.refresh(build.id);
+    expect(finds).toBe(1);
+    expect(claimed?.status).toBe("running");
+    expect(claimed?.runId).toBe(`run-recovered-${build.id}`);
+    expect(real.readDispatchPayload(build.id)).toBeNull();
+  });
+
+  it("cancels a late run even when recording its id fails", async () => {
+    const db = database();
+    const real = createBuildStore(db);
+    const store: BuildStore = {
+      ...real,
+      recordDispatchRun() {
+        throw new Error("simulated crash at the in-flight run-id write");
+      },
+    };
+    const cancelledRuns: string[] = [];
+    let release: (value: { runId: string | null }) => void = () => {};
+    const gate = new Promise<{ runId: string | null }>((resolve) => {
+      release = resolve;
+    });
+    const adapter: BuildAdapter = {
+      name: "fake",
+      findRun: async () => null,
+      dispatch: async () => gate,
+      getRun: async () => ({ status: "running" }),
+      cancelRun: async (runId: string) => {
+        cancelledRuns.push(runId);
+      },
+      downloadArtifact: async () => {
+        throw new Error("not implemented");
+      },
+    };
+    const service = createBuildService({ store, adapter, maxConcurrentBuilds: 2 });
+
+    const pending = service.submit(plan());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const record = store.list()[0]!;
+    const cancelled = await service.cancel(record.id);
+    expect(cancelled?.status).toBe("cancelled");
+
+    release({ runId: "late-run-07" });
+    await pending;
+    await service.pump();
+
+    // Bookkeeping crashed, but the orphan GitHub run was still cancelled.
+    expect(cancelledRuns).toEqual(["late-run-07"]);
+    const final = real.get(record.id)!;
+    expect(final.status).toBe("cancelled");
+    expect(real.readDispatchPayload(record.id)).toBeNull();
   });
 });

@@ -65,6 +65,15 @@ export interface BuildStore {
   readDispatchPayload(id: string): string | null;
   /** Zero the sealed payload once it has been dispatched or is no longer needed. */
   clearDispatchPayload(id: string): void;
+  /**
+   * Record the GitHub run id and drop the sealed dispatch payload in a single
+   * `UPDATE` (ticket 07). The old code cleared the payload and then wrote the
+   * run id in two statements, so a crash in between left a `running` row with
+   * neither payload nor run id, which the reconciler could neither claim nor
+   * cancel. One statement removes that window: the row either keeps the sealed
+   * plan (recoverable) or has its run id.
+   */
+  recordDispatchRun(id: string, runId: string, expectedUpdatedAt?: string): BuildRecord;
   get(id: string): BuildRecord | null;
   list(limit?: number, offset?: number): BuildRecord[];
   count(): number;
@@ -178,6 +187,26 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
     },
     clearDispatchPayload(id) {
       db.prepare("UPDATE builds SET dispatch_payload = NULL WHERE id = ?").run(id);
+    },
+    recordDispatchRun(id, runId, expectedUpdatedAt) {
+      const current = get(id);
+      if (!current) throw new Error(`build ${id} does not exist`);
+      const updatedAt = nextUpdatedAt(current.updatedAt, new Date().toISOString());
+      const sql = expectedUpdatedAt
+        ? "UPDATE builds SET run_id = ?, dispatch_payload = NULL, updated_at = ? WHERE id = ? AND updated_at = ?"
+        : "UPDATE builds SET run_id = ?, dispatch_payload = NULL, updated_at = ? WHERE id = ?";
+      const params: Array<string | null> = [runId, updatedAt, id];
+      if (expectedUpdatedAt) params.push(expectedUpdatedAt);
+
+      // No explicit transaction is needed: a single `UPDATE` is atomic, and it
+      // is exactly the property ticket 07 relies on.
+      const result = db.prepare(sql).run(...params);
+      if (Number(result.changes) === 0) {
+        // Another poll won the race; hand back the persisted row so the caller
+        // can retry against its fresh `updated_at` instead of overwriting it.
+        return get(id) ?? current;
+      }
+      return { ...current, runId, updatedAt };
     },
     list(limit = 20, offset = 0) {
       const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 20;
@@ -293,6 +322,11 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
         // A terminal build never needs its sealed dispatch payload again; keep
         // the ciphertext out of backups as soon as the build stops moving.
         if (next.status === "succeeded" || next.status === "failed" || next.status === "cancelled") {
+          db.prepare("UPDATE builds SET dispatch_payload = NULL WHERE id = ?").run(id);
+        } else if (next.runId && !current.runId) {
+          // A run id means the dispatcher already consumed the payload. This is
+          // the reconciler's `findRun` claim path (the queue writes both fields
+          // atomically in `recordDispatchRun`); same transaction, same cleanup.
           db.prepare("UPDATE builds SET dispatch_payload = NULL WHERE id = ?").run(id);
         }
         db.exec("COMMIT");
