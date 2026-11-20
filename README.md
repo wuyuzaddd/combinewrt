@@ -182,7 +182,7 @@ npm run dev
 
 ### 构建仓库 `combinewrt-build`
 
-1. 新建公开构建仓库，把 `build-workflow/build.yml`、`source-build.yml`、`packages.yml`、`extension.yml` 复制到 `.github/workflows/`；`build-workflow/fail.sh`、`variant-config.sh` 复制到 `.github/scripts/`。站点仓库里的 `build-workflow/` 是**唯一权威副本**，构建仓库的 main 必须与它逐字节一致。
+1. 新建公开构建仓库，把 `build-workflow/build.yml`、`source-build.yml`、`packages.yml`、`extension.yml` 复制到 `.github/workflows/`；`build-workflow/fail.sh`、`variant-config.sh`、`redact-plan.sh` 复制到 `.github/scripts/`。站点仓库里的 `build-workflow/` 是**唯一权威副本**，构建仓库的 main 必须与它逐字节一致。
 2. `build.yml` 必须由仓库默认分支提供（`repository_dispatch` 不支持指定 ref），事件类型 `combinewrt-build`；`source-build.yml` 使用 `combinewrt-source-build`。工作流从 `github.event.client_payload` 读取计划，`run-name` 使用 `${{ github.event.client_payload.buildId }}`，否则站点匹配不到 run。
 3. 创建仅授权该仓库的 fine-grained PAT：`Actions: read and write`（派发、读日志、读产物）、`Contents: read`。放到 `BUILD_REPO_TOKEN`，不要提交。
 4. 配置 `BUILD_ADAPTER=github`、`BUILD_REPO=owner/repo`、`BUILD_REF=main`，重启站点；缺配置会启动失败并列出全部问题。

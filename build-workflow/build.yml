@@ -255,19 +255,13 @@ jobs:
         run: |
           set -euo pipefail
           source .github/scripts/fail.sh
-          # The build steps above already consumed the generated files. Their
-          # contents carry the root password hash, the PPPoE password and the
-          # WiFi key, so rewrite plan.json in place (temp + mv) now: nothing
-          # after this step can print them from a debugging shell or a workspace
-          # upload. The site stores the same redacted shape in builds.plan_json.
-          tmp=plan.json.redacted
-          if ! jq -c '.files = ((.files // []) | map(.content = ("<redacted; " + ((.content | length) | tostring) + " bytes>")))' plan.json > "$tmp"; then
-            rm -f "$tmp"
+          source .github/scripts/redact-plan.sh
+          # The build steps above already consumed the generated files. The
+          # shared script rewrites plan.json in place (temp + mv) and chmods it
+          # 600, exactly as the source-build engine does.
+          if ! redact_plan plan.json; then
             fail redact-plan "" "" "" "failed to redact plan.json"
           fi
-          mv "$tmp" plan.json
-          chmod 600 plan.json
-          echo "plan.json rewritten with generated file contents redacted"
 
       - name: Install feed key and preflight packages
         run: |

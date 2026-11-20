@@ -216,6 +216,18 @@ jobs:
           find files -type f | sort
           echo "generated file contents are not printed (they carry the root password hash)"
 
+      - name: Redact plan file
+        run: |
+          set -euo pipefail
+          source .github/scripts/fail.sh
+          source .github/scripts/redact-plan.sh
+          # The overlay step above already consumed files[].content. Redact
+          # before make so the root password hash, PPPoE password and WiFi key
+          # do not sit in a world-readable plan for the whole build.
+          if ! redact_plan "$GITHUB_WORKSPACE/plan.json"; then
+            fail redact-plan "" "$SOURCE_REF" "" "failed to redact plan.json"
+          fi
+
       - name: Restore download cache
         id: dl-cache
         uses: actions/cache/restore@v6
