@@ -1,5 +1,6 @@
 import { createBaseVersionStore } from "../base/store";
 import { createConfiguredImmortalWrtSource } from "../catalog/configured";
+import { activeSourceConfig } from "../catalog/refresh-active";
 import { refreshCatalog } from "../catalog/service";
 import { createImmortalWrtSource } from "../catalog/source";
 import { createCatalogStore } from "../catalog/store";
@@ -30,7 +31,7 @@ const TICK_MS = 5 * 60 * 1000;
 function createRefresh(db: ReturnType<typeof getDatabase>, config: ReturnType<typeof getConfig>) {
   return async (input: { commit: string; baseVersion: string }) => {
     const baseVersion = createBaseVersionStore(db).active()?.version ?? input.baseVersion;
-    const sourceOptions = createConfiguredImmortalWrtSource(config, baseVersion);
+    const sourceOptions = createConfiguredImmortalWrtSource(activeSourceConfig(db, config), baseVersion);
     const pin = readSourcePin(db, "supplement", "active");
     if (pin) {
       sourceOptions.supplement = { commit: pin.value, fingerprint: config.supplementKeyFingerprint };

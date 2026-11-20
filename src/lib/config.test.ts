@@ -140,6 +140,33 @@ describe("loadImageFeedConfig", () => {
     expect(config.extensionIndexSha256).toBeNull();
   });
 
+  it("reads the explicit dllkids seed alias", () => {
+    const config = loadImageFeedConfig({ DLLKIDS_INDEX_SHA256_SEED: "c".repeat(64) });
+    expect(config.dllkidsIndexSha256).toBe("c".repeat(64));
+  });
+
+  it("still accepts the legacy DLLKIDS_INDEX_SHA256 name", () => {
+    const config = loadImageFeedConfig({ DLLKIDS_INDEX_SHA256: "d".repeat(64) });
+    expect(config.dllkidsIndexSha256).toBe("d".repeat(64));
+  });
+
+  it("lets the explicit seed name win over the legacy alias", () => {
+    const config = loadImageFeedConfig({
+      DLLKIDS_INDEX_SHA256_SEED: "e".repeat(64),
+      DLLKIDS_INDEX_SHA256: "f".repeat(64),
+    });
+    expect(config.dllkidsIndexSha256).toBe("e".repeat(64));
+  });
+
+  it("rejects a malformed dllkids seed from either name", () => {
+    expect(() => loadImageFeedConfig({ DLLKIDS_INDEX_SHA256_SEED: "not-a-sha" })).toThrow(
+      /DLLKIDS_INDEX_SHA256_SEED/,
+    );
+    expect(() => loadImageFeedConfig({ DLLKIDS_INDEX_SHA256: "not-a-sha" })).toThrow(
+      /DLLKIDS_INDEX_SHA256_SEED/,
+    );
+  });
+
   it("honours IMMORTALWRT_MIRROR and records the trimmed value", () => {
     const config = loadImageFeedConfig({
       IMMORTALWRT_MIRROR: "https://mirror.example.test/immortalwrt/",

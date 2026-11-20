@@ -11,7 +11,7 @@ import { expandBundleTokens } from "../extension/bundles";
 import type { ExtensionBundle } from "../extension/types";
 import { artifactNameV2, imageTypeForVariant } from "./artifact-name";
 import {
-  DEFAULT_DLLKIDS_INDEX_SHA256,
+  DEFAULT_DLLKIDS_INDEX_SHA256_SEED,
   buildImageFeedSet,
   createImagePreflight,
   type IndexSha256Source,
@@ -358,7 +358,7 @@ export async function createBuildPlanV2(
   const dllkidsIndexSha256 =
     context.sourcePins?.dllkids ??
     context.feedOptions?.dllkidsIndexSha256 ??
-    DEFAULT_DLLKIDS_INDEX_SHA256;
+    DEFAULT_DLLKIDS_INDEX_SHA256_SEED;
   const dllkidsIndexSha256Source: IndexSha256Source = context.sourcePins?.dllkids
     ? context.dllkidsPinSource ?? "snapshot"
     : "config-seed";

@@ -26,9 +26,10 @@ export interface ResolvedDllkidsPin {
  * authority.
  *
  * ADR 0009 ruling 1: the `source_pins` row is authoritative. The configured
- * value (`DLLKIDS_INDEX_SHA256`, whose default lives in `feeds.ts`) is only the
- * first-install seed; when the database has no adopted pin yet the value is
- * returned but named `config-seed`, so plans and source offers can mark it.
+ * value (`DLLKIDS_INDEX_SHA256_SEED` / legacy `DLLKIDS_INDEX_SHA256`, whose
+ * default lives in `feeds.ts`) is only the first-install seed; when the
+ * database has no adopted pin yet the value is returned but named
+ * `config-seed`, so plans and source offers can mark it.
  */
 export function resolveActiveDllkidsPin(
   db: Pick<DatabaseSync, "prepare">,
@@ -62,7 +63,7 @@ export function resolvePlanDllkidsPin(
  * The dllkids pin the next catalog refresh must use.
  *
  * Ticket 10 moved the active pin into the `source_pins` table; the config
- * constant (`DLLKIDS_INDEX_SHA256`) is only a seed for a fresh installation.
+ * constant (`DLLKIDS_INDEX_SHA256_SEED`) is only a seed for a fresh installation.
  * Reading the config value first made a DB-adopted pin invisible to the manual
  * "refresh catalog" action, which then failed with a checksum mismatch.
  */

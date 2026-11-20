@@ -1,5 +1,6 @@
 import { createBaseVersionStore } from "../base/store";
 import { createConfiguredImmortalWrtSource } from "../catalog/configured";
+import { activeSourceConfig } from "../catalog/refresh-active";
 import { refreshCatalog } from "../catalog/service";
 import { createImmortalWrtSource } from "../catalog/source";
 import { createCatalogStore } from "../catalog/store";
@@ -22,7 +23,7 @@ function createRefresh(
 ) {
   return async (input: SourcePinRefreshInput) => {
     const baseVersion = createBaseVersionStore(db).active()?.version ?? config.baseVersion;
-    const sourceOptions = createConfiguredImmortalWrtSource(config, baseVersion);
+    const sourceOptions = createConfiguredImmortalWrtSource(activeSourceConfig(db, config), baseVersion);
     if (!sourceOptions.dllkids) throw new Error("dllkids feed is not configured");
     // Use the adopted pin and its cached bytes instead of the config pin. The
     // catalog snapshot's sourcePins then records exactly what this build uses.
