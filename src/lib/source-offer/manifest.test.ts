@@ -384,3 +384,25 @@ describe("distributionLabel", () => {
     expect(distributionLabel("public", false)).toBe("不得作为公开镜像发布");
   });
 });
+
+describe("source offer channel (ticket 11)", () => {
+  it("carries the snapshot channel and the plan's forced private visibility", () => {
+    const v2plan = {
+      ...plan,
+      schemaVersion: 2 as const,
+      channel: "snapshot" as const,
+      visibility: "private" as const,
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "generic", title: "x86/64 (generic)" },
+      deviceProfile: { targetId: "x86/64", id: "generic", title: "Generic x86/64", capabilities: ["efi"] },
+      kernelLine: { id: "6.12", version: "6.12", engine: "imagebuilder" as const },
+      imageVariant: { boot: "efi" as const, filesystem: "ext4" as const, artifact: "combined" as const },
+      engine: "imagebuilder" as const,
+    } as unknown as BuildPlan;
+
+    const offer = createSourceOffer({ ...build, plan: v2plan } as BuildRecord);
+    expect(offer.v2?.channel).toBe("snapshot");
+    expect(offer.visibility).toBe("private");
+    const json = sourceOfferJson(offer);
+    expect(json).toContain('"channel": "snapshot"');
+  });
+});

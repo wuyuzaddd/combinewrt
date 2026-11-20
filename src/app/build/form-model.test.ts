@@ -11,6 +11,7 @@ import {
   buildSubmitBody,
   defaultBuildForm,
   expandedPackages,
+  releaseOptions,
   removePackage,
   selectTarget,
   selectTheme,
@@ -154,5 +155,52 @@ describe("buildSubmitBody", () => {
     const form = toggleBundle(defaultBuildForm(ui, releases), ui, bundle);
     expect(expandedPackages(form, ui)).toEqual(expect.arrayContaining(bundle.packages));
     expect(form.packages).toEqual(expect.arrayContaining(bundle.packages));
+  });
+});
+
+describe("releaseOptions (ticket 11)", () => {
+  it("offers only release-channel base versions", () => {
+    const options = releaseOptions(
+      [
+        { version: "25.12.2", channel: "release" },
+        { version: "24.10-SNAPSHOT", channel: "snapshot" },
+        { version: "25.13.0", channel: "release" },
+      ],
+      "25.12.2",
+      "25.12.2",
+    );
+
+    expect(options.map((option) => option.version)).toEqual(["25.12.2", "25.13.0"]);
+    expect(options.every((option) => option.channel === "release")).toBe(true);
+    expect(options.find((option) => option.active)?.version).toBe("25.12.2");
+  });
+
+  it("excludes a release-shaped row that its record marks as a snapshot", () => {
+    const options = releaseOptions(
+      [
+        { version: "25.12.2", channel: "release" },
+        { version: "25.12.3", channel: "snapshot" },
+      ],
+      "25.12.2",
+      "25.12.2",
+    );
+    expect(options.map((option) => option.version)).toEqual(["25.12.2"]);
+  });
+
+  it("falls back to the active snapshot row and labels it experimental", () => {
+    const options = releaseOptions(
+      [{ version: "24.10-SNAPSHOT", channel: "snapshot" }],
+      "24.10-SNAPSHOT",
+      "24.10-SNAPSHOT",
+    );
+    expect(options).toEqual([
+      { version: "24.10-SNAPSHOT", active: true, snapshotAvailable: true, channel: "snapshot" },
+    ]);
+  });
+
+  it("falls back to the catalog base version when no base row exists", () => {
+    expect(releaseOptions([], "25.12.2", "25.12.2")).toEqual([
+      { version: "25.12.2", active: true, snapshotAvailable: true, channel: "release" },
+    ]);
   });
 });

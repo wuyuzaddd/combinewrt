@@ -1,6 +1,8 @@
 import { variantForImageType } from "../build/artifact-name";
 import { toLookupEntry } from "../build/lookup";
 import { createBuildPlanV2 } from "../build/plan-v2";
+import { resolveChannel } from "../build/channel";
+import { createBaseVersionStore } from "../base/store";
 import { hashRootPassword } from "../build/password";
 import type { BuildConflict, BuildFormInput, BuildFormInputV2 } from "../build/types";
 import { loadCapabilities } from "../catalog/capabilities";
@@ -183,8 +185,14 @@ export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<Prep
   const dllkidsPin = resolvePlanDllkidsPin(db, feedConfig, snapshot.sourcePins.dllkids);
   const sourcePins = { ...snapshot.sourcePins, dllkids: dllkidsPin.value };
 
+  // Ticket 11: the channel is a property of the selected BaseVersion row, not
+  // of the form. A row missing from `base_versions` (an old snapshot base)
+  // falls back to the version shape inside the planner.
+  const baseRecord = createBaseVersionStore(db).get(snapshot.baseVersion);
+
   const outcome = await createBuildPlanV2(form, {
     baseVersion: snapshot.baseVersion,
+    channel: resolveChannel(snapshot.baseVersion, baseRecord),
     feedCommit: snapshot.feedCommit,
     sourceNote: snapshot.sourceNote,
     sourcePins,

@@ -3,6 +3,7 @@ import type { BuildFormInput, BuildFormInputV2, BuildVisibility } from "./types"
 import type { ImageFormatId } from "../catalog/types";
 import { IMAGE_FORMATS } from "../catalog/profiles";
 import { BASE_PRESET_IDS, type BasePresetId, type ImageVariant } from "../domain/types";
+import { channelForVersion, isBaseVersionShape } from "./channel";
 
 const HOSTNAME_LABEL = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
@@ -212,7 +213,14 @@ const schemaV2 = z.object({
   profile: z.string().trim().min(1, "profile is required"),
   target: z.string().trim().min(1, "target is required"),
   kernelLine: z.string().trim().min(1, "kernelLine is required"),
-  baseVersion: z.string().trim().regex(/^\d+\.\d+\.\d+$/, "baseVersion is invalid").optional(),
+  // Ticket 11: both release (`25.12.2`) and snapshot (`24.10-SNAPSHOT`) base
+  // versions are legal plan inputs; the channel they imply changes the
+  // defaults below and the planner's visibility rule.
+  baseVersion: z
+    .string()
+    .trim()
+    .refine(isBaseVersionShape, "baseVersion is invalid")
+    .optional(),
   imageVariant: variantSchema,
   basePreset: z.enum(BASE_PRESETS).optional(),
   modes: z.array(modeRefSchema).max(50, "too many modes").optional(),
@@ -280,6 +288,11 @@ export function validateBuildFormV2(input: unknown): ValidationResultV2 {
     ? [...new Set(parsed.data.removePackages.map((name) => name.trim()).filter(Boolean))]
     : undefined;
   const imageVariant = parsed.data.imageVariant as ImageVariant;
+  // Channel-specific defaults: a snapshot base version is experimental and
+  // always private, whatever the form asked for; a release keeps the request
+  // (default private).
+  const channel = parsed.data.baseVersion ? channelForVersion(parsed.data.baseVersion) : "release";
+  const visibility = channel === "snapshot" ? "private" : (parsed.data.visibility ?? "private");
   return {
     ok: true,
     value: {
@@ -287,7 +300,7 @@ export function validateBuildFormV2(input: unknown): ValidationResultV2 {
       imageVariant,
       packages,
       ...(removePackages ? { removePackages } : {}),
-      visibility: parsed.data.visibility ?? "private",
+      visibility,
       modes: parsed.data.modes ?? [],
     },
   };

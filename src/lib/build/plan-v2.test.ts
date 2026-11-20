@@ -810,3 +810,51 @@ describe("packages, removals and curated common packages (ticket 08)", () => {
     expect(message).toMatch(/podman/);
   });
 });
+
+describe("createBuildPlanV2 channel derivation (ticket 11)", () => {
+  it("records the release channel of the selected BaseVersion record", async () => {
+    const plan = planOf(await createBuildPlanV2(formV2({ visibility: "public" }), contextV2({ channel: "release" })));
+
+    expect(plan.channel).toBe("release");
+    expect(plan.visibility).toBe("public");
+    expect(plan.feedSet?.visibility).toBe("public");
+    expect((plan.warnings ?? []).join("\n")).not.toContain("snapshot 通道");
+  });
+
+  it("records the snapshot channel and forces a private plan even when the form asks for public", async () => {
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2({ visibility: "public", baseVersion: "24.10-SNAPSHOT" }),
+        contextV2({ baseVersion: "24.10-SNAPSHOT", channel: "snapshot" }),
+      ),
+    );
+
+    expect(plan.channel).toBe("snapshot");
+    expect(plan.visibility).toBe("private");
+    expect(plan.feedSet?.visibility).toBe("private");
+    // The plan is labelled experimental so the UI can say so.
+    expect((plan.warnings ?? []).join("\n")).toContain("snapshot 通道是实验/滚动通道");
+  });
+
+  it("derives the channel from the version shape when the caller passes no record", async () => {
+    const snapshot = planOf(
+      await createBuildPlanV2(formV2(), contextV2({ baseVersion: "24.10-SNAPSHOT", channel: undefined })),
+    );
+    expect(snapshot.channel).toBe("snapshot");
+    expect(snapshot.visibility).toBe("private");
+
+    const release = planOf(await createBuildPlanV2(formV2(), contextV2({ baseVersion: "25.12.2", channel: undefined })));
+    expect(release.channel).toBe("release");
+  });
+
+  it("does not forget a snapshot record on a release-shaped base version", async () => {
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2({ visibility: "public" }),
+        contextV2({ baseVersion: "25.12.2", channel: "snapshot" }),
+      ),
+    );
+    expect(plan.channel).toBe("snapshot");
+    expect(plan.visibility).toBe("private");
+  });
+});

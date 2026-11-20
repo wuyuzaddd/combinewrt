@@ -10,6 +10,7 @@ import { commonPackageSelectionConflicts, type CommonPreset } from "../presets/c
 import { expandBundleTokens } from "../extension/bundles";
 import type { ExtensionBundle } from "../extension/types";
 import { artifactNameV2 } from "./artifact-name";
+import { resolveChannel } from "./channel";
 import {
   DEFAULT_DLLKIDS_INDEX_SHA256_SEED,
   buildImageFeedSet,
@@ -36,6 +37,11 @@ import type {
  */
 export interface PlanV2Context {
   baseVersion: string;
+  /**
+   * Channel of the selected `BaseVersion` record (ticket 11). The caller that
+   * resolved the record passes it; when it is absent the planner falls back to
+   * the version shape, never to a hard-coded `"release"`.
+   */
   channel?: BaseChannel;
   feedCommit: string;
   sourceNote: string;
@@ -123,6 +129,13 @@ export async function createBuildPlanV2(
 
   const sources = context.sources ?? EMPTY_SOURCE_REGISTRY;
 
+  // Ticket 11: the channel comes from the selected BaseVersion record (passed
+  // in by `preparePlanV2ForForm`), with the version shape as the fallback. A
+  // snapshot base version is experimental: its plan is always private, never
+  // publicly distributable, and never part of the Simple release list.
+  const channel = resolveChannel(context.baseVersion, context.channel ? { channel: context.channel } : null);
+  const snapshotChannel = channel === "snapshot";
+
   // `bundle:<id>` requests are the one-click path: they expand into the same
   // plain package list the rest of the composer already understands, so the
   // licence gate, kmod ABI checks and feed preflight apply unchanged.
@@ -193,7 +206,14 @@ export async function createBuildPlanV2(
   // reached through the V1 compatibility bridge, so this V2 write path never
   // names the V1 image format itself (ADR 0009 ruling 4).
   const basePlan = await composeV1BasePlan({
-    form: { ...expandedForm, packages: effectivePackages },
+    form: {
+      ...expandedForm,
+      packages: effectivePackages,
+      // A snapshot plan is forced private before the V1 gate runs, so a
+      // snapshot form that asked for public never reaches the public license
+      // path and the resulting plan cannot be distributed.
+      visibility: snapshotChannel ? "private" : expandedForm.visibility,
+    },
     imageVariant,
     profile,
     catalogProfiles: context.catalogProfiles,
@@ -382,7 +402,7 @@ export async function createBuildPlanV2(
         ? { ...basePlan.sourcePins, dllkids: dllkidsIndexSha256 }
         : basePlan.sourcePins,
     schemaVersion: 2,
-    channel: context.channel ?? "release",
+    channel,
     target: {
       id: target.id,
       architecture: target.architecture,
@@ -409,7 +429,15 @@ export async function createBuildPlanV2(
     engine,
     feedSet,
     preflight,
-    warnings: [...(basePlan.warnings ?? []), ...removal.warnings],
+    warnings: [
+      ...(basePlan.warnings ?? []),
+      ...removal.warnings,
+      ...(snapshotChannel
+        ? [
+            "snapshot 通道是实验/滚动通道：该计划已强制为私有可见性，不出现在 Simple 默认列表，不能公开发布。",
+          ]
+        : []),
+    ],
     kernelConfig: modeResolution.kernelConfig,
     ...(modeResolution.docker ? { docker: modeResolution.docker } : {}),
     artifactName: artifactNameV2({

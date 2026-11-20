@@ -128,6 +128,7 @@ function TargetSection({ ui, form, releases, targetQuery, onTargetQuery, capabil
             {releases.map((release) => (
               <option disabled={!release.snapshotAvailable} key={release.version} value={release.version}>
                 {release.version}
+                {release.channel === "snapshot" ? "（实验 · 滚动通道）" : ""}
                 {release.active ? "（当前）" : ""}
                 {release.snapshotAvailable ? "" : "（无目录快照）"}
               </option>
@@ -250,7 +251,17 @@ function BasePresetCards({ ui, form, patch }: Pick<FormSectionProps, "ui" | "for
   );
 }
 
-function SystemSettings({ form, password, onPassword, update, patch }: Pick<FormSectionProps, "form" | "password" | "onPassword" | "update" | "patch">) {
+function SystemSettings({
+  form,
+  releases,
+  password,
+  onPassword,
+  update,
+  patch,
+}: Pick<FormSectionProps, "form" | "releases" | "password" | "onPassword" | "update" | "patch">) {
+  // Ticket 11: a snapshot base version is experimental, so the public option is
+  // not selectable; the planner forces private visibility regardless.
+  const selectedSnapshot = releases.find((release) => release.version === form.release)?.channel === "snapshot";
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
       <h2 className="font-medium">系统设置</h2>
@@ -290,6 +301,11 @@ function SystemSettings({ form, password, onPassword, update, patch }: Pick<Form
       </label>
       <fieldset className="mt-4">
         <legend className="text-sm text-slate-300">镜像用途</legend>
+        {selectedSnapshot ? (
+          <p className="mt-1 text-xs text-amber-300">
+            所选基线是 snapshot 通道（实验/滚动），计划会被强制为自用（私有）。
+          </p>
+        ) : null}
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {(
             [
@@ -298,16 +314,21 @@ function SystemSettings({ form, password, onPassword, update, patch }: Pick<Form
             ] as const
           ).map((option) => (
             <label
-              className={`cursor-pointer rounded-lg border p-3 text-sm ${
+              className={`rounded-lg border p-3 text-sm ${
                 form.visibility === option.value
                   ? "border-emerald-500 bg-emerald-950/40 text-emerald-200"
                   : "border-slate-700 bg-slate-950 text-slate-300"
+              } ${
+                option.value === "public" && selectedSnapshot
+                  ? "cursor-not-allowed opacity-50"
+                  : "cursor-pointer"
               }`}
               key={option.value}
             >
               <input
                 checked={form.visibility === option.value}
                 className="sr-only"
+                disabled={option.value === "public" && selectedSnapshot}
                 name="visibility"
                 onChange={() => patch({ visibility: option.value })}
                 type="radio"
