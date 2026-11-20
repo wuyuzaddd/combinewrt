@@ -1,7 +1,9 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
 import { describe, expect, it } from "vitest";
+import { ALLOWED_GENERATED_FILE_MODES } from "./dispatch-files";
 
 const nodeRequire = createRequire(import.meta.url);
 const yaml = nodeRequire("js-yaml") as { load(input: string): unknown };
@@ -215,5 +217,66 @@ describe("workflow signature allow-list", () => {
     // must never pass the flag.
     const preflight = source.slice(source.indexOf(`- name: ${FEED_STEP}`), source.indexOf("- name: Build image"));
     expect(preflight).not.toContain("--allow-untrusted");
+  });
+});
+
+describe("shared generated-file rule (ticket 05)", () => {
+  // Ticket 05: BOTH build engines must apply the same `plan.files[]` rule. This
+  // allow-list is the point of the test: a new engine cannot be added without
+  // either appearing here or failing the "every workflow references the rule"
+  // expectation below.
+  const ENGINES = ["build.yml", "source-build.yml"] as const;
+  const scriptPath = new URL("../../../build-workflow/check-files.sh", import.meta.url).pathname;
+
+  for (const name of ENGINES) {
+    it(`${name} sources the shared check and fails write-files on a bad entry`, () => {
+      const source = readFile(name);
+      expect(source).toContain("source .github/scripts/check-files.sh");
+      expect(source).toContain('check_generated_file "$path" "$mode"');
+      expect(source).toContain("fail write-files");
+    });
+  }
+
+  it("keeps the workflow engine allow-list to the two real engines", () => {
+    expect([...ENGINES].sort()).toEqual(["build.yml", "source-build.yml"]);
+  });
+
+  it("keeps the shell mode allow-list equal to the TypeScript predicate", () => {
+    const match = /COMBINEWRT_ALLOWED_FILE_MODES="([^"]*)"/.exec(readFile("check-files.sh"));
+    expect(match).not.toBeNull();
+    const shellModes = match![1]!.split(/\s+/).filter(Boolean).sort();
+    const tsModes = [...ALLOWED_GENERATED_FILE_MODES].map(String).sort();
+    expect(shellModes).toEqual(tsModes);
+  });
+
+  const canRunBash = spawnSync("bash", ["--version"], { stdio: "ignore" }).status === 0;
+
+  function shellCheck(path: string, mode: string): number | null {
+    const result = spawnSync(
+      "bash",
+      ["-c", '. "$1"; check_generated_file "$2" "$3"', "check", scriptPath, path, mode],
+      { encoding: "utf8" },
+    );
+    return result.status;
+  }
+
+  it.skipIf(!canRunBash)("rejects the malicious fixtures in the rule both workflows run", () => {
+    const malicious: Array<[string, string]> = [
+      ["../../etc/passwd", "420"],
+      ["/etc/shadow", "420"],
+      ["files/../x", "420"],
+      ["files/etc/../../x", "420"],
+      ["files//etc/passwd", "420"],
+      ["files/etc/config/x", "2047"],
+      ["files/etc/config/x", "384"],
+    ];
+    for (const [path, mode] of malicious) {
+      expect(shellCheck(path, mode), `${path} mode ${mode}`).not.toBe(0);
+    }
+  });
+
+  it.skipIf(!canRunBash)("accepts the legitimate files/ entries the planner emits", () => {
+    expect(shellCheck("files/etc/uci-defaults/99-combinewrt", "493")).toBe(0);
+    expect(shellCheck("files/etc/config/samba4", "420")).toBe(0);
   });
 });

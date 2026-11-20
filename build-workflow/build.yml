@@ -232,10 +232,16 @@ jobs:
         run: |
           set -euo pipefail
           source .github/scripts/fail.sh
+          # Ticket 05: the same shared rule source-build.yml applies, so a
+          # malicious plan cannot write outside the files/ overlay or chmod the
+          # runner's files.
+          source .github/scripts/check-files.sh
           cd ib
           if ! jq -c '.files[]' ../plan.json | while IFS= read -r file; do
             path=$(echo "$file" | jq -r .path)
             mode=$(echo "$file" | jq -r '.mode // 420')
+            check_generated_file "$path" "$mode" \
+              || fail write-files "" "" "" "unsafe generated file: $path (mode $mode)"
             mkdir -p "$(dirname "$path")"
             echo "$file" | jq -r .content > "$path"
             chmod "$(printf '%o' "$mode")" "$path"

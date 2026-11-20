@@ -171,6 +171,34 @@ describe("buildDispatchPayload", () => {
     expect(Object.keys(v2!)).not.toContain("feedSet");
     expect(Object.keys(v2!)).not.toContain("preflight");
   });
+
+  it("refuses a plan whose files[] escapes the overlay or uses an unexpected mode (ticket 05)", () => {
+    const variant: ImageVariant = { boot: "efi", filesystem: "ext4", artifact: "combined" };
+    const artifactName = artifactNameV2({ ...BASE, imageVariant: variant });
+    const malicious = [
+      { path: "../../etc/passwd", content: "x", mode: 0o644 },
+      { path: "/etc/shadow", content: "x", mode: 0o644 },
+      { path: "files/../x", content: "x", mode: 0o644 },
+      { path: "files/etc/config/x", content: "x", mode: 0o7777 },
+      { path: "files/etc/config/x", content: "x", mode: 0o600 },
+    ];
+    for (const file of malicious) {
+      // V1 and V2 plans cross the same dispatch boundary.
+      expect(() => buildDispatchPayload(v1Plan({ files: [file] }), { buildId: "bad", artifactName: "image.gz" }))
+        .toThrow(/unsafe plan files/);
+      expect(() => buildDispatchPayload(v2Plan(variant, { files: [file], artifactName }), { buildId: "bad", artifactName }))
+        .toThrow(/unsafe plan files/);
+    }
+  });
+
+  it("still forwards the legitimate files/ overlay the planner emits", () => {
+    const files = [
+      { path: "files/etc/uci-defaults/99-combinewrt", content: "#!/bin/sh\n", mode: 0o755 },
+      { path: "files/etc/config/samba4", content: "config samba4\n", mode: 0o644 },
+    ];
+    const payload = buildDispatchPayload(v1Plan({ files }), { buildId: "ok", artifactName: "image.gz" });
+    expect(payload.files).toEqual(files);
+  });
 });
 
 describe("buildDispatchRequest", () => {

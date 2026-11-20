@@ -4,6 +4,7 @@ import type { GeneratedFile } from "./types";
 import type { KernelVersion } from "../domain/types";
 import { KERNEL_LINE_VERSIONS } from "../domain/types";
 import type { ImageVariant } from "../domain/types";
+import { generatedFileViolation } from "./dispatch-files";
 
 /**
  * Kernel-line registry and the pure source-build recipe generator.
@@ -63,9 +64,6 @@ const CACHE_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const FEED_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const PACKAGE_RE = /^[A-Za-z0-9][A-Za-z0-9+._-]*$/;
 const ARTIFACT_NAME_RE = /^immortalwrt-[A-Za-z0-9._-]+\.(?:img\.gz|tar\.gz|vmdk|qcow2)$/;
-// Generated file paths are relative to the build tree and already carry the
-// `files/` overlay prefix, exactly like the ImageBuilder plan files.
-const GENERATED_FILE_PATH_RE = /^files\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -483,14 +481,9 @@ export function generateSourceRecipe(input: SourceRecipeInput): SourceRecipe {
     mode: file.mode,
   }));
   for (const file of files) {
-    assertInput(
-      GENERATED_FILE_PATH_RE.test(file.path) && !file.path.split("/").includes(".."),
-      `${context}: generated file path "${file.path}" is not a safe files/ overlay path.`,
-    );
-    assertInput(
-      Number.isInteger(file.mode) && file.mode >= 0 && file.mode <= 0o777,
-      `${context}: generated file "${file.path}" has an invalid mode.`,
-    );
+    // Ticket 05: the same predicate dispatch enforces, not a second copy of it.
+    const violation = generatedFileViolation(file);
+    assertInput(violation === null, `${context}: ${violation ?? "unsafe generated file"}.`);
   }
 
   const fragmentsById = new Map<string, string>();

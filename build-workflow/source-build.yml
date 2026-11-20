@@ -179,6 +179,9 @@ jobs:
         run: |
           set -euo pipefail
           source .github/scripts/fail.sh
+          # Ticket 05: the inline cases moved into the rule shared with
+          # build.yml, so the two engines cannot drift apart.
+          source .github/scripts/check-files.sh
           cd source
           rm -rf files
           count=$(jq '.files | length' "$GITHUB_WORKSPACE/plan.json")
@@ -186,13 +189,8 @@ jobs:
           jq -c '.files[]' "$GITHUB_WORKSPACE/plan.json" | while IFS= read -r file; do
             path=$(echo "$file" | jq -r .path)
             mode=$(echo "$file" | jq -r '.mode // 420')
-            case "$path" in
-              files/*) ;;
-              *) fail write-files "" "$SOURCE_REF" "" "unsafe generated file path: $path" ;;
-            esac
-            case "$path" in
-              *..*) fail write-files "" "$SOURCE_REF" "" "unsafe generated file path: $path" ;;
-            esac
+            check_generated_file "$path" "$mode" \
+              || fail write-files "" "$SOURCE_REF" "" "unsafe generated file: $path (mode $mode)"
             mkdir -p "$(dirname "$path")"
             echo "$file" | jq -r .content > "$path"
             chmod "$(printf '%o' "$mode")" "$path"
