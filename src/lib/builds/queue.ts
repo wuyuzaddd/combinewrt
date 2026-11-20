@@ -41,6 +41,7 @@ export interface BuildQueueOptions {
     | "countRunning"
     | "readDispatchPayload"
     | "clearDispatchPayload"
+    | "recordDispatchRun"
   >;
   adapter: BuildAdapter;
   /** Seals/opens the full plan at rest; keyed from SESSION_SECRET in production. */
@@ -181,21 +182,25 @@ export function createBuildQueue(options: BuildQueueOptions): BuildQueue {
       return;
     }
 
-    // The dispatch call consumed the secret; zero the ciphertext even while the
-    // build stays `running` until the run id is observed.
-    store.clearDispatchPayload(record.id);
     if (!runId) {
       // The dispatch call succeeded but GitHub has not exposed the run yet; the
       // reconciler resolves it through findRun and fails the build if the run
       // never appears, so no phantom run is invented here.
+      store.clearDispatchPayload(record.id);
       return;
     }
 
     const latest = store.get(record.id) ?? record;
     if (latest.status === "cancelled") {
-      // Cancelled while the dispatch was in flight: record the run id (so the
-      // timeline is complete) and cancel it on GitHub so it does not keep running.
-      store.update(record.id, { runId }, latest.updatedAt, "cancel");
+      // Cancelled while the dispatch was in flight: record the run id and drop
+      // the payload atomically (so the timeline stays complete even if we crash
+      // next), then cancel the run on GitHub so it does not keep building. A
+      // failed bookkeeping write must never skip the GitHub cancel.
+      try {
+        store.recordDispatchRun(record.id, runId, latest.updatedAt);
+      } catch (error) {
+        logger.error(`[combinewrt] recording the in-flight run of build ${record.id} failed`, error);
+      }
       try {
         await adapter.cancelRun?.(runId);
       } catch (error) {
@@ -204,11 +209,23 @@ export function createBuildQueue(options: BuildQueueOptions): BuildQueue {
       return;
     }
 
-    // Retry once when a concurrent poll changed updated_at between our read and
-    // the optimistic update; never overwrite a terminal status.
-    let updated = store.update(record.id, { runId }, latest.updatedAt, "dispatch");
-    if (updated.runId !== runId && updated.status === "running") {
-      updated = store.update(record.id, { runId }, updated.updatedAt, "dispatch");
+    // Ticket 07: the run id and the payload clear are one `UPDATE`. A crash can
+    // therefore leave at worst "running + sealed payload + no run id" — the
+    // same state as a dispatch whose run GitHub has not exposed yet, which the
+    // reconciler resolves with `findRun` — never "running with neither".
+    try {
+      // Retry once when a concurrent poll changed updated_at between our read
+      // and the optimistic update; never overwrite a terminal status.
+      let updated = store.recordDispatchRun(record.id, runId, latest.updatedAt);
+      if (updated.runId !== runId && updated.status === "running") {
+        updated = store.recordDispatchRun(record.id, runId, updated.updatedAt);
+      }
+    } catch (error) {
+      // GitHub produced a run but the local write failed. The atomic statement
+      // left the sealed payload untouched, so the row is recoverable: the
+      // reconciler claims it through `findRun(hash)` / cancels it by that run
+      // id. Log loudly instead of failing the pump (the build is still alive).
+      logger.error(`[combinewrt] recording run ${runId} of build ${record.id} failed`, error);
     }
   }
 

@@ -186,6 +186,27 @@ describe("build store", () => {
     db.close();
   });
 
+  it("records the run id and clears the sealed payload in one statement", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"), "sealed-envelope");
+    expect(store.readDispatchPayload("a")).toBe("sealed-envelope");
+
+    const updated = store.recordDispatchRun("a", "run-a", "2026-11-11T00:00:00Z");
+    expect(updated.runId).toBe("run-a");
+    expect(store.get("a")?.runId).toBe("run-a");
+    // Ticket 07: there is no intermediate row where the payload is gone but the
+    // run id is not written yet.
+    expect(store.readDispatchPayload("a")).toBeNull();
+
+    // A lost optimistic race leaves the row untouched and returns it as-is.
+    const raced = store.recordDispatchRun("a", "run-other", "2000-01-01T00:00:00.000Z");
+    expect(raced.runId).toBe("run-a");
+    expect(store.get("a")?.runId).toBe("run-a");
+    db.close();
+  });
+
   it("leaves legacy rows readable when the queue columns are null", () => {
     const db = openDatabase(":memory:");
     migrate(db);
