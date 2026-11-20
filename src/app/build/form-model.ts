@@ -7,6 +7,7 @@
  * bundle/theme/mode behaviour testable without a DOM.
  */
 import type { NetworkInput } from "@/lib/build/types";
+import { variantForImageType } from "@/lib/build/artifact-name";
 import type { BasePresetId } from "@/lib/domain/types";
 import type {
   BuildUiOptions,
@@ -99,11 +100,9 @@ function defaultOverlay(profile: ProfileOption | null): number {
 export function variantFromImageType(imageType: string | undefined): SelectedVariant | null {
   switch (imageType) {
     case "ext4-efi":
-      return { boot: "efi", filesystem: "ext4", artifact: "combined" };
     case "squashfs-efi":
-      return { boot: "efi", filesystem: "squashfs", artifact: "combined" };
     case "rootfs-tar":
-      return { boot: "efi", filesystem: "squashfs", artifact: "rootfs" };
+      return variantForImageType(imageType);
     default:
       return null;
   }

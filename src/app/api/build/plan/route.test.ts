@@ -236,15 +236,55 @@ describe("POST /api/build/plan (V2 form)", () => {
     expect(body.plan.artifactName).toBe("immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img.gz");
   });
 
-  it("keeps the V1 plan JSON free of V2 fields", async () => {
+  it("maps the legacy V1 form onto the implicit V2 defaults", async () => {
     state.session = { sub: "admin", iat: 0, exp: 1 };
     const response = await POST(request(validForm));
     expect(response.status).toBe(200);
 
-    const body = (await response.json()) as { plan: Record<string, unknown> };
-    expect(body.plan).not.toHaveProperty("schemaVersion");
-    expect(body.plan).not.toHaveProperty("imageVariant");
-    expect(body.plan).not.toHaveProperty("kernelLine");
+    const body = (await response.json()) as {
+      plan: {
+        schemaVersion: number;
+        target: { id: string };
+        deviceProfile: { id: string };
+        kernelLine: { id: string; engine: string };
+        imageVariant: { boot: string; filesystem: string; artifact: string };
+        basePreset: { id: string };
+        overlays: unknown[];
+        engine: string;
+        visibility: string;
+        artifactName: string;
+        imageType: string;
+      };
+    };
+    expect(body.plan.schemaVersion).toBe(2);
+    expect(body.plan.target.id).toBe("x86/64");
+    expect(body.plan.deviceProfile.id).toBe("generic");
+    expect(body.plan.kernelLine).toMatchObject({ id: "6.12", engine: "imagebuilder" });
+    expect(body.plan.imageVariant).toMatchObject({ boot: "efi", filesystem: "ext4", artifact: "combined" });
+    expect(body.plan.basePreset.id).toBe("minimal");
+    expect(body.plan.overlays).toEqual([]);
+    expect(body.plan.engine).toBe("imagebuilder");
+    expect(body.plan.visibility).toBe("private");
+    // The plan's V1-compatibility imageType is derived from the variant; the
+    // legacy form's imageType is not carried into the V2 planner input.
+    expect(body.plan.imageType).toBe("ext4-efi");
+    expect(body.plan.artifactName).toBe("immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img.gz");
+  });
+
+  it("keeps the legacy 400 for an image type the profile does not offer", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(request({ ...validForm, imageType: "squashfs-efi" }));
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { issues: string[] };
+    expect(body.issues.join("\n")).toMatch(/imageType/);
+  });
+
+  it("keeps the legacy 400 for an unknown profile", async () => {
+    state.session = { sub: "admin", iat: 0, exp: 1 };
+    const response = await POST(request({ ...validForm, profile: "not-a-profile" }));
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { issues: string[] };
+    expect(body.issues.join("\n")).toMatch(/unknown profile/);
   });
 
   it("rejects a variant the capability registry does not support", async () => {

@@ -55,14 +55,16 @@ export async function POST(request: Request) {
     }
   }
 
+  // Legacy V1 form: ADR 0009 ruling 3 maps it onto the implicit V2 defaults
+  // (`preparePlanForForm`), so a new submission is never a schemaVersion 1 plan.
   const validation = validateBuildForm(body);
   if (!validation.ok) return NextResponse.json({ ok: false, issues: validation.issues }, { status: 400 });
 
   try {
     const prepared = await preparePlanForForm(validation.value);
     if (!prepared.ok) return NextResponse.json(prepared.body, { status: prepared.status });
-    if (prepared.plan.conflicts.length > 0) {
-      return NextResponse.json({ ok: false, conflicts: prepared.plan.conflicts, plan: prepared.plan }, { status: 409 });
+    if (prepared.conflicts.length > 0) {
+      return NextResponse.json({ ok: false, conflicts: prepared.conflicts, plan: prepared.plan }, { status: 409 });
     }
 
     const build = await getBuildService().submit(prepared.plan);

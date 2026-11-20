@@ -1,5 +1,5 @@
+import { variantForImageType } from "../build/artifact-name";
 import { toLookupEntry } from "../build/lookup";
-import { createBuildPlan } from "../build/plan";
 import { createBuildPlanV2 } from "../build/plan-v2";
 import { hashRootPassword } from "../build/password";
 import type { BuildConflict, BuildFormInput, BuildFormInputV2 } from "../build/types";
@@ -15,10 +15,53 @@ import { extensionLookupEntry } from "../extension/lookup";
 import { loadExtensionBundles } from "../extension/bundles";
 import { loadCommonPreset, CommonPresetError } from "../presets/common";
 
-export type PreparedPlan =
-  | { ok: true; plan: Awaited<ReturnType<typeof createBuildPlan>> }
-  | { ok: false; status: number; body: Record<string, unknown> };
+/**
+ * Implicit V2 defaults for a submission from the legacy V1 form (ADR 0009
+ * ruling 3). The V1 form has no target/kernel-line/variant triple, so it gets
+ * the one V2 build the product models for x86/64; `imageType` only selects the
+ * image variant and is not carried as a planner input.
+ */
+export const LEGACY_V2_DEFAULTS = {
+  target: "x86/64",
+  profile: "generic",
+  kernelLine: "6.12",
+  basePreset: "minimal",
+  visibility: "private",
+} as const;
 
+/**
+ * Map a V1 form onto the V2 form. The V1 profile is validated against the
+ * catalog before this runs (400 semantics are preserved), then pinned to the
+ * V2 default profile because the capability registry only models `generic` on
+ * `x86/64`.
+ */
+export function legacyBuildFormToV2Form(form: BuildFormInput): BuildFormInputV2 {
+  return {
+    profile: LEGACY_V2_DEFAULTS.profile,
+    target: LEGACY_V2_DEFAULTS.target,
+    kernelLine: LEGACY_V2_DEFAULTS.kernelLine,
+    imageVariant: variantForImageType(form.imageType),
+    basePreset: LEGACY_V2_DEFAULTS.basePreset,
+    modes: [],
+    hostname: form.hostname,
+    timezone: form.timezone,
+    lanIp: form.lanIp,
+    netmask: form.netmask,
+    rootPassword: form.rootPassword,
+    packages: form.packages,
+    ...(form.removePackages ? { removePackages: form.removePackages } : {}),
+    ...(form.packagePins ? { packagePins: form.packagePins } : {}),
+    visibility: form.visibility ?? LEGACY_V2_DEFAULTS.visibility,
+  };
+}
+
+export type PreparedPlan = PreparedPlanV2;
+
+/**
+ * V1 form entry point. It keeps the V1 catalog checks (unknown profile /
+ * unavailable image type stay 400) and then produces a V2 plan through the same
+ * composer as the V2 form, so no new submission is written as schemaVersion 1.
+ */
 export async function preparePlanForForm(form: BuildFormInput): Promise<PreparedPlan> {
   const store = createCatalogStore(getDatabase());
   const snapshot = store.getActiveSnapshot();
@@ -38,20 +81,7 @@ export async function preparePlanForForm(form: BuildFormInput): Promise<Prepared
     };
   }
 
-  const plan = await createBuildPlan(form, {
-    baseVersion: snapshot.baseVersion,
-    feedCommit: snapshot.feedCommit,
-    sourceNote: snapshot.sourceNote,
-    sourcePins: snapshot.sourcePins,
-    profile,
-    lookup: (name) => {
-      const pkg = store.getPackage(snapshot.id, name);
-      return pkg ? toLookupEntry(pkg) : null;
-    },
-    lookupAll: (name) => store.getPackageCandidates(snapshot.id, name).map(toLookupEntry),
-    hashPassword: (password) => hashRootPassword(password),
-  });
-  return { ok: true, plan };
+  return preparePlanV2ForForm(legacyBuildFormToV2Form(form));
 }
 
 /**
