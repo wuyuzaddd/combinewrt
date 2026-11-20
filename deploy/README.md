@@ -152,7 +152,7 @@ curl -fsS http://127.0.0.1:3000/api/health
 supplement 与 extension 的索引/签名/发布在 `wuyuzaddd/combinewrt-packages`：
 
 - **live**：`publish_mode=live` 把新索引写到版本冻结路径（`/supplement/<base>/<target>/`、
-  `/extension/<base>/<target>/`）并推进 live 指针；旧版本路径与 V1 `/x86_64/` 保持可下载。
+  `/extension/<base>/<target>/`）并推进 live 指针；这两个版本冻结路径是规范路径，新部署的 `SUPPLEMENT_FEED_URL` 只指向它。站点根下扁平的 `/x86_64/` 是 supplement 索引的 V1 兼容镜像，只为旧镜像与旧部署保留、保持可下载，永远不作为新部署默认。
 - **staging**：`publish_mode=staging` 只写 `/staging/<base>/<target>/<commit>/` 与 `staging.json`，
   live 索引与 `publish.json` 不动。元数据变化或依赖测试失败时站点只允许 staging。
 - **提升**：确认 staging 内容后，用同一 `build_run_id` 再跑一次 `publish_mode=live`，审计会记录

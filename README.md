@@ -47,7 +47,7 @@ V2 已完成 tickets 01–16：多目标模型、ImageBuilder/源码混合构建
 
 - 保留官方 `distfeeds.list`，项目仓库追加到 `/etc/apk/repositories.d/90-combinewrt.list`。
 - 公开镜像 = official + 签名 supplement（选用 extension 包时再加 extension）；私有镜像 = 同上 + 显式 `apk-dllkids` 包装。dllkids 从不进入默认 repository 行，也不会因私有/公开判断失误泄漏进公开镜像。
-- supplement 与 extension 是 `combinewrt-packages` Pages 上的两个独立签名索引，路径版本冻结为 `/supplement/<baseVersion>/<target>/` 与 `/extension/<baseVersion>/<target>/`；镜像只安装项目 feed key `/etc/apk/keys/combinewrt-feed.pub.pem`（EC P-256，fingerprint `f7128667…`），不全局 `--allow-untrusted`。
+- supplement 与 extension 是 `combinewrt-packages` Pages 上的两个独立签名索引，路径版本冻结为 `/supplement/<baseVersion>/<target>/` 与 `/extension/<baseVersion>/<target>/`。这两条版本冻结路径是规范路径（canonical），新计划与新部署只按它拼接；站点根下扁平的 `/x86_64/` 只是 supplement 索引的 V1 兼容镜像，仅留给旧镜像的 repository 行与旧部署的显式配置，永远不作为新部署默认。镜像只安装项目 feed key `/etc/apk/keys/combinewrt-feed.pub.pem`（EC P-256，fingerprint `f7128667…`），不全局 `--allow-untrusted`。
 - 构建前的工作流 preflight 用同一套 repository 与 key 执行 `apk add --simulate`，失败在 `make image` 之前以包名/来源报错。
 
 ### 源同步（source watch）
@@ -118,7 +118,7 @@ npm run dev
 | `DLLKIDS_FEED_URL` | 否 | dllkids 包索引目录 |
 | `DLLKIDS_INDEX_SHA256_SEED` | 否 | 首次安装的 dllkids `packages.adb` sha256 seed；采纳后以数据库 `source_pins` 为准。旧名 `DLLKIDS_INDEX_SHA256` 仍兼容 |
 | `COMBINEWRT_FEED_BASE_URL` | 否 | 项目签名 feed 站点根（supplement/extension 的版本冻结路径由此拼接） |
-| `SUPPLEMENT_FEED_URL` | 否 | supplement 当前索引目录，默认按 base version 拼接 |
+| `SUPPLEMENT_FEED_URL` | 否 | supplement 索引目录；默认按 base version 拼成规范路径 `/supplement/<baseVersion>/<target>/`。扁平 `/x86_64/` 仅 V1 兼容，不要在新部署里配置 |
 | `SUPPLEMENT_KEY_URL` | 否 | 项目 feed 公钥地址 |
 | `SUPPLEMENT_KEY_FINGERPRINT` | 否 | 公钥字节的 sha256；镜像 preflight 与源监视都用它校验 |
 | `SUPPLEMENT_FEED_COMMIT` | 否 | supplement 源提交；留空时只固定公钥与索引 sha256 |
