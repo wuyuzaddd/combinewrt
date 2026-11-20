@@ -6,7 +6,7 @@ import type { BuildConflict, BuildFormInput, BuildFormInputV2 } from "../build/t
 import { loadCapabilities } from "../catalog/capabilities";
 import { createCatalogStore } from "../catalog/store";
 import { loadImageFeedConfig } from "../config";
-import { resolveActiveDllkidsPin } from "../catalog/refresh-active";
+import { resolvePlanDllkidsPin } from "../catalog/refresh-active";
 import { getDatabase } from "../db";
 import type { BuildPlanV2 } from "../domain/build-plan";
 import { loadSourceRegistry } from "../sources/registry";
@@ -143,12 +143,14 @@ export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<Prep
     };
   }
 
-  // ADR 0009 ruling 1: the dllkids pin comes from the database, never from the
-  // config seed. The seed is only used when no adopted pin exists yet, and then
-  // it is marked as a seed in the plan's feed set. Writing both into the plan
-  // produced two different hashes for one build; this resolves one value first.
+  // ADR 0009 ruling 1, per plan: a resolved catalog snapshot is already built
+  // from an adopted pin, and its package entries carry that pin. Using the live
+  // DB pin here would make the plan pin disagree with the snapshot's entries
+  // (the composition check then hard-blocks the preview). The snapshot pin wins;
+  // the live DB pin / configured seed is only a fallback for a snapshot with no
+  // dllkids pin at all.
   const feedConfig = loadImageFeedConfig();
-  const dllkidsPin = resolveActiveDllkidsPin(db, feedConfig);
+  const dllkidsPin = resolvePlanDllkidsPin(db, feedConfig, snapshot.sourcePins.dllkids);
   const sourcePins = { ...snapshot.sourcePins, dllkids: dllkidsPin.value };
 
   const outcome = await createBuildPlanV2(form, {

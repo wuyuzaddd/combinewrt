@@ -58,7 +58,7 @@ export interface PlanV2Context {
    * Authority of the dllkids pin carried in `sourcePins` (ticket 10). When the
    * caller resolved the pin from `source_pins` it passes `database`; when it
    * fell back to the configured seed it passes `config-seed`. Defaults to
-   * `database` when `sourcePins.dllkids` is present.
+   * `snapshot` when `sourcePins.dllkids` is present (the normal plan case).
    */
   dllkidsPinSource?: IndexSha256Source;
   hashPassword: (password: string) => Promise<string>;
@@ -360,7 +360,7 @@ export async function createBuildPlanV2(
     context.feedOptions?.dllkidsIndexSha256 ??
     DEFAULT_DLLKIDS_INDEX_SHA256;
   const dllkidsIndexSha256Source: IndexSha256Source = context.sourcePins?.dllkids
-    ? context.dllkidsPinSource ?? "database"
+    ? context.dllkidsPinSource ?? "snapshot"
     : "config-seed";
   const feedSet = buildImageFeedSet(
     {

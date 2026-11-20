@@ -32,7 +32,7 @@ export const DEFAULT_DLLKIDS_INDEX_SHA256 =
   "04a549ed7028b126218002b126cbc60eb3a4bdc3463f15425bce3ba6b91a04ba";
 
 /** Where a feed's `indexSha256` came from. */
-export type IndexSha256Source = "database" | "config-seed";
+export type IndexSha256Source = "snapshot" | "database" | "config-seed";
 
 /**
  * GeneratedFile paths are relative to the ImageBuilder tree (the workflow runs
@@ -61,9 +61,10 @@ export interface ImageFeedRepository {
   /** sha256 of the signed packages.adb where the project publishes a pin. */
   indexSha256: string | null;
   /**
-   * Authority of `indexSha256` where it is a dllkids pin. `database` is the
-   * adopted `source_pins` value; `config-seed` means no adopted pin exists yet
-   * and the configured seed was used (ADR 0009 ruling 1). Absent on other feeds.
+   * Authority of `indexSha256` where it is a dllkids pin. `snapshot` is the
+   * pin recorded by the catalog snapshot the plan resolved (the normal case);
+   * `database` is the live DB pin and `config-seed` the last-resort seed used
+   * for a snapshot with no pin (ADR 0009 ruling 1). Absent on other feeds.
    */
   indexSha256Source?: IndexSha256Source;
   /** sha256 fingerprint of the project key; null for unsigned feeds. */
@@ -277,8 +278,10 @@ export function buildImageFeedSet(
       inDefaultRepositoryList: false,
       condition:
         dllkidsIndexSha256Source === "config-seed"
-          ? "private image only: explicit apk-dllkids wrapper, never in the default repository list; index sha256 is the configured seed because no database pin has been adopted"
-          : "private image only: explicit apk-dllkids wrapper, never in the default repository list; index sha256 is the database-adopted source pin",
+          ? "private image only: explicit apk-dllkids wrapper, never in the default repository list; index sha256 is the configured seed because neither the snapshot nor the database has a pin"
+          : dllkidsIndexSha256Source === "snapshot"
+            ? "private image only: explicit apk-dllkids wrapper, never in the default repository list; index sha256 is the catalog snapshot's dllkids pin"
+            : "private image only: explicit apk-dllkids wrapper, never in the default repository list; index sha256 is the database-adopted source pin",
       indexSha256: resolvedOptions.dllkidsIndexSha256,
       indexSha256Source: dllkidsIndexSha256Source,
       keyFingerprint: null,
