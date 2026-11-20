@@ -210,13 +210,18 @@ describe("createSourceOffer", () => {
           signed: false,
           inDefaultRepositoryList: false,
           condition: "private image only",
-          indexSha256: "dllkids-index-sha",
+          indexSha256: "stale-config-seed",
           keyFingerprint: null,
         },
       ],
       files: [{ path: "/etc/apk/repositories.d/90-combinewrt.list", content: "-----BEGIN PRIVATE KEY-----", mode: 0o600 }],
     };
-    const v2plan = { ...plan, schemaVersion: 2 as const, feedSet } as unknown as BuildPlan;
+    const v2plan = {
+      ...plan,
+      schemaVersion: 2 as const,
+      sourcePins: { ...plan.sourcePins, dllkids: PIN },
+      feedSet,
+    } as unknown as BuildPlan;
 
     const offer = createSourceOffer({ ...build, plan: v2plan });
     expect(offer.feedSet?.visibility).toBe("private");
@@ -227,6 +232,9 @@ describe("createSourceOffer", () => {
     expect(offer.feedSet?.repositories[0]?.indexSha256).toBe("supplement-index-sha");
     expect(offer.feedSet?.repositories[0]?.keyFingerprint).toBe(PIN);
     expect(offer.feedSet?.repositories[1]?.keyFingerprint).toBeNull();
+    // ADR 0009 ruling 1: the offer's dllkids sha comes from `plan.sourcePins`,
+    // so a plan that still carried the stale seed cannot publish that seed.
+    expect(offer.feedSet?.repositories[1]?.indexSha256).toBe(PIN);
     expect(offer.feedSet?.key.fingerprint).toBe(PIN);
     expect(offer.feedSet).not.toHaveProperty("files");
 
@@ -234,6 +242,48 @@ describe("createSourceOffer", () => {
     expect(json).not.toContain("PRIVATE KEY");
     expect(json).not.toContain("BEGIN");
     expect(json).toContain("Image feed set");
+  });
+
+  it("marks a config-seed dllkids pin in the source offer", () => {
+    const seed = "f".repeat(64);
+    const feedSet = {
+      visibility: "private" as const,
+      baseVersion: "25.12.2",
+      targetId: "x86/64",
+      feedTarget: "x86_64",
+      officialBaseUrl: "https://downloads.immortalwrt.org",
+      officialMirror: null,
+      officialRepositories: [],
+      key: {
+        path: "/etc/apk/keys/combinewrt-feed.pub.pem",
+        url: "https://wuyuzaddd.github.io/combinewrt-packages/keys/combinewrt-feed.pub.pem",
+        fingerprint: PIN,
+      },
+      repositories: [
+        {
+          id: "dllkids" as const,
+          url: "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64/packages.adb",
+          signed: false,
+          inDefaultRepositoryList: false,
+          condition: "private image only",
+          indexSha256: seed,
+          indexSha256Source: "config-seed" as const,
+          keyFingerprint: null,
+        },
+      ],
+      files: [],
+    };
+    const v2plan = {
+      ...plan,
+      schemaVersion: 2 as const,
+      sourcePins: { ...plan.sourcePins, dllkids: seed },
+      feedSet,
+    } as unknown as BuildPlan;
+
+    const offer = createSourceOffer({ ...build, plan: v2plan });
+    expect(offer.feedSet?.repositories[0]?.indexSha256Source).toBe("config-seed");
+    expect(offer.notes.join("\n")).toContain("no adopted database pin exists yet");
+    expect(offer.notes.join("\n")).toContain("the configured first-install seed");
   });
 
   it("renders the V2 composition and acquisition strategies without network secrets", () => {

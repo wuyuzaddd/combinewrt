@@ -20,8 +20,19 @@ export const DEFAULT_FEED_KEY_URL = `${DEFAULT_FEED_BASE_URL}/keys/combinewrt-fe
 export const DEFAULT_FEED_KEY_FINGERPRINT =
   "f71286670f3cc138ec4f55e650c6aa4ed2bd7fff7d29851aef2ac53bae72d083";
 export const DEFAULT_DLLKIDS_FEED_URL = "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64";
+/**
+ * Last-resort seed for a fresh installation that has no adopted database pin.
+ *
+ * ADR 0009 ruling 1: the `source_pins` row is authoritative. This constant
+ * (and the `DLLKIDS_INDEX_SHA256` env override) only seeds the first pin; a
+ * plan may use it only when the database has nothing, and must then mark it as
+ * a seed (`indexSha256Source` on the feed repository).
+ */
 export const DEFAULT_DLLKIDS_INDEX_SHA256 =
   "04a549ed7028b126218002b126cbc60eb3a4bdc3463f15425bce3ba6b91a04ba";
+
+/** Where a feed's `indexSha256` came from. */
+export type IndexSha256Source = "database" | "config-seed";
 
 /**
  * GeneratedFile paths are relative to the ImageBuilder tree (the workflow runs
@@ -49,6 +60,12 @@ export interface ImageFeedRepository {
   condition: string;
   /** sha256 of the signed packages.adb where the project publishes a pin. */
   indexSha256: string | null;
+  /**
+   * Authority of `indexSha256` where it is a dllkids pin. `database` is the
+   * adopted `source_pins` value; `config-seed` means no adopted pin exists yet
+   * and the configured seed was used (ADR 0009 ruling 1). Absent on other feeds.
+   */
+  indexSha256Source?: IndexSha256Source;
   /** sha256 fingerprint of the project key; null for unsigned feeds. */
   keyFingerprint: string | null;
 }
@@ -125,6 +142,11 @@ export interface ImageFeedPlanInput {
   downloads?: readonly { source: string }[];
   /** Explicit override when a caller already knows the extension feed is wanted. */
   extensionSelected?: boolean;
+  /**
+   * Authority of the dllkids index pin. The caller (the V2 planner) derives it
+   * from `plan.sourcePins`; it defaults to `database` for direct callers.
+   */
+  dllkidsIndexSha256Source?: IndexSha256Source;
 }
 
 function trimBase(url: string): string {
@@ -247,14 +269,18 @@ export function buildImageFeedSet(
 
   const isPrivate = input.visibility === "private";
   if (isPrivate && resolvedOptions.dllkidsFeedUrl) {
+    const dllkidsIndexSha256Source = input.dllkidsIndexSha256Source ?? "database";
     repositories.push({
       id: "dllkids",
       url: `${trimBase(resolvedOptions.dllkidsFeedUrl)}/packages.adb`,
       signed: false,
       inDefaultRepositoryList: false,
       condition:
-        "private image only: explicit apk-dllkids wrapper, never in the default repository list",
+        dllkidsIndexSha256Source === "config-seed"
+          ? "private image only: explicit apk-dllkids wrapper, never in the default repository list; index sha256 is the configured seed because no database pin has been adopted"
+          : "private image only: explicit apk-dllkids wrapper, never in the default repository list; index sha256 is the database-adopted source pin",
       indexSha256: resolvedOptions.dllkidsIndexSha256,
+      indexSha256Source: dllkidsIndexSha256Source,
       keyFingerprint: null,
     });
   }

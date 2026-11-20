@@ -83,6 +83,7 @@ describe("buildImageFeedSet", () => {
       inDefaultRepositoryList: false,
       keyFingerprint: null,
       indexSha256: DEFAULT_IMAGE_FEED_OPTIONS.dllkidsIndexSha256,
+      indexSha256Source: "database",
       url: DLLKIDS_URL,
     });
     expect(privateSet.files.map((file) => file.path)).toEqual([
@@ -92,6 +93,22 @@ describe("buildImageFeedSet", () => {
     // The public image never carries the unsigned feed or the wrapper.
     expect(publicSet.files.map((file) => file.path)).not.toContain(feedPlanPath(DLLKIDS_WRAPPER_PATH));
     expect(JSON.stringify(publicSet)).not.toContain("dllkids.xyz");
+  });
+
+  it("marks the configured seed when the planner falls back to it", () => {
+    const seed = buildImageFeedSet(
+      input({ visibility: "private", dllkidsIndexSha256Source: "config-seed" }),
+    );
+    const dllkids = seed.repositories.find((repository) => repository.id === "dllkids")!;
+    expect(dllkids.indexSha256Source).toBe("config-seed");
+    expect(dllkids.condition).toContain("seed");
+
+    const adopted = buildImageFeedSet(
+      input({ visibility: "private", dllkidsIndexSha256Source: "database" }),
+    );
+    expect(adopted.repositories.find((repository) => repository.id === "dllkids")!.indexSha256Source).toBe(
+      "database",
+    );
   });
 
   it("only lets the explicit wrapper use --allow-untrusted", () => {

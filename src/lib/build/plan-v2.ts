@@ -11,8 +11,10 @@ import { expandBundleTokens } from "../extension/bundles";
 import type { ExtensionBundle } from "../extension/types";
 import { artifactNameV2, imageTypeForVariant } from "./artifact-name";
 import {
+  DEFAULT_DLLKIDS_INDEX_SHA256,
   buildImageFeedSet,
   createImagePreflight,
+  type IndexSha256Source,
   type ResolvedImageFeedOptions,
 } from "./feeds";
 import { resolveModes } from "./modes";
@@ -52,6 +54,13 @@ export interface PlanV2Context {
   bundles?: readonly ExtensionBundle[];
   /** Project feed configuration (ticket 09); defaults to the checked-in values. */
   feedOptions?: Partial<ResolvedImageFeedOptions>;
+  /**
+   * Authority of the dllkids pin carried in `sourcePins` (ticket 10). When the
+   * caller resolved the pin from `source_pins` it passes `database`; when it
+   * fell back to the configured seed it passes `config-seed`. Defaults to
+   * `database` when `sourcePins.dllkids` is present.
+   */
+  dllkidsPinSource?: IndexSha256Source;
   hashPassword: (password: string) => Promise<string>;
   now?: Date;
 }
@@ -342,21 +351,40 @@ export async function createBuildPlanV2(
     ...curatedConflicts,
   ];
   const engine: BuildEngine = kernel.engine;
+  // ADR 0009 ruling 1: `plan.sourcePins` is the single authority for the
+  // dllkids sha. The feed set derives its value from it, never from
+  // `loadImageFeedConfig()` directly. The config constant is the last resort
+  // only when no caller supplied a pin, and that case is marked as a seed.
+  const dllkidsIndexSha256 =
+    context.sourcePins?.dllkids ??
+    context.feedOptions?.dllkidsIndexSha256 ??
+    DEFAULT_DLLKIDS_INDEX_SHA256;
+  const dllkidsIndexSha256Source: IndexSha256Source = context.sourcePins?.dllkids
+    ? context.dllkidsPinSource ?? "database"
+    : "config-seed";
   const feedSet = buildImageFeedSet(
     {
       baseVersion: context.baseVersion,
       target,
       kernel: context.sourcePins?.kernel ?? null,
-      visibility: basePlan.visibility ?? "private",
+      visibility,
       resolved,
       downloads: basePlan.downloads,
+      dllkidsIndexSha256Source,
     },
-    context.feedOptions ?? {},
+    { ...context.feedOptions, dllkidsIndexSha256 },
   );
   const preflight = createImagePreflight(feedSet, basePlan.packages);
 
   const plan: BuildPlanV2 = {
     ...basePlan,
+    // Keep the plan's pin list and its feed set in agreement: one dllkids sha.
+    // Public plans never carry the dllkids feed, so their pin list is left as
+    // recorded by the catalog snapshot.
+    sourcePins:
+      visibility === "private" || context.sourcePins?.dllkids
+        ? { ...basePlan.sourcePins, dllkids: dllkidsIndexSha256 }
+        : basePlan.sourcePins,
     schemaVersion: 2,
     channel: context.channel ?? "release",
     target: {

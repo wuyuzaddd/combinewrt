@@ -6,6 +6,7 @@ import type { BuildConflict, BuildFormInput, BuildFormInputV2 } from "../build/t
 import { loadCapabilities } from "../catalog/capabilities";
 import { createCatalogStore } from "../catalog/store";
 import { loadImageFeedConfig } from "../config";
+import { resolveActiveDllkidsPin } from "../catalog/refresh-active";
 import { getDatabase } from "../db";
 import type { BuildPlanV2 } from "../domain/build-plan";
 import { loadSourceRegistry } from "../sources/registry";
@@ -85,7 +86,8 @@ export type PreparedPlanV2 =
 
 /** V2 counterpart of `preparePlanForForm`; never used for V1 plan requests. */
 export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<PreparedPlanV2> {
-  const store = createCatalogStore(getDatabase());
+  const db = getDatabase();
+  const store = createCatalogStore(db);
   const active = store.getActiveSnapshot();
   // The Simple form offers release-channel base versions. A request that names
   // another release uses that release's newest catalog snapshot; the active
@@ -141,12 +143,21 @@ export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<Prep
     };
   }
 
+  // ADR 0009 ruling 1: the dllkids pin comes from the database, never from the
+  // config seed. The seed is only used when no adopted pin exists yet, and then
+  // it is marked as a seed in the plan's feed set. Writing both into the plan
+  // produced two different hashes for one build; this resolves one value first.
+  const feedConfig = loadImageFeedConfig();
+  const dllkidsPin = resolveActiveDllkidsPin(db, feedConfig);
+  const sourcePins = { ...snapshot.sourcePins, dllkids: dllkidsPin.value };
+
   const outcome = await createBuildPlanV2(form, {
     baseVersion: snapshot.baseVersion,
     feedCommit: snapshot.feedCommit,
     sourceNote: snapshot.sourceNote,
-    sourcePins: snapshot.sourcePins,
-    feedOptions: loadImageFeedConfig(),
+    sourcePins,
+    dllkidsPinSource: dllkidsPin.source,
+    feedOptions: { ...feedConfig, dllkidsIndexSha256: dllkidsPin.value },
     catalogProfiles: store.listProfiles(snapshot.id),
     commonPreset,
     capabilities: loadCapabilities(),

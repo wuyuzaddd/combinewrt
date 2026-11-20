@@ -158,7 +158,15 @@ export function createSourceOffer(
           officialMirror: plan.feedSet.officialMirror,
           officialRepositories: [...plan.feedSet.officialRepositories],
           key: { ...plan.feedSet.key },
-          repositories: plan.feedSet.repositories.map((repository) => ({ ...repository })),
+          // ADR 0009 ruling 1: `plan.sourcePins.dllkids` is the single
+          // authority. Deriving the published dllkids pin from it here means an
+          // offer can never disagree with the plan, even for a plan written
+          // before the planner stopped stamping the config seed.
+          repositories: plan.feedSet.repositories.map((repository) =>
+            repository.id === "dllkids" && plan.sourcePins?.dllkids
+              ? { ...repository, indexSha256: plan.sourcePins.dllkids }
+              : { ...repository },
+          ),
         }
       : null;
   // V2 plans are only rendered as V2 when the composition axes exist; a
@@ -242,10 +250,16 @@ export function createSourceOffer(
     notes.push(
       "Image feed set: ImageBuilder's distfeeds.list keeps the official ImmortalWrt feeds; project supplement/extension feeds are version-frozen and signed with the recorded key. No private keys or credentials are included.",
     );
-    if (feedSet.repositories.some((repository) => repository.id === "dllkids")) {
+    const dllkidsRepository = feedSet.repositories.find((repository) => repository.id === "dllkids");
+    if (dllkidsRepository) {
       notes.push(
         "The dllkids feed is unsigned and reachable only through the explicit apk-dllkids wrapper; it is recorded by URL and sha256 without a key fingerprint.",
       );
+      if (dllkidsRepository.indexSha256Source === "config-seed") {
+        notes.push(
+          "dllkids pin authority: no adopted database pin exists yet, so the configured first-install seed is recorded. The source watch adopts the live pin automatically; the database pin wins once it exists (ADR 0009 ruling 1).",
+        );
+      }
     }
   }
 
