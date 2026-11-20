@@ -79,7 +79,7 @@ Simple 隐藏 target/kernel/pin 内部细节，日常构建只需几次点击；
 
 ### V1 兼容
 
-- 迁移只追加、不重命名；V1 行保持可读，新增列可空或有默认值。
+- 迁移不删除 V1 数据；允许 FK 保护下的表重建（需在迁移注释写明理由，见 `010_v2_domain`），不重命名仍保留的 V1 列；V1 行保持可读，新增列可空或有默认值。
 - V1 `BuildPlan` JSON 视为 `schemaVersion: 1`，计划页与 source offer 只读渲染；V1 派发 payload 没有 `composition.v2`，工作流走原来的 ImageBuilder 路径。
 - 旧计划、旧构建详情、旧 source offer 页面不报错；V2 字段只增量出现。
 
@@ -301,7 +301,7 @@ patches/                仅放 OpenWrt 派生 patch（GPL-2.0-only，当前为�
 LICENSES/               MIT 与 GPL-2.0-only 许可证全文
 src/lib/config.ts       环境变量校验
 src/lib/db.ts           SQLite 打开与迁移
-src/lib/migrations.ts   内置迁移（只追加）
+src/lib/migrations.ts   内置迁移（不删除 V1 数据；带理由的表重建见 010_v2_domain）
 scripts/                hash-password、seed-e2e 与三个 registry 校验脚本
 docs/v2-acceptance.md   V2 验收矩阵与真实证据
 docs/v2-runbook.md      故障回滚、哈希异常、staging 发布、队列与缓存清理
