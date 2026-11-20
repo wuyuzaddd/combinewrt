@@ -151,7 +151,21 @@ describe("createSourceOffer", () => {
       generatedFiles: ["/etc/uci-defaults/90-combinewrt-modes"],
       network: { wan: { protocol: "pppoe", username: "user", password: "supersecret" } },
     } as unknown as ModeState;
-    const v2plan = { ...plan, schemaVersion: 2 as const, modes } as BuildPlan;
+    const { imageType: v1OnlyImageType, ...basePlan } = plan;
+    void v1OnlyImageType;
+    const v2plan = {
+      ...basePlan,
+      schemaVersion: 2 as const,
+      imageVariant: { boot: "efi" as const, filesystem: "ext4" as const, artifact: "combined" as const },
+      channel: "release" as const,
+      target: { id: "x86/64", architecture: "x86_64", subtarget: "generic", title: "x86/64" },
+      deviceProfile: { targetId: "x86/64", id: "generic", title: "Generic x86/64", capabilities: [] },
+      kernelLine: { id: "6.12", version: "6.12", engine: "imagebuilder" as const },
+      basePreset: { id: "minimal", layer: "file/board" as const },
+      overlays: [],
+      engine: "imagebuilder" as const,
+      modes,
+    } as BuildPlan;
 
     const offer = createSourceOffer({ ...build, plan: v2plan });
     expect(offer.schemaVersion).toBe(1);
@@ -168,7 +182,12 @@ describe("createSourceOffer", () => {
   });
 
   it("carries the adopted dllkids pin from a V2 build plan", () => {
-    const adopted = { ...plan, schemaVersion: 2, sourcePins: { ...plan.sourcePins, dllkids: PIN } };
+    const adopted = {
+      ...plan,
+      schemaVersion: 2,
+      imageVariant: { boot: "efi", filesystem: "ext4", artifact: "combined" },
+      sourcePins: { ...plan.sourcePins, dllkids: PIN },
+    };
     const offer = createSourceOffer({ ...build, plan: adopted } as BuildRecord);
     // The source-offer schema stays 1 so V1 consumers keep working; only the
     // pin value changes, and it names the pin the build actually used.
@@ -219,6 +238,7 @@ describe("createSourceOffer", () => {
     const v2plan = {
       ...plan,
       schemaVersion: 2 as const,
+      imageVariant: { boot: "efi" as const, filesystem: "ext4" as const, artifact: "combined" as const },
       sourcePins: { ...plan.sourcePins, dllkids: PIN },
       feedSet,
     } as unknown as BuildPlan;
@@ -276,6 +296,7 @@ describe("createSourceOffer", () => {
     const v2plan = {
       ...plan,
       schemaVersion: 2 as const,
+      imageVariant: { boot: "efi" as const, filesystem: "ext4" as const, artifact: "combined" as const },
       sourcePins: { ...plan.sourcePins, dllkids: seed },
       feedSet,
     } as unknown as BuildPlan;

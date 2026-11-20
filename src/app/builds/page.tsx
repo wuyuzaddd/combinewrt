@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { imageTypeForPlan } from "@/lib/build/artifact-name";
 import { getSession } from "@/lib/auth/current-session";
 import { getBuildService } from "@/lib/builds";
 
@@ -66,7 +67,7 @@ export default async function BuildsPage({
                 <div>
                   <p className="font-mono text-sm text-slate-200">{build.plan.artifactName}</p>
                   <p className="mt-1 text-xs text-slate-500">
-                    {build.plan.profileTitle} · {build.plan.imageType} ·{" "}
+                    {build.plan.profileTitle} · {imageTypeForPlan(build.plan)} ·{" "}
                     {build.config
                       ? `${build.config.hostname} / ${build.config.lanIp}`
                       : "旧记录无表单配置"}{" "}

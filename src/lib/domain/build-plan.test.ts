@@ -25,8 +25,10 @@ function legacyPlan(): BuildPlanV1 {
 }
 
 function v2Plan(): BuildPlanV2 {
+  const { imageType: v1OnlyImageType, ...base } = legacyPlan();
+  void v1OnlyImageType;
   return {
-    ...legacyPlan(),
+    ...base,
     schemaVersion: 2,
     channel: "release",
     target: { id: "x86/64", architecture: "x86_64", subtarget: "generic", title: "x86/64" },
@@ -69,7 +71,7 @@ describe("build plan schema", () => {
     if (isBuildPlanV2(readable.plan)) {
       expect(readable.plan.target.id).toBe("x86/64");
       expect(readable.plan.imageVariant.artifact).toBe("combined");
-      expect(readable.plan.imageType).toBe("ext4-efi");
+      expect(readable.plan).not.toHaveProperty("imageType");
       expect(readable.plan.baseVersion).toBe("25.12.2");
     }
   });

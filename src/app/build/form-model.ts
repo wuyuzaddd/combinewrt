@@ -110,7 +110,11 @@ export function variantFromImageType(imageType: string | undefined): SelectedVar
 
 export interface InitialBuildConfig {
   profile: string;
-  imageType: string;
+  /**
+   * V1 format of a stored build. V2 records no longer store it, so the build
+   * page derives it from the plan before handing the config over.
+   */
+  imageType?: string;
   hostname: string;
   timezone: string;
   lanIp: string;

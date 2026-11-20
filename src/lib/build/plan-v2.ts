@@ -1,4 +1,4 @@
-import type { BuildPlanV1, BuildPlanV2 } from "../domain/build-plan";
+import type { BuildPlanV2 } from "../domain/build-plan";
 import { CapabilityError, getKernelLine, getProfile, getTarget, loadCapabilities, supportsMode, supportsVariant, type CapabilityRegistry } from "../catalog/capabilities";
 import type { CatalogProfile, SourcePins } from "../catalog/types";
 import type { BaseChannel, BuildEngine } from "../domain/types";
@@ -9,7 +9,7 @@ import type { SourceRegistry } from "../sources/types";
 import { commonPackageSelectionConflicts, type CommonPreset } from "../presets/common";
 import { expandBundleTokens } from "../extension/bundles";
 import type { ExtensionBundle } from "../extension/types";
-import { artifactNameV2, imageTypeForVariant } from "./artifact-name";
+import { artifactNameV2 } from "./artifact-name";
 import {
   DEFAULT_DLLKIDS_INDEX_SHA256_SEED,
   buildImageFeedSet,
@@ -18,7 +18,7 @@ import {
   type ResolvedImageFeedOptions,
 } from "./feeds";
 import { resolveModes } from "./modes";
-import { createBuildPlan } from "./plan";
+import { composeV1BasePlan } from "./v1-base-plan";
 import { parsePackageRef } from "./refs";
 import { applyPackageRemovals, findRemovalDependencyConflicts } from "./removal";
 import type {
@@ -144,7 +144,6 @@ export async function createBuildPlanV2(
   }
 
   const imageVariant = resolveImageVariant(form.imageVariant, profile.overlay.defaultMb);
-  const imageType = imageTypeForVariant(imageVariant);
 
   // Modes are declarative input; resolving them may reject the form (400) or
   // report an unsatisfied requirement / exclusivity violation (409 via the
@@ -189,29 +188,26 @@ export async function createBuildPlanV2(
   });
   const effectivePackages = [...new Set([...selectedPackages, ...modeResolution.packages])];
 
-  const catalogProfile = context.catalogProfiles.find((item) => item.id === profile.id);
-  const profileForPlan: CatalogProfile = catalogProfile
-    ? {
-        ...catalogProfile,
-        formats: catalogProfile.formats.includes(imageType)
-          ? catalogProfile.formats
-          : [imageType, ...catalogProfile.formats],
-      }
-    : { id: profile.id, title: profile.title, formats: [imageType], imageCount: 0 };
-
   // The V1 composer stays the single implementation of package resolution,
-  // compliance, downloads and UCI output (ticket 03 keeps V1 intact).
-  const basePlan = (await createBuildPlan({ ...expandedForm, imageType, packages: effectivePackages, removePackages: [] }, {
-    baseVersion: context.baseVersion,
-    feedCommit: context.feedCommit,
-    sourceNote: context.sourceNote,
-    sourcePins: context.sourcePins,
-    profile: profileForPlan,
-    lookup: context.lookup,
-    lookupAll: context.lookupAll,
-    hashPassword: context.hashPassword,
-    now: context.now,
-  })) as BuildPlanV1;
+  // compliance, downloads and UCI output (ticket 03 keeps V1 intact). It is
+  // reached through the V1 compatibility bridge, so this V2 write path never
+  // names the V1 image format itself (ADR 0009 ruling 4).
+  const basePlan = await composeV1BasePlan({
+    form: { ...expandedForm, packages: effectivePackages },
+    imageVariant,
+    profile,
+    catalogProfiles: context.catalogProfiles,
+    context: {
+      baseVersion: context.baseVersion,
+      feedCommit: context.feedCommit,
+      sourceNote: context.sourceNote,
+      sourcePins: context.sourcePins,
+      lookup: context.lookup,
+      lookupAll: context.lookupAll,
+      hashPassword: context.hashPassword,
+      now: context.now,
+    },
+  });
 
   const request = {
     target: target.id,

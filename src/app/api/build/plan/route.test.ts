@@ -253,7 +253,7 @@ describe("POST /api/build/plan (V2 form)", () => {
         engine: string;
         visibility: string;
         artifactName: string;
-        imageType: string;
+        imageType?: string;
       };
     };
     expect(body.plan.schemaVersion).toBe(2);
@@ -265,9 +265,9 @@ describe("POST /api/build/plan (V2 form)", () => {
     expect(body.plan.overlays).toEqual([]);
     expect(body.plan.engine).toBe("imagebuilder");
     expect(body.plan.visibility).toBe("private");
-    // The plan's V1-compatibility imageType is derived from the variant; the
-    // legacy form's imageType is not carried into the V2 planner input.
-    expect(body.plan.imageType).toBe("ext4-efi");
+    // ADR 0009 ruling 4: a V2 plan stores the variant, not the V1 image type;
+    // the V1-compatible dispatch payload derives `imageType` from the variant.
+    expect(body.plan).not.toHaveProperty("imageType");
     expect(body.plan.artifactName).toBe("immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img.gz");
   });
 

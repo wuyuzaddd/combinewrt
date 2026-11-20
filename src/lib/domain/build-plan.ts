@@ -4,6 +4,7 @@ import type { ComplianceReport } from "../compliance";
 import type {
   AppliedPatch,
   BuildConfig,
+  BuildConfigV2,
   BuildConflict,
   BuildVisibility,
   DownloadEntry,
@@ -22,18 +23,18 @@ import type {
 } from "./types";
 
 /**
- * Fields shared by every persisted build plan. V2 plans keep all V1 fields so
- * existing pages, APIs and source offers keep rendering them.
+ * Fields shared by every persisted build plan. V2 plans keep the shape the
+ * existing pages, APIs and source offers render. The two fields that would
+ * force an `ImageFormatId` into a new write (`imageType` and the V1 config that
+ * carries it) live on `BuildPlanV1` only (ADR 0009 ruling 4).
  */
 export interface BuildPlanBase {
   baseVersion: string;
   feedCommit: string;
   sourceNote: string;
   sourcePins: SourcePins;
-  config?: BuildConfig;
   profileId: string;
   profileTitle: string;
-  imageType: ImageFormatId;
   visibility?: BuildVisibility;
   packages: string[];
   topLevelPackages: string[];
@@ -57,10 +58,16 @@ export interface BuildPlanBase {
  */
 export interface BuildPlanV1 extends BuildPlanBase {
   schemaVersion?: 1;
+  /** V1 read path only: the single-image model's catalog format. */
+  imageType: ImageFormatId;
+  /** V1 form configuration, including its `imageType`. */
+  config?: BuildConfig;
 }
 
 export interface BuildPlanV2 extends BuildPlanBase {
   schemaVersion: 2;
+  /** V2 form configuration; no `imageType`, the variant is the model. */
+  config?: BuildConfigV2;
   /**
    * Planner warnings (ticket 08). Optional so plans written before ticket 08
    * still read back; readers treat an absent list as "no warnings".

@@ -9,6 +9,7 @@ import { loadCommonPreset } from "@/lib/presets/common";
 import { loadExtensionBundles } from "@/lib/extension/bundles";
 import { loadExtensionThemes } from "@/lib/extension/themes";
 import { loadSourceRegistry } from "@/lib/sources/registry";
+import { imageTypeForPlan } from "@/lib/build/artifact-name";
 import { loadModeDeclarations } from "@/lib/build/modes";
 import { createBuildUiOptions } from "@/lib/build/ui-options";
 import { getBuildService } from "@/lib/builds";
@@ -16,7 +17,7 @@ import { getSourceWatchService } from "@/lib/source-watch";
 import { readSourcePin } from "@/lib/source-watch/store";
 import { getSupplementWatchService } from "@/lib/supplement-watch";
 import { BuildForm } from "./build-form";
-import type { ReleaseOption } from "./form-model";
+import type { InitialBuildConfig, ReleaseOption } from "./form-model";
 import type { SourceWatchSummary } from "./source-watch-panel";
 
 function safeRead<T>(read: () => T, fallback: T): T {
@@ -49,7 +50,16 @@ export default async function BuildPage({
   const session = await getSession();
   if (!session) redirect("/login?next=/build");
   const { from } = await searchParams;
-  const initialConfig = from ? (getBuildService().get(from)?.config ?? null) : null;
+  const sourceBuild = from ? getBuildService().get(from) : null;
+  // V1 records store `imageType` in their config; V2 records do not, so the V1
+  // format is derived from the plan for the read-only prefill (ADR 0009 ruling 4).
+  const initialConfig: InitialBuildConfig | null = sourceBuild?.config
+    ? {
+        ...sourceBuild.config,
+        imageType:
+          "imageType" in sourceBuild.config ? sourceBuild.config.imageType : imageTypeForPlan(sourceBuild.plan),
+      }
+    : null;
 
   const db = getDatabase();
   const store = createCatalogStore(db);

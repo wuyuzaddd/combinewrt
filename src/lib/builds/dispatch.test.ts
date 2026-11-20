@@ -132,7 +132,9 @@ describe("buildDispatchPayload", () => {
           };
           const mapping = mapImageVariant({ ...BASE, variant });
           const artifactName = artifactNameV2({ ...BASE, imageVariant: variant });
-          const plan = v2Plan(variant, { artifactName, imageType: mapping.imageType });
+          // The fixture deliberately carries the V1 `imageType` of another
+          // variant: the payload must derive it from the variant, not the plan.
+          const plan = v2Plan(variant, { artifactName });
           const payload = buildDispatchPayload(plan, { buildId: "b4", artifactName });
 
           expect(payload.artifactName).toBe(artifactName);

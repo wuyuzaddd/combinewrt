@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { BuildConfig } from "../build/types";
+import type { BuildConfig, BuildConfigV2 } from "../build/types";
 import { parseBuildPlanJson } from "../domain/build-plan";
 import { redactPlanForStorage } from "./redact";
 
@@ -30,7 +30,7 @@ function toRecord(row: BuildRow): BuildRecord {
   return {
     id: row.id,
     plan: parseBuildPlanJson(row.plan_json).plan,
-    config: row.config_json ? (JSON.parse(row.config_json) as BuildConfig) : null,
+    config: row.config_json ? (JSON.parse(row.config_json) as BuildConfig | BuildConfigV2) : null,
     status: row.status as BuildStatus,
     runId: row.run_id,
     adapter: row.adapter as "github" | "fake",
