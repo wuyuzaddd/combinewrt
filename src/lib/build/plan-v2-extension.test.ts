@@ -154,6 +154,67 @@ const proxyBundle: ExtensionBundle = {
 };
 
 describe("createBuildPlanV2 extension integration", () => {
+  it("turns a snapshot-decidable dependency gap into a conflict naming package, dependency and source", async () => {
+    const closureSources = createSourceRegistry([
+      {
+        name: "ghost",
+        source: "official",
+        pin: "releases/25.12.2",
+        license: "MIT",
+        publicAllowed: true,
+        strategy: "prebuilt",
+      },
+    ]);
+    const closureLookup: PackageLookup = (name) =>
+      name === "app" ? entry("app", { depends: ["ghost"] }) : null;
+
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2({ packages: ["app"] }),
+        contextV2({
+          lookup: closureLookup,
+          lookupAll: (name) => (name === "app" ? [closureLookup(name)!] : []),
+          sources: closureSources,
+        }),
+      ),
+    );
+
+    const message = plan.conflicts.map((conflict) => conflict.message).join("\n");
+    expect(message).toContain('Package "app" (official)');
+    expect(message).toContain('"ghost" (official)');
+    expect(message).toContain("workflow preflight remains authoritative");
+    expect(plan.warnings?.join("\n") ?? "").not.toContain("workflow preflight remains authoritative");
+  });
+
+  it("keeps an unknown dependency as a warning when the snapshot cannot decide", async () => {
+    const closureLookup: PackageLookup = (name) =>
+      name === "app" ? entry("app", { depends: ["mystery"] }) : null;
+
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2({ packages: ["app"] }),
+        contextV2({ lookup: closureLookup, lookupAll: (name) => (name === "app" ? [closureLookup(name)!] : []) }),
+      ),
+    );
+
+    expect(plan.conflicts.map((conflict) => conflict.message).join("\n")).not.toContain('"mystery"');
+    expect(plan.warnings?.join("\n")).toContain('"mystery"');
+  });
+
+  it("names the source in a strategy 409 even when the package has no registered source", async () => {
+    const unknownLookup: PackageLookup = () => null;
+
+    const plan = planOf(
+      await createBuildPlanV2(
+        formV2({ packages: ["unlisted"] }),
+        contextV2({ lookup: unknownLookup, lookupAll: () => [] }),
+      ),
+    );
+
+    const message = plan.conflicts.map((conflict) => conflict.message).join("\n");
+    expect(message).toContain('Package "unlisted" (source: unknown)');
+  });
+
   it("rejects a non-publicAllowed package in a public plan with a 409-grade conflict naming package and source", async () => {
     const message = conflictsOf(
       await createBuildPlanV2(formV2({ visibility: "public", packages: ["lucky"] }), contextV2()),

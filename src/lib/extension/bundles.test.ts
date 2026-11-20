@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createSourceRegistry } from "../sources/registry";
+import { createSourceRegistry, loadSourceRegistry } from "../sources/registry";
+import { loadExtensionBundles } from "./bundles";
 import type { SourceRegistryEntry } from "../sources/types";
 import {
   BUNDLE_COVERAGE,
@@ -85,6 +86,23 @@ describe("extension bundles", () => {
     expect(text).toMatch(new RegExp(`at least ${BUNDLE_COVERAGE.total} bundles`));
     expect(text).toMatch(new RegExp(`at least ${BUNDLE_COVERAGE.proxy} proxy bundles`));
     expect(text).toMatch(new RegExp(`at least ${BUNDLE_COVERAGE.nasDownloadMonitor} NAS/download/monitor bundles`));
+  });
+
+  it("expands every curated bundle from the checked-in catalogue into its package list", () => {
+    const realRegistry = loadSourceRegistry();
+    const realBundles = loadExtensionBundles({ registry: realRegistry });
+
+    expect(realBundles.length).toBeGreaterThanOrEqual(10);
+    for (const real of realBundles) {
+      const expanded = expandBundleTokens([`bundle:${real.id}`], {
+        bundles: realBundles,
+        registry: realRegistry,
+        targetId: "x86/64",
+      });
+      expect(expanded.conflicts, real.id).toEqual([]);
+      expect(expanded.bundles, real.id).toEqual([real.id]);
+      expect(new Set(expanded.packages), real.id).toEqual(new Set(real.packages));
+    }
   });
 
   it("expands bundle tokens into plain package requests", () => {
