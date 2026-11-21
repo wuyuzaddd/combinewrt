@@ -131,6 +131,30 @@ describe("build store", () => {
     db.close();
   });
 
+  it("round-trips the artifact container facts and backfills them without an event", () => {
+    const db = openDatabase(":memory:");
+    migrate(db);
+    const store = createBuildStore(db);
+    store.create(record("a", "2026-11-11T00:00:00Z"));
+    store.update("a", { artifactName: "img-a.tar.gz" });
+
+    const created = store.get("a");
+    expect(created?.artifactContainerSha256 ?? null).toBeNull();
+    expect(created?.artifactContainerSize ?? null).toBeNull();
+
+    store.noteArtifactContainer("a", { sha256: "c0ffee", size: 42 });
+
+    const saved = store.get("a");
+    expect(saved?.artifactContainerSha256).toBe("c0ffee");
+    expect(saved?.artifactContainerSize).toBe(42);
+    // The image facts stay untouched: the container is a separate pair of numbers.
+    expect(saved?.artifactName).toBe("img-a.tar.gz");
+    expect(saved?.artifactSha256 ?? null).toBeNull();
+    // Metadata backfill is not a lifecycle change, so it writes no event.
+    expect(store.listEvents("a")).toHaveLength(1);
+    db.close();
+  });
+
   it("does not write an event when the optimistic update loses the race", () => {
     const db = openDatabase(":memory:");
     migrate(db);

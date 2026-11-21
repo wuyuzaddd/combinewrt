@@ -17,6 +17,8 @@ export interface GitHubAdapterOptions {
   /** Workflow file that runs source builds (ticket 13); defaults to source-build.yml. */
   sourceWorkflow?: string;
   ref?: string;
+  /** Per-artifact cap in bytes from `ARTIFACT_MAX_BYTES` (ticket 13); defaults to 2 GiB. */
+  artifactMaxBytes?: number;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -63,6 +65,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     token,
     workflow,
     sourceWorkflow = "source-build.yml",
+    artifactMaxBytes = ARTIFACT_SIZE_LIMIT_BYTES,
     fetchImpl = fetch,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = options;
@@ -195,10 +198,12 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
       const response = await fetchImpl(artifact.archive_download_url, withTimeout({ headers }, 600_000));
       if (!response.ok) throw new Error(`artifact download failed: ${response.status}`);
       const size = Number(response.headers.get("content-length") ?? "0");
-      // Ticket 14: every artifact kind shares the 2 GiB per-artifact cap. The
-      // cache enforces it again on the streamed byte count.
-      if (size > ARTIFACT_SIZE_LIMIT_BYTES) {
-        throw new ArtifactSizeLimitError(size, ARTIFACT_SIZE_LIMIT_BYTES);
+      // Ticket 14: every artifact kind shares one per-artifact cap. It measures
+      // the ZIP container (what the site serves, ticket 13), and the cache
+      // enforces it again on the streamed byte count.
+      const limit = artifactMaxBytes;
+      if (size > limit) {
+        throw new ArtifactSizeLimitError(size, limit);
       }
       return {
         name: `${artifact.name}.zip`,

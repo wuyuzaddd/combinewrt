@@ -54,13 +54,16 @@ beforeEach(() => {
   state.build = { id: "b1", status: "succeeded", artifactName: "image.img.gz" };
   state.file = {
     name: "image.img.gz",
-    contentType: "application/gzip",
+    containerName: "image.img.gz.zip",
+    contentType: "application/zip",
     size: CONTENT.length,
     path: artifactPath(),
     kind: "combined",
-    sha256: null,
+    sha256: "c0ffee",
+    imageSha256: "beef",
+    imageSize: 123,
   };
-  state.artifact = { name: "image.img.gz", contentType: "application/gzip", body: new Uint8Array([1, 2]) };
+  state.artifact = { name: "image.img.gz", contentType: "application/zip", body: new Uint8Array([1, 2]) };
   state.throws = false;
   state.error = "GitHub artifact download failed: 403";
 });
@@ -102,6 +105,7 @@ describe("GET /api/builds/[id]/artifact", () => {
     const body = (await response.json()) as { code: string; error: string };
     expect(body.code).toBe("artifact-too-large");
     expect(body.error).toContain("2 GiB");
+    expect(body.error).toContain("保护阈值");
   });
 
   it("returns the failure reason for a failed build", async () => {
@@ -121,11 +125,34 @@ describe("GET /api/builds/[id]/artifact", () => {
     expect(body.error).toBe("artifact download failed");
   });
 
+  it("describes the ZIP container and the image inside it", async () => {
+    const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+    expect(response.headers.get("x-checksum-sha256")).toBe("c0ffee");
+    expect(response.headers.get("x-image-name")).toBe("image.img.gz");
+    expect(response.headers.get("x-image-sha256")).toBe("beef");
+    expect(response.headers.get("x-image-size")).toBe("123");
+  });
+
+  it("omits unknown digests instead of inventing one", async () => {
+    state.file = {
+      ...(state.file as Record<string, unknown>),
+      sha256: null,
+      imageSha256: null,
+      imageSize: null,
+    };
+    const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-checksum-sha256")).toBeNull();
+    expect(response.headers.get("x-image-name")).toBe("image.img.gz");
+    expect(response.headers.get("x-image-sha256")).toBeNull();
+    expect(response.headers.get("x-image-size")).toBeNull();
+  });
+
   it("serves the full artifact with a sanitized filename", async () => {
     state.file = {
       ...(state.file as Record<string, unknown>),
-      name: 'bad"name.zip',
-      contentType: "application/zip",
+      containerName: 'bad"name.zip',
     };
     const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
     expect(response.status).toBe(200);
@@ -180,6 +207,13 @@ describe("GET /api/builds/[id]/artifact", () => {
     state.file = null;
     const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
     expect(response.status).toBe(200);
+    // The uncached stream is still the ZIP container, so the headers say so.
+    expect(response.headers.get("content-type")).toBe("application/zip");
+    expect(response.headers.get("content-disposition")).toContain("image.img.gz.zip");
+    expect(response.headers.get("x-image-name")).toBe("image.img.gz");
+    expect(response.headers.get("x-checksum-sha256")).toBeNull();
+    // The streaming fallback does not handle Range, so it must not advertise it.
+    expect(response.headers.get("accept-ranges")).toBeNull();
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
   });
 });

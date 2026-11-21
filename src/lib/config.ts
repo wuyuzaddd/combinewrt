@@ -64,6 +64,11 @@ export interface AppConfig {
   artifactRetentionDays: number;
   /** Site cache size ceiling in bytes; 0 disables size-based eviction. */
   artifactCacheMaxBytes: number;
+  /**
+   * Per-artifact byte cap the download route and cache enforce (ticket 13). It
+   * measures the delivered ZIP container, never the virtual disk size.
+   */
+  artifactMaxBytes: number;
   sourceWatchIntervalHours: number;
   sourceCacheDir: string;
 }
@@ -236,6 +241,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   ) {
     issues.push("ARTIFACT_CACHE_MAX_BYTES must be an integer between 0 and 10995116277760 (0 = unlimited)");
   }
+  // Ticket 13: the per-artifact cap, separate from the whole-cache ceiling above.
+  const artifactMaxBytes = Number(env.ARTIFACT_MAX_BYTES?.trim() || String(2 * 1024 * 1024 * 1024));
+  if (
+    !Number.isInteger(artifactMaxBytes) ||
+    artifactMaxBytes <= 0 ||
+    artifactMaxBytes > 10 * 1024 * 1024 * 1024 * 1024
+  ) {
+    issues.push("ARTIFACT_MAX_BYTES must be an integer between 1 and 10995116277760");
+  }
   const sourceWatchIntervalHours = Number(env.SOURCE_WATCH_INTERVAL_HOURS?.trim() || "6");
   if (
     !Number.isInteger(sourceWatchIntervalHours) ||
@@ -342,6 +356,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     artifactCacheDir,
     artifactRetentionDays,
     artifactCacheMaxBytes,
+    artifactMaxBytes,
     sourceWatchIntervalHours,
     sourceCacheDir,
   };

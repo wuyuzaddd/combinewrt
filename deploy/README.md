@@ -55,6 +55,7 @@ V2 新增/关键变量（完整列表见 `deploy/combinewrt.env.example` 与 `RE
 | `SOURCE_CACHE_DIR` | `<db dir>/source-cache` | 源索引缓存，用于基线 diff 与离线回滚 |
 | `ARTIFACT_RETENTION_DAYS` | 7 | 站点产物缓存保留天数（0 关闭） |
 | `ARTIFACT_CACHE_MAX_BYTES` | 20 GiB | 站点产物缓存总大小上限（0 不限制） |
+| `ARTIFACT_MAX_BYTES` | 2 GiB | 单次下载产物上限；量交付的 ZIP 容器，不量镜像虚拟大小 |
 | `SUPPLEMENT_INDEX_SHA256` / `EXTENSION_INDEX_SHA256` | 空 | 两个签名索引的 pin；发布新索引后按需更新 |
 | `SUPPLEMENT_WATCH_ENABLED` | true | 关闭 supplement 自动构建/发布 |
 | `IMMORTALWRT_MIRROR` | 空 | 可选官方镜像；不改变版本冻结的 supplement/extension 路径 |

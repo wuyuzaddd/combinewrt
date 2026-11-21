@@ -14,10 +14,27 @@ describe("loadConfig", () => {
     expect(config.secureCookies).toBe(false);
     expect(config.artifactRetentionDays).toBe(7);
     expect(config.artifactCacheMaxBytes).toBe(20 * 1024 ** 3);
+    expect(config.artifactMaxBytes).toBe(2 * 1024 ** 3);
     expect(config.artifactCacheDir).toContain("artifacts");
     expect(config.supplementFeedUrl).toContain("combinewrt-packages");
     expect(config.supplementKeyFingerprint).toHaveLength(64);
     expect(config.supplementWorkflow).toBe("packages.yml");
+  });
+
+  it("reads ARTIFACT_MAX_BYTES and rejects a non-positive value", () => {
+    const config = loadConfig({
+      SESSION_SECRET: SECRET,
+      ADMIN_PASSWORD_HASH: HASH,
+      ARTIFACT_MAX_BYTES: String(4 * 1024 ** 3),
+    });
+    expect(config.artifactMaxBytes).toBe(4 * 1024 ** 3);
+
+    expect(() =>
+      loadConfig({ SESSION_SECRET: SECRET, ADMIN_PASSWORD_HASH: HASH, ARTIFACT_MAX_BYTES: "0" }),
+    ).toThrow(/ARTIFACT_MAX_BYTES/);
+    expect(() =>
+      loadConfig({ SESSION_SECRET: SECRET, ADMIN_PASSWORD_HASH: HASH, ARTIFACT_MAX_BYTES: "banana" }),
+    ).toThrow(/ARTIFACT_MAX_BYTES/);
   });
 
   it("rejects an invalid artifact cache ceiling", () => {

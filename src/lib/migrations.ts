@@ -349,4 +349,16 @@ export const MIGRATIONS: Migration[] = [
     // fail loudly at dispatch instead of building without their overlay.
     sql: `ALTER TABLE builds ADD COLUMN dispatch_payload TEXT;`,
   },
+  {
+    version: "150_artifact_container",
+    // Ticket 13 (2026-11-21): the download route serves the GitHub artifact ZIP
+    // container, not the image inside it. `artifact_sha256`/`artifact_size` keep
+    // describing the image (the manifest facts); these two columns describe the
+    // bytes the browser actually receives, so the response headers can be true
+    // and verified without unpacking.
+    sql: `
+      ALTER TABLE builds ADD COLUMN artifact_container_sha256 TEXT;
+      ALTER TABLE builds ADD COLUMN artifact_container_size INTEGER;
+    `,
+  },
 ];

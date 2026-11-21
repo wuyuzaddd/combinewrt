@@ -25,7 +25,8 @@ import type { ArtifactDownload } from "./types";
  * updated only after the rename; `reconcileArtifactCache` fixes the index when
  * the process died between rename and upsert (or when files were removed).
  *
- * The 2 GiB cap is enforced on the declared size before anything is written and
+ * The per-artifact cap (`limitBytes`, from `ARTIFACT_MAX_BYTES`; 2 GiB by
+ * default) is enforced on the declared size before anything is written and
  * again on the byte count while streaming, so a lying Content-Length cannot
  * fill the disk. `ArtifactSizeLimitError` is the only rejection; callers get a
  * readable message with both sizes.

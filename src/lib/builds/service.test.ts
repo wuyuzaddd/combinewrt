@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -282,6 +283,17 @@ describe("artifact cache integration", () => {
     expect(file?.size).toBe(20);
     expect(file?.kind).toBe("combined");
     expect(file?.path.startsWith(dir)).toBe(true);
+    // Ticket 13: the cached bytes are the ZIP container, and the file info says so.
+    expect(file?.contentType).toBe("application/zip");
+    const imageName = service.get(submitted.id)?.artifactName as string;
+    expect(file?.containerName).toBe(/[.]zip$/i.test(imageName) ? imageName : `${imageName}.zip`);
+    expect(file?.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(file?.imageSha256 ?? null).toBeNull();
+    expect(file?.imageSize ?? null).toBeNull();
+    // The container facts are written back so the page can show them before download.
+    const saved = service.get(submitted.id);
+    expect(saved?.artifactContainerSha256).toBe(file?.sha256);
+    expect(saved?.artifactContainerSize).toBe(20);
     // The second call is served from the index, not by downloading again.
     expect((await service.artifactFile(submitted.id))?.path).toBe(file?.path);
 
@@ -314,6 +326,9 @@ describe("artifact cache integration", () => {
     const file = await restarted.artifactFile(submitted.id);
     expect(file?.path).toBe(join(dir, `${submitted.id}.zip`));
     expect(file?.size).toBe("legacy-zip".length);
+    // A legacy flat cache file has no indexed digest; it is hashed once and remembered.
+    expect(file?.sha256).toBe(createHash("sha256").update("legacy-zip").digest("hex"));
+    expect(restarted.get(submitted.id)?.artifactContainerSha256).toBe(file?.sha256);
   });
 
   it("rejects an over-cap artifact before caching it", async () => {
@@ -342,5 +357,64 @@ describe("artifact cache integration", () => {
     await expect(service.artifactFile(submitted.id)).rejects.toBeInstanceOf(ArtifactSizeLimitError);
     expect(cache.stats().entries).toBe(0);
     expect(existsSync(join(dir, submitted.id))).toBe(false);
+  });
+
+  it("honours ARTIFACT_MAX_BYTES as supplied by the config layer", async () => {
+    const { db, dir, cache } = cacheDb();
+    const sized: BuildAdapter = {
+      name: "fake",
+      findRun: async () => null,
+      dispatch: async () => ({ runId: "run-sized" }),
+      getRun: async () => ({ status: "succeeded", artifactName: "image.img.gz", logTail: "ok" }),
+      downloadArtifact: async () => ({
+        name: "image.img.gz",
+        contentType: "application/zip",
+        size: 20,
+        body: new Uint8Array(20),
+      }),
+    };
+    const service = createBuildService({
+      store: createBuildStore(db),
+      adapter: sized,
+      cacheDir: dir,
+      cache,
+      artifactMaxBytes: 5,
+    });
+    const submitted = await service.submit(plan());
+    await service.refresh(submitted.id);
+    await expect(service.artifactFile(submitted.id)).rejects.toBeInstanceOf(ArtifactSizeLimitError);
+  });
+
+  it("never reuses the recorded image digest as the container digest", async () => {
+    const { db, dir, cache } = cacheDb();
+    const service = createBuildService({
+      store: createBuildStore(db),
+      adapter: createFakeAdapter(),
+      cacheDir: dir,
+      cache,
+    });
+    const submitted = await service.submit(plan());
+    await service.refresh(submitted.id);
+    await service.refresh(submitted.id);
+    await service.refresh(submitted.id);
+    // The row already knew the image digest from the manifest, but the cached
+    // bytes are a different file, so the container digest must be recomputed.
+    const imageSha = "f".repeat(64);
+    createBuildStore(db).update(submitted.id, { artifactSha256: imageSha });
+    writeFileSync(join(dir, `${submitted.id}.zip`), "legacy-zip");
+
+    const restarted = createBuildService({
+      store: createBuildStore(db),
+      adapter: createFakeAdapter(),
+      cacheDir: dir,
+      cache: createArtifactCache({ dir, store: createArtifactCacheStore(db) }),
+    });
+    const file = await restarted.artifactFile(submitted.id);
+    const expected = createHash("sha256").update("legacy-zip").digest("hex");
+    expect(file?.sha256).toBe(expected);
+    expect(file?.sha256).not.toBe(imageSha);
+    const saved = restarted.get(submitted.id);
+    expect(saved?.artifactContainerSha256).toBe(expected);
+    expect(saved?.artifactSha256).toBe(imageSha);
   });
 });

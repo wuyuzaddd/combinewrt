@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/current-session";
 import { getBuildService, type ArtifactFileInfo } from "@/lib/builds";
+import { artifactContainerName } from "@/lib/builds/service";
 import { ArtifactSizeLimitError, formatBytes } from "@/lib/image/postprocess";
 import { formatContentRange, parseRangeHeader } from "@/lib/builds/range";
 
@@ -18,15 +19,64 @@ function disposition(name: string): string {
   return `attachment; filename="${asciiFilename(name)}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
-function baseHeaders(file: ArtifactFileInfo): Record<string, string> {
+interface ContainerHeaders {
+  /** Browser-facing filename: the ZIP container, `<image>.zip`. */
+  containerName: string;
+  /** sha256 of the bytes actually sent; null when the site has not hashed them. */
+  containerSha256: string | null;
+  imageName: string;
+  imageSha256: string | null;
+  imageSize: number | null;
+  /** Only the cached-file path implements Range; the streaming fallback must not claim it. */
+  acceptRanges: boolean;
+}
+
+/**
+ * Headers for a response whose body is the GitHub artifact ZIP container
+ * (ticket 13). The container facts describe the bytes on the wire, and the
+ * `X-Image-*` trio publishes the manifest facts so a download can be verified
+ * before and after unpacking.
+ */
+function containerHeaders(input: ContainerHeaders): Record<string, string> {
   const headers: Record<string, string> = {
-    "content-type": file.contentType,
-    "content-disposition": disposition(file.name),
+    "content-type": "application/zip",
+    "content-disposition": disposition(input.containerName),
     "cache-control": "private, no-store",
-    "accept-ranges": "bytes",
+    "x-image-name": input.imageName,
   };
-  if (file.sha256) headers["x-checksum-sha256"] = file.sha256;
+  if (input.acceptRanges) headers["accept-ranges"] = "bytes";
+  if (input.containerSha256) headers["x-checksum-sha256"] = input.containerSha256;
+  if (input.imageSha256) headers["x-image-sha256"] = input.imageSha256;
+  if (input.imageSize !== null) headers["x-image-size"] = String(input.imageSize);
   return headers;
+}
+
+function headersForFile(file: ArtifactFileInfo): Record<string, string> {
+  return containerHeaders({
+    containerName: file.containerName,
+    containerSha256: file.sha256,
+    imageName: file.name,
+    imageSha256: file.imageSha256,
+    imageSize: file.imageSize,
+    acceptRanges: true,
+  });
+}
+
+function headersForRecord(record: {
+  artifactName: string | null;
+  artifactSha256?: string | null;
+  artifactSize?: number | null;
+  artifactContainerSha256?: string | null;
+}): Record<string, string> {
+  const imageName = record.artifactName as string;
+  return containerHeaders({
+    containerName: artifactContainerName(imageName),
+    containerSha256: record.artifactContainerSha256 ?? null,
+    imageName,
+    imageSha256: record.artifactSha256 ?? null,
+    imageSize: typeof record.artifactSize === "number" ? record.artifactSize : null,
+    acceptRanges: false,
+  });
 }
 
 /**
@@ -37,7 +87,7 @@ function baseHeaders(file: ArtifactFileInfo): Record<string, string> {
  * JSON errors for every failure instead of a stack trace.
  */
 function serveFile(file: ArtifactFileInfo, request: Request): Response {
-  const headers = baseHeaders(file);
+  const headers = headersForFile(file);
   const range = parseRangeHeader(request.headers.get("range"), file.size);
 
   if (range.kind === "unsatisfiable") {
@@ -94,9 +144,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     return new Response(artifact.body as unknown as BodyInit, {
       status: 200,
       headers: {
-        "content-type": artifact.contentType,
-        "content-disposition": disposition(artifact.name),
-        "cache-control": "private, no-store",
+        ...headersForRecord(build),
         ...(artifact.size ? { "content-length": String(artifact.size) } : {}),
       },
     });
@@ -105,14 +153,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (error instanceof ArtifactSizeLimitError) {
       return jsonError(
         "artifact-too-large",
-        `产物 ${formatBytes(error.actualBytes)} 超过单产物 ${formatBytes(error.limitBytes)} 上限，无法缓存下载`,
+        `产物 ${formatBytes(error.actualBytes)} 超过本站单产物上限 ${formatBytes(error.limitBytes)}（缓存/磁盘保护阈值，产物已压缩后仍超过），无法缓存下载`,
         413,
       );
     }
     if (/no longer available/i.test(message)) {
       return jsonError(
         "expired",
-        "artifact 已过期或已被清理（GitHub Release 默认保留，站点缓存保留 7 天）",
+        "artifact 已过期或已被清理（GitHub artifact 保留 7 天，站点缓存按保留策略清理）",
         409,
       );
     }

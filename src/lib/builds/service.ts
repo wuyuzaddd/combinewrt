@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -51,14 +51,46 @@ export interface BuildService {
   artifactFile(id: string): Promise<ArtifactFileInfo | null>;
 }
 
-/** Metadata for a cached artifact file the download route can range over. */
+/**
+ * Metadata for a cached artifact file the download route can range over.
+ *
+ * Ticket 13: the cached bytes are the GitHub artifact ZIP container, not the
+ * image inside it. `name`/`image*` describe the image from the build record;
+ * `containerName`/`size`/`sha256` describe the bytes a Range request addresses.
+ */
 export interface ArtifactFileInfo {
+  /** Image file name recorded by the build (what the container holds). */
   name: string;
+  /** Filename served to the browser: the container, `<name>.zip`. */
+  containerName: string;
+  /** Always `application/zip`: the cached bytes are the artifact container. */
   contentType: string;
+  /** Container byte count. */
   size: number;
   path: string;
   kind: string;
+  /** Container sha256; null when it could not be determined. */
   sha256: string | null;
+  /** Image digest from the build record, for the `X-Image-*` headers. */
+  imageSha256: string | null;
+  /** Image byte count from the build record. */
+  imageSize: number | null;
+}
+
+/**
+ * The browser-facing filename of the artifact container. Names that already end
+ * in `.zip` (legacy rows stored the container name directly) are left alone so
+ * a download never becomes `*.zip.zip`.
+ */
+export function artifactContainerName(imageName: string): string {
+  return /\.zip$/i.test(imageName) ? imageName : `${imageName}.zip`;
+}
+
+/** Streaming sha256 of a file on disk; used only when the cache index has none. */
+async function sha256File(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  return hash.digest("hex");
 }
 
 /** Artifact container format from the plan variant, falling back to the name. */
@@ -73,12 +105,6 @@ export function artifactKindFor(record: Pick<BuildRecord, "plan" | "artifactName
   return "combined";
 }
 
-export function artifactContentType(filename: string): string {
-  if (/\.zip$/i.test(filename)) return "application/zip";
-  if (/\.gz$/i.test(filename)) return "application/gzip";
-  return "application/octet-stream";
-}
-
 export function createBuildService(options: {
   store: BuildStore;
   adapter: BuildAdapter;
@@ -86,8 +112,13 @@ export function createBuildService(options: {
   pollIntervalMs?: number;
   buildTimeoutMs?: number;
   cacheDir?: string;
-  /** Site artifact cache with the persistent index; enables the 2 GiB cap. */
+  /** Site artifact cache with the persistent index; enables the per-artifact cap. */
   cache?: ArtifactCache;
+  /**
+   * Per-artifact byte cap from `ARTIFACT_MAX_BYTES` (ticket 13). It measures the
+   * ZIP container the download route serves, not the image virtual size.
+   */
+  artifactMaxBytes?: number;
   /** Concurrency cap from MAX_CONCURRENT_BUILDS; defaults to 2. */
   maxConcurrentBuilds?: number;
   /**
@@ -107,6 +138,7 @@ export function createBuildService(options: {
     buildTimeoutMs = 60 * 60 * 1000,
     cacheDir,
     cache,
+    artifactMaxBytes = ARTIFACT_SIZE_LIMIT_BYTES,
     maxConcurrentBuilds = 2,
   } = options;
   const inFlight = new Map<string, Promise<BuildRecord | null>>();
@@ -361,11 +393,14 @@ export function createBuildService(options: {
       if (cached) return streamEntry(cached, record);
 
       const download = await adapter.downloadArtifact(record.runId, record.artifactName);
-      if (typeof download.size === "number") assertArtifactSize(download.size, ARTIFACT_SIZE_LIMIT_BYTES);
+      if (typeof download.size === "number") assertArtifactSize(download.size, artifactMaxBytes);
 
       if (cache) {
         try {
           const entry = await cache.archive(id, record.artifactName, artifactKindFor(record), download);
+          // Ticket 13: the container digest is a fact about the cached bytes, so
+          // record it on the streaming path too, not only in `artifactFile()`.
+          store.noteArtifactContainer(id, { sha256: entry.sha256, size: entry.size });
           return streamEntry(entry, record);
         } catch (error) {
           if (error instanceof ArtifactSizeLimitError) throw error;
@@ -407,14 +442,14 @@ export function createBuildService(options: {
       if (!record || record.status !== "succeeded" || !record.runId || !record.artifactName) return null;
 
       const cached = cachedEntry(record);
-      if (cached) return toFileInfo(cached, record);
+      if (cached) return withContainerDigest(cached, record);
       // Without an index a downloaded artifact may only exist as a stream.
       if (!cache) return null;
 
       const download = await adapter.downloadArtifact(record.runId, record.artifactName);
-      if (typeof download.size === "number") assertArtifactSize(download.size, ARTIFACT_SIZE_LIMIT_BYTES);
+      if (typeof download.size === "number") assertArtifactSize(download.size, artifactMaxBytes);
       const entry = await cache.archive(id, record.artifactName, artifactKindFor(record), download);
-      return toFileInfo(entry, record);
+      return withContainerDigest(entry, record);
     },
   };
 
@@ -434,7 +469,9 @@ export function createBuildService(options: {
         relativePath: candidate.slice(cacheDir.length + 1),
         kind: artifactKindFor(record),
         size: statSync(candidate).size,
-        sha256: record.artifactSha256 ?? null,
+        // Never seed the container digest with the image digest: they hash
+        // different bytes, and ticket 13 exists to stop that conflation.
+        sha256: null,
         createdAt: timestamp,
         updatedAt: timestamp,
         path: candidate,
@@ -444,20 +481,43 @@ export function createBuildService(options: {
   }
 
   function toFileInfo(entry: ArtifactCacheEntry, record: BuildRecord): ArtifactFileInfo {
+    const name = record.artifactName as string;
     return {
-      name: record.artifactName as string,
-      contentType: artifactContentType(record.artifactName as string),
+      name,
+      containerName: artifactContainerName(name),
+      contentType: "application/zip",
       size: entry.size,
       path: entry.path,
       kind: entry.kind,
       sha256: entry.sha256,
+      imageSha256: record.artifactSha256 ?? null,
+      imageSize: typeof record.artifactSize === "number" ? record.artifactSize : null,
     };
+  }
+
+  /**
+   * Fill in the container digest and remember it on the build row (ticket 13).
+   * A cache-index entry already carries the sha256 of the bytes it wrote; a
+   * legacy flat `<id>.zip` file has no index row, so it is hashed once here.
+   * The image facts (`artifact_sha256`/`artifact_size`) are never overwritten.
+   */
+  async function withContainerDigest(entry: ArtifactCacheEntry, record: BuildRecord): Promise<ArtifactFileInfo> {
+    const file = toFileInfo(entry, record);
+    const remembered =
+      file.sha256 !== null &&
+      record.artifactContainerSha256 === file.sha256 &&
+      record.artifactContainerSize === file.size;
+    if (!remembered) {
+      file.sha256 ??= await sha256File(file.path);
+      store.noteArtifactContainer(record.id, { sha256: file.sha256, size: file.size });
+    }
+    return file;
   }
 
   function streamEntry(entry: ArtifactCacheEntry, record: BuildRecord): ArtifactDownload {
     return {
-      name: record.artifactName as string,
-      contentType: artifactContentType(record.artifactName as string),
+      name: artifactContainerName(record.artifactName as string),
+      contentType: "application/zip",
       size: entry.size,
       body: Readable.toWeb(createReadStream(entry.path)) as ReadableStream<Uint8Array>,
     };
