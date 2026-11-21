@@ -245,6 +245,12 @@ live 发布未执行：包集从 6 个（supplement）变为 7 个（extension�
 （预编译 v1.0.1，`PKG_HASH=5640b5a9…`，专有）、`ookla-speedtest`（官方 CLI 1.2.0，`PKG_HASH=5690596c…`，EULA 限制）。
 三者 `publicAllowed: false`、许可写成 `LicenseRef-*`；校验器（站点 `registry.ts` 与编译仓 `select-extension-packages.mjs`）
 只允许私有条目使用 `LicenseRef-*`，因此它们不可能被误认为开源件。新增 `monitor-netspeedtest` 私有 bundle。
+构建证据：extension run [44898006568](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44898006568) **3/3 成功**，
+`luci-app-netspeedtest 5.2.1-r4`、`homebox 1.0.1-r6`、`ookla-speedtest 1.2.0-r19`，三条 leg 的
+`Assert the apk version is legal`（`1.0.1-r6` / `1.2.0-r19` 等均返回 `=`）与 `apk verify` 都通过；
+官方同名断言同时跑通（`official indexes: 5 files, 10316 packages` / `overlap with the official index: none`）。
+staging 发布 [44898161597](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44898161597) 成功（deploy 按设计跳过）。
+
 **边界**：这些包只能进私有/自用镜像，不进公开计划/公开 bundle，也不应 promote 到公开 feed（Pages 是公开可读的）。
 
 **已知遗留（不计入本轮验收）**
