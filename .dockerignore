@@ -1,0 +1,25 @@
+# Build context exclusions: the image is built from source, so local build
+# output, dependencies, secrets and test artefacts must not be sent to Docker.
+node_modules
+.next
+coverage
+test-results
+playwright-report
+blob-report
+
+.git
+.github
+.scratch
+.worktrees
+.agents
+
+data
+compose-data
+
+.env
+.env.*
+deploy/compose.env
+!deploy/compose.env.example
+
+*.log
+*.tsbuildinfo

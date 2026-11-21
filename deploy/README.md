@@ -11,6 +11,31 @@
 - 代码目录 `/opt/combinewrt`，数据目录 `/var/lib/combinewrt`
 - 一个公开的构建仓库 `combinewrt-build` 与 feed 仓库 `combinewrt-packages`（见下文）
 
+## Docker Compose（本地/单机，可选）
+
+不想配 systemd 时，仓库根的 `Dockerfile` + `compose.yaml` 提供同构的单容器部署：
+一个 Node 进程、一个 `apk` CLI（Alpine 自带）、SQLite 与两份缓存在 `/data`。
+
+```bash
+mkdir -p compose-data && sudo chown -R 1000:1000 compose-data
+cp deploy/compose.env.example deploy/compose.env   # 填 SESSION_SECRET / ADMIN_PASSWORD_HASH
+docker compose build                              # 可用 BUILD_NODE_OPTIONS 调整构建内存
+docker compose up -d
+curl -fsS http://127.0.0.1:3100/login >/dev/null && echo up
+```
+
+- 端口：`COMBINEWRT_PORT`（默认 3100）映射到容器内 3000；`APP_ORIGIN` 要与实际访问地址一致。
+- 数据：`./compose-data` 就是 `/data`（`combinewrt.db` + `artifacts/` + `source-cache/`），备份即复制该目录。
+- 容器以镜像内的 `node` 用户（uid 1000）运行，宿主机数据目录需按上面 `chown` 一次。
+- 只要 UI/e2e/下载路由行为时 `BUILD_ADAPTER=fake` 即可；要真实构建与下载 GitHub artifact，
+  改 `BUILD_ADAPTER=github` 并填 `BUILD_REPO` / `BUILD_REPO_TOKEN`。
+- 反向代理仍按 `nginx-combinewrt.conf.example`，把 upstream 指到 `127.0.0.1:3100` 即可。
+- `docker compose` 会对 `env_file` 做变量插值，`ADMIN_PASSWORD_HASH` 里的 `$` 必须写成 `$$`，否则进程启动即报格式错误。
+- `BUILD_BASE_IMAGE` / `BUILD_NODE_OPTIONS` / `RUNTIME_NODE_OPTIONS` 是 compose 自身的插值变量，放 shell 或项目根 `.env`；
+  Docker Hub 不可达但本机已有 Alpine 镜像时用 `BUILD_BASE_IMAGE=nginx:alpine docker compose build`。
+- IPv6 不通的主机已默认注入 `NODE_OPTIONS=--dns-result-order=ipv4first`：否则 undici 会先选 AAAA，
+  GitHub artifact（重定向到 Azure blob）下载会 10 s 超时。
+
 ## 首次安装
 
 ```bash

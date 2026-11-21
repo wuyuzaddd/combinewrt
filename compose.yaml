@@ -1,0 +1,51 @@
+# Local / single-host deployment of the combinewrt site.
+#
+#   cp deploy/compose.env.example deploy/compose.env   # fill in secrets
+#   docker compose build
+#   docker compose up -d
+#   curl -fsS http://127.0.0.1:3100/login >/dev/null && echo up
+#
+# The app keeps SQLite, the artifact cache and the source cache under /data,
+# bind-mounted at ./compose-data so backups are just a directory copy. The data
+# directory must be writable by uid 1000 (the image's `node` user):
+#   mkdir -p compose-data && sudo chown -R 1000:1000 compose-data
+
+name: combinewrt
+
+services:
+  site:
+    build:
+      context: .
+      args:
+        # Raise/shrink for the build host; the default matches the systemd
+        # wrapper documented in AGENTS.md.
+        NODE_OPTIONS: ${BUILD_NODE_OPTIONS:---max-old-space-size=6144}
+        # Official Node image by default. Set BUILD_BASE_IMAGE=nginx:alpine on
+        # hosts where Docker Hub is unreachable but Alpine is cached locally.
+        NODE_BASE: ${BUILD_BASE_IMAGE:-node:24-alpine}
+    image: combinewrt-site:local
+    restart: unless-stopped
+    env_file:
+      - deploy/compose.env
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      # Hosts whose IPv6 route is broken make undici pick the AAAA record and
+      # time out (GitHub artifact downloads redirect to Azure blob storage). The
+      # ordering flag only changes preference, so it is harmless everywhere.
+      NODE_OPTIONS: ${RUNTIME_NODE_OPTIONS:---dns-result-order=ipv4first}
+      DATABASE_PATH: /data/combinewrt.db
+      ARTIFACT_CACHE_DIR: /data/artifacts
+      SOURCE_CACHE_DIR: /data/source-cache
+    ports:
+      - "${COMBINEWRT_PORT:-3100}:3000"
+    volumes:
+      - ./compose-data:/data
+    healthcheck:
+      # /login is the only page that does not need a session cookie.
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/login"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s

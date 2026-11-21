@@ -29,6 +29,10 @@ skills-lock.json
 # ── 本地工作树（含独立仓库 checkout，不上传）──
 /.worktrees/
 
+# ── Docker Compose 本地部署（数据与密钥不上传）──
+/compose-data/
+/deploy/compose.env
+
 # next.js app
 /node_modules
 /.next/
