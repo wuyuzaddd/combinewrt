@@ -18,6 +18,8 @@ interface BuildRow {
   artifact_name: string | null;
   artifact_sha256: string | null;
   artifact_size: number | null;
+  artifact_container_sha256: string | null;
+  artifact_container_size: number | null;
   engine: string | null;
   target: string | null;
   dispatched_at: string | null;
@@ -40,6 +42,8 @@ function toRecord(row: BuildRow): BuildRecord {
     artifactName: row.artifact_name,
     artifactSha256: row.artifact_sha256,
     artifactSize: row.artifact_size,
+    artifactContainerSha256: row.artifact_container_sha256,
+    artifactContainerSize: row.artifact_container_size,
     engine: (row.engine as BuildRecord["engine"]) ?? null,
     target: row.target ?? null,
     dispatchedAt: row.dispatched_at ?? null,
@@ -63,6 +67,12 @@ export interface BuildStore {
   create(build: BuildRecord, dispatchPayload?: string | null): void;
   /** Read the sealed dispatch payload, or null when the row has none. */
   readDispatchPayload(id: string): string | null;
+  /**
+   * Remember the ZIP container digest/size the download route serves (ticket
+   * 13). Pure metadata: it does not touch `updated_at` or write a build event,
+   * because downloading is not a lifecycle transition.
+   */
+  noteArtifactContainer(id: string, container: { sha256: string | null; size: number | null }): void;
   /** Zero the sealed payload once it has been dispatched or is no longer needed. */
   clearDispatchPayload(id: string): void;
   /**
@@ -98,7 +108,16 @@ export interface BuildStore {
     patch: Partial<
       Pick<
         BuildRecord,
-        "status" | "runId" | "logTail" | "error" | "failure" | "artifactName" | "artifactSha256" | "artifactSize"
+        | "status"
+        | "runId"
+        | "logTail"
+        | "error"
+        | "failure"
+        | "artifactName"
+        | "artifactSha256"
+        | "artifactSize"
+        | "artifactContainerSha256"
+        | "artifactContainerSize"
       >
     >,
     expectedUpdatedAt?: string,
@@ -149,8 +168,8 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
       db.exec("BEGIN IMMEDIATE");
       try {
         db.prepare(
-          `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, failure_json, artifact_name, artifact_sha256, artifact_size, engine, target, dispatched_at, created_at, updated_at, dispatch_payload)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO builds (id, plan_json, config_json, status, run_id, adapter, log_tail, error, failure_json, artifact_name, artifact_sha256, artifact_size, artifact_container_sha256, artifact_container_size, engine, target, dispatched_at, created_at, updated_at, dispatch_payload)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           build.id,
           JSON.stringify(redactPlanForStorage(build.plan)),
@@ -164,6 +183,8 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
           build.artifactName,
           build.artifactSha256 ?? null,
           build.artifactSize ?? null,
+          build.artifactContainerSha256 ?? null,
+          build.artifactContainerSize ?? null,
           build.engine ?? null,
           build.target ?? null,
           build.dispatchedAt ?? null,
@@ -187,6 +208,13 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
     },
     clearDispatchPayload(id) {
       db.prepare("UPDATE builds SET dispatch_payload = NULL WHERE id = ?").run(id);
+    },
+    noteArtifactContainer(id, container) {
+      db.prepare("UPDATE builds SET artifact_container_sha256 = ?, artifact_container_size = ? WHERE id = ?").run(
+        container.sha256 ?? null,
+        container.size ?? null,
+        id,
+      );
     },
     recordDispatchRun(id, runId, expectedUpdatedAt) {
       const current = get(id);
@@ -292,8 +320,8 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
       const updatedAt = nextUpdatedAt(current.updatedAt, new Date().toISOString());
       const next: BuildRecord = { ...current, ...patch, updatedAt };
       const sql = expectedUpdatedAt
-        ? "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, failure_json = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, updated_at = ? WHERE id = ? AND updated_at = ?"
-        : "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, failure_json = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, updated_at = ? WHERE id = ?";
+        ? "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, failure_json = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, artifact_container_sha256 = ?, artifact_container_size = ?, updated_at = ? WHERE id = ? AND updated_at = ?"
+        : "UPDATE builds SET status = ?, run_id = ?, log_tail = ?, error = ?, failure_json = ?, artifact_name = ?, artifact_sha256 = ?, artifact_size = ?, artifact_container_sha256 = ?, artifact_container_size = ?, updated_at = ? WHERE id = ?";
       const params = [
         next.status,
         next.runId,
@@ -303,6 +331,8 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
         next.artifactName,
         next.artifactSha256 ?? null,
         next.artifactSize ?? null,
+        next.artifactContainerSha256 ?? null,
+        next.artifactContainerSize ?? null,
         next.updatedAt,
         id,
       ];

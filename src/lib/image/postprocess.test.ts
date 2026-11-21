@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   ARTIFACT_SIZE_LIMIT_BYTES,
   ArtifactSizeLimitError,
+  artifactSizeLimitBytes,
   assertArtifactSize,
   assertManifestArtifactSizes,
   checkArtifactSize,
@@ -247,5 +248,30 @@ describe("manifest artifact sizes", () => {
     expect(() => assertManifestArtifactSizes({ size: 100, converted: { size: GIB * 3 } })).toThrow(
       ArtifactSizeLimitError,
     );
+  });
+});
+
+describe("artifact size limit override", () => {
+  const GIB = 1024 ** 3;
+  const original = process.env.ARTIFACT_MAX_BYTES;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.ARTIFACT_MAX_BYTES;
+    else process.env.ARTIFACT_MAX_BYTES = original;
+  });
+
+  it("defaults to the 2 GiB constant", () => {
+    delete process.env.ARTIFACT_MAX_BYTES;
+    expect(artifactSizeLimitBytes()).toBe(ARTIFACT_SIZE_LIMIT_BYTES);
+  });
+
+  it("reads ARTIFACT_MAX_BYTES so operators can raise the cap", () => {
+    process.env.ARTIFACT_MAX_BYTES = String(4 * GIB);
+    expect(artifactSizeLimitBytes()).toBe(4 * GIB);
+  });
+
+  it("ignores an unparseable value instead of disabling the cap", () => {
+    process.env.ARTIFACT_MAX_BYTES = "banana";
+    expect(artifactSizeLimitBytes()).toBe(ARTIFACT_SIZE_LIMIT_BYTES);
   });
 });

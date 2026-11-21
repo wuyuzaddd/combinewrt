@@ -2,7 +2,7 @@ import { unzipSync } from "fflate";
 import type { BuildPlan } from "../build/types";
 import { PACKAGE_SOURCES } from "../catalog/types";
 import type { BuildEngine } from "../domain/types";
-import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError } from "../image/postprocess";
+import { ArtifactSizeLimitError, artifactSizeLimitBytes } from "../image/postprocess";
 import { buildDispatchRequest } from "./dispatch";
 import { BUILD_STEPS, buildEngineOf } from "./types";
 import type { BuildFailure, BuildFailureContext } from "./types";
@@ -195,10 +195,12 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
       const response = await fetchImpl(artifact.archive_download_url, withTimeout({ headers }, 600_000));
       if (!response.ok) throw new Error(`artifact download failed: ${response.status}`);
       const size = Number(response.headers.get("content-length") ?? "0");
-      // Ticket 14: every artifact kind shares the 2 GiB per-artifact cap. The
-      // cache enforces it again on the streamed byte count.
-      if (size > ARTIFACT_SIZE_LIMIT_BYTES) {
-        throw new ArtifactSizeLimitError(size, ARTIFACT_SIZE_LIMIT_BYTES);
+      // Ticket 14: every artifact kind shares one per-artifact cap. It measures
+      // the ZIP container (what the site serves, ticket 13), and the cache
+      // enforces it again on the streamed byte count.
+      const limit = artifactSizeLimitBytes();
+      if (size > limit) {
+        throw new ArtifactSizeLimitError(size, limit);
       }
       return {
         name: `${artifact.name}.zip`,

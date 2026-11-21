@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -282,6 +283,17 @@ describe("artifact cache integration", () => {
     expect(file?.size).toBe(20);
     expect(file?.kind).toBe("combined");
     expect(file?.path.startsWith(dir)).toBe(true);
+    // Ticket 13: the cached bytes are the ZIP container, and the file info says so.
+    expect(file?.contentType).toBe("application/zip");
+    const imageName = service.get(submitted.id)?.artifactName as string;
+    expect(file?.containerName).toBe(/[.]zip$/i.test(imageName) ? imageName : `${imageName}.zip`);
+    expect(file?.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(file?.imageSha256 ?? null).toBeNull();
+    expect(file?.imageSize ?? null).toBeNull();
+    // The container facts are written back so the page can show them before download.
+    const saved = service.get(submitted.id);
+    expect(saved?.artifactContainerSha256).toBe(file?.sha256);
+    expect(saved?.artifactContainerSize).toBe(20);
     // The second call is served from the index, not by downloading again.
     expect((await service.artifactFile(submitted.id))?.path).toBe(file?.path);
 
@@ -314,6 +326,9 @@ describe("artifact cache integration", () => {
     const file = await restarted.artifactFile(submitted.id);
     expect(file?.path).toBe(join(dir, `${submitted.id}.zip`));
     expect(file?.size).toBe("legacy-zip".length);
+    // A legacy flat cache file has no indexed digest; it is hashed once and remembered.
+    expect(file?.sha256).toBe(createHash("sha256").update("legacy-zip").digest("hex"));
+    expect(restarted.get(submitted.id)?.artifactContainerSha256).toBe(file?.sha256);
   });
 
   it("rejects an over-cap artifact before caching it", async () => {

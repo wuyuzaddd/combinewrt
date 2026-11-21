@@ -17,6 +17,24 @@ import type { ArtifactKind } from "../domain/types";
 /** 2 GiB per artifact; ticket 14 enforces it, this module only measures. */
 export const ARTIFACT_SIZE_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
 
+/**
+ * The per-artifact cap in force (ticket 13). `ARTIFACT_MAX_BYTES` lets an
+ * operator raise the site's cache/disk guard without a redeploy; it measures
+ * the delivered file (the ZIP container, already compressed), never the virtual
+ * disk size. An unparseable value falls back to the default so a typo cannot
+ * silently disable the guard.
+ */
+export function artifactSizeLimitBytes(): number {
+  const raw = process.env.ARTIFACT_MAX_BYTES;
+  if (!raw) return ARTIFACT_SIZE_LIMIT_BYTES;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(`[combinewrt] ignoring invalid ARTIFACT_MAX_BYTES=${raw}; using ${ARTIFACT_SIZE_LIMIT_BYTES}`);
+    return ARTIFACT_SIZE_LIMIT_BYTES;
+  }
+  return Math.floor(parsed);
+}
+
 export type ConvertedArtifactKind = "vmdk" | "qcow2";
 
 /** Artifact kinds that need a qemu-img conversion; everything else is final as built. */

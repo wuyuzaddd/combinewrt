@@ -66,6 +66,13 @@ export interface BuildRecord {
   artifactSha256?: string | null;
   artifactSize?: number | null;
   /**
+   * GitHub artifact ZIP container digest and byte count (ticket 13). The
+   * download route serves the container, so these describe the response body;
+   * `artifactSha256`/`artifactSize` stay the image facts from the manifest.
+   */
+  artifactContainerSha256?: string | null;
+  artifactContainerSize?: number | null;
+  /**
    * Engine the plan selected (ticket 13). Null on rows written before the queue
    * existed; readers fall back to the plan itself.
    */
