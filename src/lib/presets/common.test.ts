@@ -51,6 +51,35 @@ describe("common-v2 preset", () => {
     }
   });
 
+  it("keeps the one-click favorites resolvable and unique", () => {
+    const favorites = preset.favorites ?? [];
+    const curated = new Set(preset.groups.flatMap((group) => group.packages.map((pkg) => pkg.name)));
+    expect(favorites.length).toBeGreaterThan(0);
+    expect(new Set(favorites).size).toBe(favorites.length);
+    for (const name of favorites) {
+      // Themes ship through the extension registry, so they are the only
+      // favorites allowed to live outside a curated group.
+      expect(curated.has(name) || name.startsWith("luci-theme-")).toBe(true);
+    }
+  });
+
+  it("rejects a favourite that is neither curated nor a theme", () => {
+    const issues = validateCommonPreset({
+      schemaVersion: 1,
+      favorites: ["luci-app-nope"],
+      groups: [
+        {
+          id: "network",
+          title: "网络",
+          packages: [
+            { name: "luci-app-ddns", source: "official", license: "GPL-2.0-only", description: "动态 DNS 客户端" },
+          ],
+        },
+      ],
+    });
+    expect(issues.join("\n")).toMatch(/not a curated package/);
+  });
+
   it("rejects a registry that is short, duplicated, malformed or themed", () => {
     const entry = { name: "luci-app-ddns", source: "official", license: "GPL-2.0-only", description: "动态 DNS 客户端" };
     const issues = validateCommonPreset({

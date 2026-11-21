@@ -102,14 +102,13 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
     resetPlan();
   }
 
-  // "个人常用" is a curated group in config/presets/common-v2.json; applying it
-  // adds its packages without dropping anything the user already picked.
-  function onPresetGroup(groupId: string) {
-    const group = ui.commonGroups.find((item) => item.id === groupId);
-    if (!group) return;
+  // "个人常用" is the favorites list in config/presets/common-v2.json (it may
+  // reference packages curated in any group, plus themes); applying it adds the
+  // whole list without dropping anything the user already picked.
+  function onFavorites() {
     setForm((current) => ({
       ...current,
-      packages: [...new Set([...current.packages, ...group.packages.map((pkg) => pkg.name)])],
+      packages: [...new Set([...current.packages, ...ui.favorites])],
     }));
     resetPlan();
   }
@@ -266,7 +265,7 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
       onAddCustom={onAddCustom}
       onCustom={setCustom}
       onPreset={onPreset}
-      onPresetGroup={onPresetGroup}
+      onFavorites={onFavorites}
       onRemove={removePackageName}
       onRemovePackagesText={(value) => patch({ removePackages: parseRemoveList(value) })}
       onSearch={setSearch}

@@ -46,6 +46,12 @@ const groupSchema = z
 export const commonPresetSchema = z
   .object({
     schemaVersion: z.literal(1),
+    /**
+     * One-click favorite list. Entries may name a curated package from any
+     * group or a theme (`luci-theme-*`, which ships through the extension
+     * registry and therefore cannot live in a group).
+     */
+    favorites: z.array(z.string().trim().regex(PACKAGE_NAME)).max(200).optional(),
     groups: z.array(groupSchema).min(1),
   })
   .strict();
@@ -119,6 +125,16 @@ export function validateCommonPreset(raw: unknown): string[] {
       if (/proprietary|unknown/i.test(pkg.license)) {
         issues.push(`package "${pkg.name}": license "${pkg.license}" is not a reviewed license.`);
       }
+    }
+  }
+
+  const favorites = preset.favorites ?? [];
+  const seenFavorites = new Set<string>();
+  for (const name of favorites) {
+    if (seenFavorites.has(name)) issues.push(`favorites: duplicate package "${name}".`);
+    seenFavorites.add(name);
+    if (!owners.has(name) && !name.startsWith("luci-theme-")) {
+      issues.push(`favorites: "${name}" is not a curated package.`);
     }
   }
 

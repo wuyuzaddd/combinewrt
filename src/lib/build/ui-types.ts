@@ -146,6 +146,8 @@ export interface BuildUiOptions {
   bundles: BundleOption[];
   themes: ThemeOption[];
   commonGroups: CommonGroupOption[];
+  /** One-click favorites from `config/presets/common-v2.json`. */
+  favorites: string[];
 }
 
 export interface TargetFilter {

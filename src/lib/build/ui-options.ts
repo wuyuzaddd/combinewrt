@@ -262,6 +262,7 @@ export function createBuildUiOptions(input: BuildUiOptionsInput): BuildUiOptions
     bundles: bundleOptions(input.bundles),
     themes: themeOptions(input.themes),
     commonGroups: commonGroupOptions(input.common),
+    favorites: [...(input.common.favorites ?? [])],
   };
 }
 
