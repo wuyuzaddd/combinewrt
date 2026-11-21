@@ -66,6 +66,13 @@ const configFields = {
     .max(300, "too many removals")
     .optional(),
   visibility: z.enum(["private", "public"]).optional(),
+  /** Applied theme package; installing it is a separate `packages` entry. */
+  theme: z
+    .string()
+    .trim()
+    .regex(/^luci-theme-[a-z0-9][a-z0-9-]*$/, "theme must be a luci-theme-* package name")
+    .nullable()
+    .optional(),
   packagePins: z
     .array(
       z.object({

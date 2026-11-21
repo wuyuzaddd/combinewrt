@@ -37,6 +37,7 @@ V2 已完成 tickets 01–16：多目标模型、ImageBuilder/源码混合构建
 
 - 网络配置（IPv6、PPPoE、WiFi、switch-port、LAN DHCP、DNS）是类型化表单，生成受控的 uci-defaults；没有自由文本 UCI 或 shell 输入框。PPPoE/WiFi 密码只进入构建输入，不写日志、不回显到 preview 或 source offer。
 - **旁路由（`bypass`，界面标题「旁路由（Bypass gateway）」）**：生成静态 LAN、关闭 DHCP 服务、停用 WAN（`wan.proto=none`）、LAN 区开 NAT（`firewall.@zone[0].masq=1`）并关闭 IPv6 委派（同时选 `ipv6` 模式则保留）。使用时填写主路由 IP 作为网关，LAN IP 与主路由同网段且避开其 DHCP 池；DNS 留空则用上游/表单里的 DNS。语义与 iStoreOS/Kwrt 的网络向导一致，但由我们自己的类型化 UCI 生成，不依赖第三方 `quickstart` 二进制。
+- **主题**：主题就是 `luci-theme-*` 软件包，可在软件包区安装多个；「主题」区的**默认主题**只决定首启应用哪个（生成 `uci set luci.main.mediaurlbase`），其余已安装主题仍可在 LuCI 里切换。默认主题必须同时出现在所选软件包里。
 - `docker` 需要 `engine: source` + `ext4` + `combined` + overlay 能力；squashfs 会被计划器拒绝。
 - 主题不是 mode：主题包来自 extension feed，作为计划的 bundle/主题选择安装，不再有第二个安装器。
 

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { BuildConflict, BuildPlan } from "@/lib/build/types";
-import type { BuildUiOptions, BundleOption, ThemeOption } from "@/lib/build/ui-types";
+import type { BuildUiOptions, BundleOption } from "@/lib/build/ui-types";
 import { presetPackages } from "@/lib/build/presets";
 import {
   addPackage,
@@ -13,7 +13,8 @@ import {
   removePackage,
   selectProfile,
   selectTarget,
-  selectTheme,
+  selectDefaultTheme,
+  toggleThemePackage,
   toggleBundle,
   type BuildFormState,
   type FormMode,
@@ -45,6 +46,7 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
   const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<PackageSearchItem[]>([]);
+  const [resultsTotal, setResultsTotal] = useState(0);
   const [searching, setSearching] = useState(false);
   const [custom, setCustom] = useState("");
   const [targetQuery, setTargetQuery] = useState("");
@@ -105,8 +107,13 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
     resetPlan();
   }
 
-  function onSelectTheme(theme: ThemeOption) {
-    setForm((current) => selectTheme(current, theme));
+  function onToggleTheme(name: string) {
+    setForm((current) => toggleThemePackage(current, name));
+    resetPlan();
+  }
+
+  function onSelectDefaultTheme(name: string | null) {
+    setForm((current) => selectDefaultTheme(current, name));
     resetPlan();
   }
 
@@ -123,6 +130,7 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
     if (search.trim().length < 2) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing results for an empty query
       setResults([]);
+      setResultsTotal(0);
       return;
     }
     const controller = new AbortController();
@@ -131,7 +139,7 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
       try {
         const params = new URLSearchParams({
           q: search.trim(),
-          limit: "10",
+          limit: "50",
           target: form.targetId,
           kernelLine: form.kernelLine,
           includeExtension: "1",
@@ -144,8 +152,9 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
           return;
         }
         if (!response.ok) return;
-        const data = (await response.json()) as { items: PackageSearchItem[] };
+        const data = (await response.json()) as { items: PackageSearchItem[]; total?: number };
         setResults(data.items);
+        setResultsTotal(data.total ?? data.items.length);
       } catch {
         // aborted or offline
       } finally {
@@ -248,7 +257,9 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
       onRemove={removePackageName}
       onRemovePackagesText={(value) => patch({ removePackages: parseRemoveList(value) })}
       onSearch={setSearch}
-      onSelectTheme={onSelectTheme}
+      onToggleTheme={onToggleTheme}
+      onSelectDefaultTheme={onSelectDefaultTheme}
+      resultsTotal={resultsTotal}
       onToggleBundle={onToggleBundle}
       removePackagesText={removePackagesText}
       results={results}

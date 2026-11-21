@@ -1,6 +1,17 @@
 import type { BuildFormInput } from "./types";
 
-type UciForm = Pick<BuildFormInput, "hostname" | "timezone" | "lanIp" | "netmask">;
+type UciForm = Pick<BuildFormInput, "hostname" | "timezone" | "lanIp" | "netmask" | "theme">;
+
+/**
+ * Media URL for a `luci-theme-<name>` package, or null when the name is not a
+ * theme. The generated uci-defaults file only ever receives this derived path,
+ * never the raw package name, so a malformed value cannot become a UCI line.
+ */
+export function themeMediaUrl(theme: string | null | undefined): string | null {
+  if (typeof theme !== "string") return null;
+  const match = /^luci-theme-([a-z0-9][a-z0-9-]*)$/.exec(theme.trim());
+  return match ? `/luci-static/${match[1]}` : null;
+}
 
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -78,6 +89,13 @@ export function posixTimezone(zone: string, now: Date = new Date()): string {
 }
 
 export function generateUciDefaults(form: UciForm, rootHash: string, options: { now?: Date } = {}): string {
+  const mediaUrl = themeMediaUrl(form.theme);
+  const themeBlock = mediaUrl
+    ? `uci set luci.main.mediaurlbase=${shellQuote(mediaUrl)}
+uci commit luci
+
+`
+    : "";
   return `#!/bin/sh
 set -e
 
@@ -90,7 +108,7 @@ uci set network.lan.ipaddr=${shellQuote(form.lanIp)}
 uci set network.lan.netmask=${shellQuote(form.netmask)}
 uci commit network
 
-sed -i 's|^root:[^:]*|root:${rootHash}|' /etc/shadow
+${themeBlock}sed -i 's|^root:[^:]*|root:${rootHash}|' /etc/shadow
 
 exit 0
 `;

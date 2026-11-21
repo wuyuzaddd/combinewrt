@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { BuildUiOptions, BundleOption, ThemeOption } from "@/lib/build/ui-types";
+import type { BuildUiOptions, BundleOption } from "@/lib/build/ui-types";
 import type { BuildFormState, PackageSearchItem } from "./form-model";
 import { i18nBadges, sourceLabel } from "./form-model";
 
@@ -28,7 +28,10 @@ interface Props {
   onRemove: (name: string) => void;
   onPreset: (name: "minimal" | "common") => void;
   onToggleBundle: (bundle: BundleOption) => void;
-  onSelectTheme: (theme: ThemeOption) => void;
+  onToggleTheme: (name: string) => void;
+  onSelectDefaultTheme: (name: string | null) => void;
+  /** Total matches the server saw; `results` may be capped. */
+  resultsTotal: number;
   showBundlesAndThemes: boolean;
   removePackagesText: string;
   onRemovePackagesText: (value: string) => void;
@@ -62,7 +65,9 @@ export function PackagePicker(props: Props) {
     onRemove,
     onPreset,
     onToggleBundle,
-    onSelectTheme,
+    onToggleTheme,
+    onSelectDefaultTheme,
+    resultsTotal,
     showBundlesAndThemes,
     removePackagesText,
     onRemovePackagesText,
@@ -180,6 +185,11 @@ export function PackagePicker(props: Props) {
             ))}
           </ul>
         ) : null}
+        {resultsTotal > results.length ? (
+          <p className="mt-1 text-[11px] text-amber-300">
+            共 {resultsTotal} 条匹配，只显示前 {results.length} 条；请输入更精确的关键词。
+          </p>
+        ) : null}
       </div>
 
       <div className="mt-2 flex gap-2">
@@ -272,35 +282,70 @@ export function PackagePicker(props: Props) {
           <div className="mt-5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">主题</h3>
-              <span className="text-xs text-slate-500">同一时间只选一个主题</span>
+              <span className="text-xs text-slate-500">可安装多个，默认主题只选一个</span>
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {ui.themes.map((theme) => {
-                const selected = form.themePackage === theme.package;
+                const installed = form.packages.includes(theme.package);
+                const isDefault = form.defaultTheme === theme.package;
                 return (
-                  <button
-                    className={`overflow-hidden rounded-lg border text-left ${
-                      selected ? "border-emerald-500" : "border-slate-700 hover:border-emerald-600"
+                  <div
+                    className={`overflow-hidden rounded-lg border ${
+                      installed ? "border-emerald-500" : "border-slate-700"
                     }`}
                     key={theme.package}
-                    onClick={() => onSelectTheme(theme)}
-                    type="button"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img alt={`${theme.title} 预览`} className="h-20 w-full object-cover" src={theme.preview} />
-                    <span className="block p-2">
-                      <span className="flex items-center gap-2 text-xs font-medium text-slate-200">
-                        {theme.title}
-                        {theme.default ? <Badge tone="emerald">默认</Badge> : null}
-                        {theme.experimental ? <Badge tone="amber">实验</Badge> : null}
+                    <button className="block w-full text-left hover:bg-slate-900/60" onClick={() => onToggleTheme(theme.package)} type="button">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img alt={`${theme.title} 预览`} className="h-20 w-full object-cover" src={theme.preview} />
+                      <span className="block p-2">
+                        <span className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-200">
+                          {theme.title}
+                          {theme.default ? <Badge tone="emerald">上游默认</Badge> : null}
+                          {installed ? <Badge tone="emerald">已安装</Badge> : null}
+                          {theme.experimental ? <Badge tone="amber">实验</Badge> : null}
+                        </span>
+                        <span className="mt-1 block text-[11px] text-slate-500">{theme.description}</span>
+                        <span className="mt-1 block font-mono text-[11px] text-slate-500">{theme.package}</span>
                       </span>
-                      <span className="mt-1 block text-[11px] text-slate-500">{theme.description}</span>
-                      <span className="mt-1 block font-mono text-[11px] text-slate-500">{theme.package}</span>
-                    </span>
-                  </button>
+                    </button>
+                    <label className="flex cursor-pointer items-center gap-2 border-t border-slate-800 px-2 py-1.5 text-[11px] text-slate-400">
+                      <input
+                        checked={isDefault}
+                        className="accent-emerald-500"
+                        disabled={!installed}
+                        name="combinewrt-default-theme"
+                        onChange={() => onSelectDefaultTheme(isDefault ? null : theme.package)}
+                        type="radio"
+                      />
+                      设为默认主题
+                      {!installed ? <span className="text-slate-600">（先安装）</span> : null}
+                    </label>
+                  </div>
                 );
               })}
             </div>
+
+            <label className="mt-3 block text-xs text-slate-400">
+              默认主题
+              <select
+                className={inputClass}
+                onChange={(event) => onSelectDefaultTheme(event.target.value || null)}
+                value={form.defaultTheme ?? ""}
+              >
+                <option value="">保持系统默认（不修改）</option>
+                {form.packages
+                  .filter((name) => name.startsWith("luci-theme-"))
+                  .map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="mt-1 text-[11px] text-slate-500">
+              主题会在构建时作为软件包安装；默认主题只决定首启应用哪一个，其它已安装主题仍可在 LuCI 里切换。
+            </p>
           </div>
         </>
       ) : null}

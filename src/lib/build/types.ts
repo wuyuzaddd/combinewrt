@@ -33,6 +33,12 @@ export interface BuildFormInput {
   removePackages?: string[];
   packagePins?: PackagePin[];
   visibility?: BuildVisibility;
+  /**
+   * Default LuCI theme package (`luci-theme-*`) applied at first boot. It must
+   * also appear in `packages`: installing a theme and choosing the one that is
+   * applied are separate decisions (ticket 13 follow-up).
+   */
+  theme?: string | null;
 }
 
 /**

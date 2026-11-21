@@ -14,7 +14,8 @@ import {
   releaseOptions,
   removePackage,
   selectTarget,
-  selectTheme,
+  selectDefaultTheme,
+  toggleThemePackage,
   toggleBundle,
   toggleMode,
   variantFromImageType,
@@ -95,16 +96,26 @@ describe("selection transitions", () => {
     expect(form.packages).toEqual(["luci"]);
   });
 
-  it("keeps exactly one theme selected", () => {
-    const argon = ui.themes.find((theme) => theme.package === "luci-theme-argon")!;
-    const aurora = ui.themes.find((theme) => theme.package === "luci-theme-aurora")!;
-    let form = selectTheme(defaultBuildForm(ui, releases), argon);
-    expect(form.themePackage).toBe("luci-theme-argon");
-    form = selectTheme(form, aurora);
-    expect(form.themePackage).toBe("luci-theme-aurora");
-    expect(form.packages).not.toContain("luci-theme-argon");
-    form = selectTheme(form, aurora);
-    expect(form.themePackage).toBeNull();
+  it("installs several themes and applies exactly one of them", () => {
+    let form = toggleThemePackage(defaultBuildForm(ui, releases), "luci-theme-argon");
+    form = toggleThemePackage(form, "luci-theme-aurora");
+    expect(form.packages).toEqual(["luci-theme-argon", "luci-theme-aurora"]);
+    expect(form.defaultTheme).toBeNull();
+
+    form = selectDefaultTheme(form, "luci-theme-aurora");
+    expect(form.defaultTheme).toBe("luci-theme-aurora");
+    expect(buildSubmitBody(form, ui, "pw").theme).toBe("luci-theme-aurora");
+
+    // Uninstalling the applied theme clears the default instead of leaving a
+    // dangling package name behind.
+    form = toggleThemePackage(form, "luci-theme-aurora");
+    expect(form.defaultTheme).toBeNull();
+    expect(form.packages).toEqual(["luci-theme-argon"]);
+  });
+
+  it("refuses to apply a theme that is not installed", () => {
+    const form = defaultBuildForm(ui, releases);
+    expect(selectDefaultTheme(form, "luci-theme-aurora").defaultTheme).toBeNull();
   });
 
   it("toggles overlay modes without duplicates", () => {

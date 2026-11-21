@@ -16,7 +16,9 @@ ARG NODE_BASE=node:24-alpine
 # One shared base: Node, tini, the unprivileged `node` user (uid/gid 1000) and
 # the /data layout are set up once and reused by every stage.
 FROM ${NODE_BASE} AS base
-RUN apk add --no-cache tini \
+# `openssl passwd -6` hashes the root password at plan time, `apk` parses the
+# feed indexes; both are runtime dependencies, not just build ones.
+RUN apk add --no-cache tini openssl \
  && if ! command -v node >/dev/null 2>&1; then apk add --no-cache nodejs npm; fi \
  && if ! id -u node >/dev/null 2>&1; then \
       addgroup -S -g 1000 node && adduser -S -D -H -u 1000 -G node -s /sbin/nologin node; \

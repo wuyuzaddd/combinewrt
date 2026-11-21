@@ -4,6 +4,7 @@ import { createBuildPlanV2 } from "../build/plan-v2";
 import { resolveChannel } from "../build/channel";
 import { createBaseVersionStore } from "../base/store";
 import { hashRootPassword } from "../build/password";
+import { themeMediaUrl } from "../build/uci";
 import type { BuildConflict, BuildFormInput, BuildFormInputV2 } from "../build/types";
 import { loadCapabilities } from "../catalog/capabilities";
 import { createCatalogStore } from "../catalog/store";
@@ -51,6 +52,7 @@ export function legacyBuildFormToV2Form(form: BuildFormInput): BuildFormInputV2 
     netmask: form.netmask,
     rootPassword: form.rootPassword,
     packages: form.packages,
+    ...(form.theme ? { theme: form.theme } : {}),
     ...(form.removePackages ? { removePackages: form.removePackages } : {}),
     ...(form.packagePins ? { packagePins: form.packagePins } : {}),
     visibility: form.visibility ?? LEGACY_V2_DEFAULTS.visibility,
@@ -118,6 +120,28 @@ export type PreparedPlanV2 =
 
 /** V2 counterpart of `preparePlanForForm`; never used for V1 plan requests. */
 export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<PreparedPlanV2> {
+  // Installing themes and applying one are separate choices: `theme` names the
+  // one applied at first boot and must be a luci-theme-* package that is also
+  // being installed. The value becomes a derived media URL, never raw UCI.
+  const requestedTheme = form.theme?.trim() || null;
+  if (requestedTheme && !themeMediaUrl(requestedTheme)) {
+    return {
+      ok: false,
+      status: 400,
+      body: { ok: false, issues: [`theme: "${requestedTheme}" is not a luci-theme-* package name`] },
+    };
+  }
+  if (requestedTheme && !form.packages.includes(requestedTheme)) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        ok: false,
+        issues: [`theme: the default theme "${requestedTheme}" must also be selected in packages`],
+      },
+    };
+  }
+
   const db = getDatabase();
   const store = createCatalogStore(db);
   const active = store.getActiveSnapshot();

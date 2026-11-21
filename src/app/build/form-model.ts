@@ -16,7 +16,6 @@ import type {
   ProfileOption,
   SelectedVariant,
   TargetOption,
-  ThemeOption,
   VariantOption,
 } from "@/lib/build/ui-types";
 
@@ -90,7 +89,8 @@ export interface BuildFormState {
   /** Negative package list applied before dependency resolution. */
   removePackages: string[];
   bundles: string[];
-  themePackage: string | null;
+  /** Theme package applied at first boot; must also be installed in `packages`. */
+  defaultTheme: string | null;
   visibility: Visibility;
 }
 
@@ -200,7 +200,7 @@ export function defaultBuildForm(
     packages: initial ? [...initial.packages] : [],
     removePackages: [],
     bundles: [],
-    themePackage: null,
+    defaultTheme: null,
     visibility: initial?.visibility ?? "private",
   };
 }
@@ -253,8 +253,11 @@ export function addPackage(state: BuildFormState, name: string): BuildFormState 
 }
 
 export function removePackage(state: BuildFormState, name: string): BuildFormState {
-  const theme = state.themePackage === name ? null : state.themePackage;
-  return { ...state, packages: state.packages.filter((item) => item !== name), themePackage: theme };
+  return {
+    ...state,
+    packages: state.packages.filter((item) => item !== name),
+    defaultTheme: state.defaultTheme === name ? null : state.defaultTheme,
+  };
 }
 
 /** Bundle ownership: a package is removable when no other selected bundle or theme owns it. */
@@ -264,7 +267,6 @@ function ownedBySelection(name: string, state: BuildFormState, ui: BuildUiOption
     if (bundle.id === ignoredBundle) continue;
     if (state.bundles.includes(bundle.id) && bundle.packages.includes(name)) owners.push(bundle.id);
   }
-  if (state.themePackage === name) owners.push("theme");
   return owners;
 }
 
@@ -287,16 +289,30 @@ export function toggleBundle(state: BuildFormState, ui: BuildUiOptions, bundle: 
   return { ...state, bundles: [...state.bundles, bundle.id], packages: nextPackages };
 }
 
-/** Select one theme (or deselect when clicking the selected theme). */
-export function selectTheme(state: BuildFormState, theme: ThemeOption): BuildFormState {
-  const withoutOld = state.themePackage
-    ? state.packages.filter((name) => name !== state.themePackage)
-    : [...state.packages];
-  if (state.themePackage === theme.package) {
-    return { ...state, themePackage: null, packages: withoutOld };
+/**
+ * Install or uninstall a theme package. Installing several themes at once is
+ * allowed; the one applied at first boot is a separate choice.
+ */
+export function toggleThemePackage(state: BuildFormState, name: string): BuildFormState {
+  if (state.packages.includes(name)) {
+    return {
+      ...state,
+      packages: state.packages.filter((item) => item !== name),
+      defaultTheme: state.defaultTheme === name ? null : state.defaultTheme,
+    };
   }
-  if (!withoutOld.includes(theme.package)) withoutOld.push(theme.package);
-  return { ...state, themePackage: theme.package, packages: withoutOld };
+  return { ...state, packages: [...state.packages, name] };
+}
+
+/** Choose the applied theme, or `null` to leave the system default alone. */
+export function selectDefaultTheme(state: BuildFormState, name: string | null): BuildFormState {
+  if (name !== null && !state.packages.includes(name)) return state;
+  return { ...state, defaultTheme: name };
+}
+
+/** Theme packages currently installed, in selection order. */
+export function installedThemes(state: BuildFormState): string[] {
+  return state.packages.filter((name) => name.startsWith("luci-theme-"));
 }
 
 export function selectedOverlaySizeMb(state: BuildFormState, profile: ProfileOption | null): number | null {
@@ -343,6 +359,7 @@ export function buildSubmitBody(
     netmask: state.netmask,
     rootPassword,
     packages: state.packages,
+    ...(state.defaultTheme ? { theme: state.defaultTheme } : {}),
     ...(state.removePackages.length > 0 ? { removePackages: state.removePackages } : {}),
     visibility: state.visibility,
   };
@@ -355,7 +372,6 @@ export function expandedPackages(state: BuildFormState, ui: BuildUiOptions): str
     if (!state.bundles.includes(bundle.id)) continue;
     for (const name of bundle.packages) if (!result.includes(name)) result.push(name);
   }
-  if (state.themePackage && !result.includes(state.themePackage)) result.push(state.themePackage);
   return result;
 }
 
