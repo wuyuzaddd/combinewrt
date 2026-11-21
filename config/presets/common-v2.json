@@ -701,8 +701,8 @@
         {
           "name": "luci-app-store",
           "description": "iStore 应用商店",
-          "license": "NOASSERTION",
-          "source": "supplement"
+          "license": "MIT",
+          "source": "extension"
         },
         {
           "name": "qemu-ga",
@@ -738,7 +738,7 @@
           "name": "luci-app-partexp",
           "description": "分区扩容工具（partexp）",
           "license": "Apache-2.0",
-          "source": "dllkids"
+          "source": "extension"
         },
         {
           "name": "luci-app-mosdns",
