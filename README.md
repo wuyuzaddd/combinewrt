@@ -36,6 +36,7 @@ V2 已完成 tickets 01–16：多目标模型、ImageBuilder/源码混合构建
 `Mode` 是 checked-in 的声明式输入（`config/modes/*.json`），由 base preset + overlays 组成，分文件/board、包/kmod、内核配置三层。一个 build 只能有一个 base preset，overlay 之间做 `requires` / `conflicts` / `exclusiveGroup` 检查；冲突在计划阶段以可读的 409 拒绝，工作流只执行已经被接受的计划。V2 的 16 个 mode：`istoreos-brand`、`nas`、`docker`、`wan-eth0`、`switch-port`、`ipv6`、`pppoe`、`wifi`、`webserver-lighttpd`、`webserver-nginx`、`webserver-uhttpd`、`https-selfsigned`、`usb-wired`、`usb-wifi`、`wwan`、`bypass`。
 
 - 网络配置（IPv6、PPPoE、WiFi、switch-port、LAN DHCP、DNS）是类型化表单，生成受控的 uci-defaults；没有自由文本 UCI 或 shell 输入框。PPPoE/WiFi 密码只进入构建输入，不写日志、不回显到 preview 或 source offer。
+- **旁路由（`bypass`，界面标题「旁路由（Bypass gateway）」）**：生成静态 LAN、关闭 DHCP 服务、停用 WAN（`wan.proto=none`）、LAN 区开 NAT（`firewall.@zone[0].masq=1`）并关闭 IPv6 委派（同时选 `ipv6` 模式则保留）。使用时填写主路由 IP 作为网关，LAN IP 与主路由同网段且避开其 DHCP 池；DNS 留空则用上游/表单里的 DNS。语义与 iStoreOS/Kwrt 的网络向导一致，但由我们自己的类型化 UCI 生成，不依赖第三方 `quickstart` 二进制。
 - `docker` 需要 `engine: source` + `ext4` + `combined` + overlay 能力；squashfs 会被计划器拒绝。
 - 主题不是 mode：主题包来自 extension feed，作为计划的 bundle/主题选择安装，不再有第二个安装器。
 
