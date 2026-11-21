@@ -27,6 +27,8 @@ interface Props {
   onAdd: (name: string) => void;
   onRemove: (name: string) => void;
   onPreset: (name: "minimal" | "common") => void;
+  /** Apply a curated group (e.g. the "personal" list) as a one-click preset. */
+  onPresetGroup: (groupId: string) => void;
   onToggleBundle: (bundle: BundleOption) => void;
   onToggleTheme: (name: string) => void;
   onSelectDefaultTheme: (name: string | null) => void;
@@ -64,6 +66,7 @@ export function PackagePicker(props: Props) {
     onAdd,
     onRemove,
     onPreset,
+    onPresetGroup,
     onToggleBundle,
     onToggleTheme,
     onSelectDefaultTheme,
@@ -95,6 +98,15 @@ export function PackagePicker(props: Props) {
         >
           最小系统
         </button>
+        {ui.commonGroups.some((group) => group.id === "personal") ? (
+          <button
+            className="rounded-full border border-emerald-800 px-3 py-1 text-xs text-emerald-200 hover:border-emerald-500"
+            onClick={() => onPresetGroup("personal")}
+            type="button"
+          >
+            个人常用（{ui.commonGroups.find((group) => group.id === "personal")?.packages.length ?? 0}）
+          </button>
+        ) : null}
       </div>
 
       <div className="mt-3 flex min-h-8 flex-wrap gap-2">

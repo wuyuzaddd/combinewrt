@@ -18,6 +18,7 @@ import type {
   TargetOption,
   VariantOption,
 } from "@/lib/build/ui-types";
+import type { ModeNetworkPatch } from "@/lib/build/modes";
 
 export type FormMode = "simple" | "advanced";
 export type Visibility = "private" | "public";
@@ -287,6 +288,39 @@ export function toggleBundle(state: BuildFormState, ui: BuildUiOptions, bundle: 
     if (!nextPackages.includes(name)) nextPackages.push(name);
   }
   return { ...state, bundles: [...state.bundles, bundle.id], packages: nextPackages };
+}
+
+/**
+ * Apply a mode's declared network patch to the form, so selecting e.g. the
+ * bypass mode also turns the LAN DHCP server off instead of leaving the form in
+ * a state the planner would reject as a conflict.
+ */
+export function applyModeNetworkPatch(network: NetworkInput, patch: ModeNetworkPatch): NetworkInput {
+  const dhcp = patch.lan?.dhcp
+    ? {
+        ...(network.lan?.dhcp ?? { enabled: true }),
+        ...patch.lan.dhcp,
+        enabled: patch.lan.dhcp.enabled ?? network.lan?.dhcp?.enabled ?? true,
+      }
+    : null;
+  return {
+    ...network,
+    ...(dhcp ? { lan: { ...network.lan, dhcp } } : {}),
+    ...(patch.wan
+      ? {
+          wan: {
+            ...(network.wan ?? { protocol: "dhcp" as const }),
+            ...patch.wan,
+            protocol: patch.wan.protocol ?? network.wan?.protocol ?? ("dhcp" as const),
+          },
+        }
+      : {}),
+    ...(patch.dns ? { dns: [...patch.dns] } : {}),
+    ...(patch.ipv6 ? { ipv6: patch.ipv6 } : {}),
+    ...(patch.wifi ? { wifi: patch.wifi } : {}),
+    ...(patch.switchPort ? { switchPort: patch.switchPort } : {}),
+    ...(patch.bypass ? { bypass: patch.bypass } : {}),
+  };
 }
 
 /**

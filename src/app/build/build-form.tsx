@@ -102,6 +102,18 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
     resetPlan();
   }
 
+  // "个人常用" is a curated group in config/presets/common-v2.json; applying it
+  // adds its packages without dropping anything the user already picked.
+  function onPresetGroup(groupId: string) {
+    const group = ui.commonGroups.find((item) => item.id === groupId);
+    if (!group) return;
+    setForm((current) => ({
+      ...current,
+      packages: [...new Set([...current.packages, ...group.packages.map((pkg) => pkg.name)])],
+    }));
+    resetPlan();
+  }
+
   function onToggleBundle(bundle: BundleOption) {
     setForm((current) => toggleBundle(current, ui, bundle));
     resetPlan();
@@ -254,6 +266,7 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
       onAddCustom={onAddCustom}
       onCustom={setCustom}
       onPreset={onPreset}
+      onPresetGroup={onPresetGroup}
       onRemove={removePackageName}
       onRemovePackagesText={(value) => patch({ removePackages: parseRemoveList(value) })}
       onSearch={setSearch}

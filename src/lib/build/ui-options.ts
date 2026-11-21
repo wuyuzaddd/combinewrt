@@ -153,6 +153,7 @@ function modeOptions(
       description: declaration?.description ?? null,
       layer: registryMode.layer,
       experimental,
+      network: declaration?.network ? structuredClone(declaration.network) : null,
       packages: declaration?.packages ? [...declaration.packages] : [],
       requires: declaration?.requires ? [...declaration.requires] : [],
       requiresAny: declaration?.requiresAny ? declaration.requiresAny.map((group) => [...group]) : [],

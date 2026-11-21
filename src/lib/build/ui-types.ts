@@ -6,6 +6,7 @@
  * them to the client form as props. They deliberately contain no functions, no
  * file-system handles and no secrets.
  */
+import type { ModeNetworkPatch } from "./modes";
 import type {
   ArtifactKind,
   BasePresetId,
@@ -52,6 +53,8 @@ export interface ModeOption {
   description: string | null;
   layer: ModeLayer;
   experimental: boolean;
+  /** Typed network patch the form applies when the mode is selected. */
+  network: ModeNetworkPatch | null;
   packages: string[];
   requires: string[];
   requiresAny: string[][];

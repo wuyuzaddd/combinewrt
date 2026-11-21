@@ -13,6 +13,7 @@ function mode(id: string): ModeOption {
     description: declaration.description ?? null,
     layer: declaration.layer,
     experimental: declaration.experimental,
+    network: declaration.network ?? null,
     packages: [...(declaration.packages ?? [])],
     requires: [...(declaration.requires ?? [])],
     requiresAny: (declaration.requiresAny ?? []).map((group) => [...group]),

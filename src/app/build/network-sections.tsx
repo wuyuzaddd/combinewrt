@@ -368,6 +368,10 @@ export function NetworkSections({ network, selectedModes, onChange }: Props) {
       {selectedModes.includes("bypass") ? (
         <fieldset className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
           <legend className="px-1 text-xs uppercase tracking-wider text-slate-500">旁路网关</legend>
+          <p className="mt-1 text-[11px] text-slate-500">
+            选中旁路由后会自动关闭 LAN DHCP 服务，WAN 不再配置（生成时强制 `wan.proto=none`），
+            IPv6 委派也会关闭（除非同时启用 IPv6 模式）。WAN 区域的取值此时不生效。
+          </p>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <label className="block text-xs text-slate-400">
               网关

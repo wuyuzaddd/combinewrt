@@ -16,6 +16,7 @@ import {
   selectTarget,
   selectDefaultTheme,
   toggleThemePackage,
+  applyModeNetworkPatch,
   toggleBundle,
   toggleMode,
   variantFromImageType,
@@ -116,6 +117,22 @@ describe("selection transitions", () => {
   it("refuses to apply a theme that is not installed", () => {
     const form = defaultBuildForm(ui, releases);
     expect(selectDefaultTheme(form, "luci-theme-aurora").defaultTheme).toBeNull();
+  });
+
+  it("applies a mode's network patch so bypass turns the LAN DHCP server off", () => {
+    const bypass = ui.targets
+      .flatMap((target) => target.profiles)
+      .flatMap((profile) => profile.modes)
+      .find((mode) => mode.id === "bypass")!;
+    expect(bypass.network).toEqual({ lan: { dhcp: { enabled: false } } });
+
+    const base = defaultBuildForm(ui, releases);
+    expect(base.network.lan?.dhcp?.enabled).toBe(true);
+    const patched = applyModeNetworkPatch(base.network, bypass.network!);
+    expect(patched.lan?.dhcp?.enabled).toBe(false);
+    // Everything the patch does not mention is untouched.
+    expect(patched.wan).toEqual(base.network.wan);
+    expect(patched.lan?.dhcp?.start).toBe(base.network.lan?.dhcp?.start);
   });
 
   it("toggles overlay modes without duplicates", () => {

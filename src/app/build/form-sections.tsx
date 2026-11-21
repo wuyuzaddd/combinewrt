@@ -7,6 +7,7 @@ import type { BasePresetId } from "@/lib/domain/types";
 import type { NetworkInput } from "@/lib/build/types";
 import type { BuildFormState, ReleaseOption } from "./form-model";
 import { filterTargets } from "@/lib/build/target-filter";
+import { applyModeNetworkPatch } from "./form-model";
 import { ModePicker } from "./mode-picker";
 import { NetworkSections } from "./network-sections";
 import { SourceWatchPanel, type SourceWatchSummary } from "./source-watch-panel";
@@ -440,13 +441,21 @@ export function AdvancedForm(props: AdvancedSectionProps) {
         featureContext={modeContext}
         modes={profile?.modes ?? []}
         onChangePreset={(preset) => patch({ basePreset: preset })}
-        onToggle={(modeId) =>
+        onToggle={(modeId) => {
+          const selected = form.modes.includes(modeId);
+          const mode = profile?.modes.find((item) => item.id === modeId);
+          // Selecting a mode also applies its typed network patch (e.g. bypass
+          // turns the LAN DHCP server off), so the network section shows the
+          // state the planner will accept instead of a conflicting one.
+          const network =
+            !selected && mode?.network ? applyModeNetworkPatch(form.network, mode.network) : form.network;
           patch({
-            modes: form.modes.includes(modeId)
+            modes: selected
               ? form.modes.filter((id) => id !== modeId)
               : [...form.modes, modeId],
-          })
-        }
+            ...(network !== form.network ? { network } : {}),
+          });
+        }}
         selected={form.modes}
       />
 
