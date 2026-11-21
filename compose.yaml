@@ -32,9 +32,11 @@ services:
       HOSTNAME: 0.0.0.0
       PORT: "3000"
       # Hosts whose IPv6 route is broken make undici pick the AAAA record and
-      # time out (GitHub artifact downloads redirect to Azure blob storage). The
-      # ordering flag only changes preference, so it is harmless everywhere.
-      NODE_OPTIONS: ${RUNTIME_NODE_OPTIONS:---dns-result-order=ipv4first}
+      # time out (GitHub artifact downloads redirect to Azure blob storage), and
+      # the happy-eyeballs race also produces spurious CONNECT_TIMEOUTs to
+      # GitHub Pages. Ordering IPv4 first and disabling autoselection keeps a
+      # catalog refresh on the address family that actually works.
+      NODE_OPTIONS: ${RUNTIME_NODE_OPTIONS:---dns-result-order=ipv4first --no-network-family-autoselection}
       DATABASE_PATH: /data/combinewrt.db
       ARTIFACT_CACHE_DIR: /data/artifacts
       SOURCE_CACHE_DIR: /data/source-cache

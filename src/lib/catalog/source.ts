@@ -29,6 +29,14 @@ export interface ImmortalWrtSourceOptions {
   baseVersion: string;
   apkBin?: string;
   fetchImpl?: typeof fetch;
+  /**
+   * Extra attempts for transient network failures (connect timeouts, resets,
+   * DNS hiccups). The public feeds throttle bursts, so a refresh that fires
+   * five connections at once needs a couple of retries (ticket 13 follow-up).
+   */
+  fetchRetries?: number;
+  /** Base backoff in ms between attempts; tests pass 0. */
+  retryDelayMs?: number;
   dllkids?: DllkidsSourceOptions | null;
   supplement?: SupplementPin | null;
   supplementFeed?: SupplementFeedOptions | null;
@@ -101,6 +109,72 @@ function verifyAdb(apkBin: string, keyDir: string, file: string): Promise<void> 
   });
 }
 
+
+
+/** Network errors worth another attempt; HTTP statuses are final. */
+export function isRetryableFetchError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.message === "fetch failed") return true;
+  const code = (error as { cause?: { code?: unknown } }).cause?.code;
+  return (
+    typeof code === "string" &&
+    [
+      "UND_ERR_CONNECT_TIMEOUT",
+      "UND_ERR_SOCKET",
+      "ETIMEDOUT",
+      "ECONNRESET",
+      "ECONNREFUSED",
+      "EPIPE",
+      "ENETUNREACH",
+      "EHOSTUNREACH",
+      "EAI_AGAIN",
+    ].includes(code)
+  );
+}
+
+/**
+ * Fetch a URL, retrying transient network failures with a short exponential
+ * backoff. A non-2xx response is returned as an error immediately: retrying a
+ * 404 only wastes the refresh budget.
+ */
+export async function fetchWithRetry(
+  fetchImpl: typeof fetch,
+  url: string,
+  options: { retries?: number; delayMs?: number } = {},
+): Promise<Response> {
+  const { retries = 2, delayMs = 500 } = options;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (attempt > 0 && delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs * 2 ** (attempt - 1)));
+    }
+    try {
+      const response = await fetchImpl(url);
+      if (!response.ok) throw new Error(`GET ${url} failed: ${response.status}`);
+      return response;
+    } catch (error) {
+      lastError = error;
+      // A status error carries our own "GET ..." message and is not retryable.
+      if (error instanceof Error && error.message.startsWith("GET ")) throw error;
+      if (attempt === retries || !isRetryableFetchError(error)) break;
+    }
+  }
+  throw new Error(`GET ${url} failed: ${describeFetchError(lastError)}`);
+}
+
+/** Flatten a fetch failure into one line: message plus the cause's code/message. */
+export function describeFetchError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause instanceof Error) {
+    const code = (cause as { code?: unknown }).code;
+    const suffix = typeof code === "string" ? `${code}: ` : "";
+    return `${error.message} (${suffix}${cause.message})`;
+  }
+  if (cause !== undefined) return `${error.message} (${String(cause)})`;
+  return error.message;
+}
+
 function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
@@ -110,6 +184,8 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
     baseVersion,
     apkBin = "apk",
     fetchImpl = fetch,
+    fetchRetries = 2,
+    retryDelayMs = 500,
     dllkids = null,
     supplement = null,
     supplementFeed = null,
@@ -124,9 +200,7 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
   let supplementUrl: string | undefined;
 
   async function get(url: string): Promise<Response> {
-    const response = await fetchImpl(url);
-    if (!response.ok) throw new Error(`GET ${url} failed: ${response.status}`);
-    return response;
+    return fetchWithRetry(fetchImpl, url, { retries: fetchRetries, delayMs: retryDelayMs });
   }
 
   async function loadDllkidsIndex(): Promise<string | undefined> {
@@ -173,7 +247,10 @@ export function createImmortalWrtSource(options: ImmortalWrtSourceOptions): Cata
     const indexUrl = `${baseUrl}/packages.adb`;
     supplementUrl = indexUrl;
 
-    const [indexResponse, keyResponse] = await Promise.all([get(indexUrl), get(supplementFeed.keyUrl)]);
+    // Sequential on purpose: two parallel TLS handshakes to the same Pages host
+    // are what tripped the throttle in the first place, and the key is small.
+    const indexResponse = await get(indexUrl);
+    const keyResponse = await get(supplementFeed.keyUrl);
     const index = Buffer.from(await indexResponse.arrayBuffer());
     const key = Buffer.from(await keyResponse.arrayBuffer());
     const indexSha256 = sha256(index);

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   composeFeedCommit,
   createImmortalWrtSource,
+  describeFetchError,
+  fetchWithRetry,
   parseBuildinfo,
   parseBuildinfoEntries,
   sharedSupplementSourceCommit,
@@ -138,5 +140,59 @@ describe("createImmortalWrtSource dllkids index", () => {
       dllkids: { baseUrl: "https://down.dllkids.xyz/openwrt-feed/25.12/x86_64/", indexSha256: "0".repeat(64) },
     });
     await expect(source.loadMeta()).rejects.toThrow(/dllkids packages\.adb sha256 mismatch/);
+  });
+});
+
+describe("describeFetchError", () => {
+  it("names the underlying cause so a failed refresh says which source broke", () => {
+    const timeout = Object.assign(new Error("fetch failed"), {
+      cause: Object.assign(new Error("Connect Timeout Error"), { code: "ETIMEDOUT" }),
+    });
+    expect(describeFetchError(timeout)).toBe("fetch failed (ETIMEDOUT: Connect Timeout Error)");
+  });
+
+  it("falls back to the plain message when there is no cause", () => {
+    expect(describeFetchError(new Error("fetch failed"))).toBe("fetch failed");
+    expect(describeFetchError("boom")).toBe("boom");
+  });
+});
+
+describe("fetchWithRetry", () => {
+  const timeout = () =>
+    Object.assign(new Error("fetch failed"), {
+      cause: Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" }),
+    });
+
+  it("retries a transient connect timeout before succeeding", async () => {
+    let calls = 0;
+    const impl = async () => {
+      calls += 1;
+      if (calls < 3) throw timeout();
+      return new Response("ok", { status: 200 });
+    };
+    const response = await fetchWithRetry(impl as unknown as typeof fetch, "https://example.test/x", { delayMs: 0 });
+    expect(response.status).toBe(200);
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after the retry budget and names the URL and cause", async () => {
+    const impl = async () => {
+      throw timeout();
+    };
+    await expect(
+      fetchWithRetry(impl as unknown as typeof fetch, "https://example.test/x", { retries: 1, delayMs: 0 }),
+    ).rejects.toThrow(/GET https:\/\/example\.test\/x failed: fetch failed \(UND_ERR_CONNECT_TIMEOUT/);
+  });
+
+  it("does not retry an HTTP status error", async () => {
+    let calls = 0;
+    const impl = async () => {
+      calls += 1;
+      return new Response("nope", { status: 404 });
+    };
+    await expect(
+      fetchWithRetry(impl as unknown as typeof fetch, "https://example.test/x", { delayMs: 0 }),
+    ).rejects.toThrow(/failed: 404/);
+    expect(calls).toBe(1);
   });
 });

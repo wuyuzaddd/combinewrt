@@ -35,6 +35,13 @@ curl -fsS http://127.0.0.1:3100/login >/dev/null && echo up
   Docker Hub 不可达但本机已有 Alpine 镜像时用 `BUILD_BASE_IMAGE=nginx:alpine docker compose build`。
 - IPv6 不通的主机已默认注入 `NODE_OPTIONS=--dns-result-order=ipv4first`：否则 undici 会先选 AAAA，
   GitHub artifact（重定向到 Azure blob）下载会 10 s 超时。
+- **目录刷新失败怎么查**：现在错误会带上 URL 与底层原因（如 `GET <url> failed: fetch failed (UND_ERR_CONNECT_TIMEOUT: …)`）。
+  依次看三处：① 网络——容器没有 IPv6 路由时 undici 的 AAAA 尝试与 happy-eyeballs 会制造 10 s 连接超时，
+  默认参数已规避，必要时再加 `NODE_USE_ENV_PROXY=1` + `HTTPS_PROXY` 走代理；② dllkids pin 过期——
+  `dllkids packages.adb sha256 mismatch: expected …, got …` 说明 feed 已重新发布，用
+  `POST /api/admin/source-watch {"action":"adopt","force":true}` 采纳新索引（或在
+  `DLLKIDS_INDEX_SHA256_SEED` 里更新初始 pin 后重建库）；③ `SUPPLEMENT_FEED_URL` 必须指向版本冻结的
+  `/supplement/<baseVersion>/<target>/`，扁平 `/x86_64/` 只是 V1 兼容镜像，用作 base URL 会 404。
 
 ## 首次安装
 
