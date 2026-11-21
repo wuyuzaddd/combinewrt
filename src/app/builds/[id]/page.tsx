@@ -4,7 +4,7 @@ import { imageTypeForPlan } from "@/lib/build/artifact-name";
 import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
-import { artifactKindFor } from "@/lib/builds/service";
+import { artifactContainerName, artifactKindFor } from "@/lib/builds/service";
 import { createBuildStore } from "@/lib/builds/store";
 import { getDatabase } from "@/lib/db";
 import type { BuildStep } from "@/lib/builds/types";
@@ -165,14 +165,16 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
             className="w-fit rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950"
             href={`/api/builds/${build.id}/artifact`}
           >
-            下载产物（ZIP 容器）
+            下载产物（ZIP 容器{build.artifactContainerSize ? `，${formatSize(build.artifactContainerSize)}` : ""}）
           </a>
           <p className="break-all font-mono text-xs text-slate-500">
             下载文件 ZIP 容器 · 产物类型 {artifactKind} ·{" "}
             {build.artifactContainerSize
               ? formatSize(build.artifactContainerSize)
               : "大小未记录（首次下载后补记）"}
-            {build.artifactContainerSha256 ? ` · sha256 ${build.artifactContainerSha256}` : ""}
+            {build.artifactContainerSha256
+              ? ` · sha256 ${build.artifactContainerSha256}`
+              : " · sha256 未记录（首次下载后补记）"}
           </p>
           <p className="break-all font-mono text-xs text-slate-500">
             解压后镜像 {build.artifactName} ·{" "}
@@ -182,7 +184,7 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
           <p className="text-xs text-slate-500">
             下载的是 GitHub artifact 的 ZIP 容器（内含镜像与 manifest.json），需解压后使用：
             <code className="mx-1 rounded bg-slate-900 px-1 py-0.5 font-mono">
-              unzip {build.artifactName}.zip
+              unzip {artifactContainerName(build.artifactName)}
             </code>
             （Windows / macOS 可右键或双击解压）。
           </p>

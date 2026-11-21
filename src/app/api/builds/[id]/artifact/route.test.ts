@@ -105,6 +105,7 @@ describe("GET /api/builds/[id]/artifact", () => {
     const body = (await response.json()) as { code: string; error: string };
     expect(body.code).toBe("artifact-too-large");
     expect(body.error).toContain("2 GiB");
+    expect(body.error).toContain("保护阈值");
   });
 
   it("returns the failure reason for a failed build", async () => {
@@ -211,6 +212,8 @@ describe("GET /api/builds/[id]/artifact", () => {
     expect(response.headers.get("content-disposition")).toContain("image.img.gz.zip");
     expect(response.headers.get("x-image-name")).toBe("image.img.gz");
     expect(response.headers.get("x-checksum-sha256")).toBeNull();
+    // The streaming fallback does not handle Range, so it must not advertise it.
+    expect(response.headers.get("accept-ranges")).toBeNull();
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
   });
 });

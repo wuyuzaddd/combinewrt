@@ -2,7 +2,7 @@ import { unzipSync } from "fflate";
 import type { BuildPlan } from "../build/types";
 import { PACKAGE_SOURCES } from "../catalog/types";
 import type { BuildEngine } from "../domain/types";
-import { ArtifactSizeLimitError, artifactSizeLimitBytes } from "../image/postprocess";
+import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError } from "../image/postprocess";
 import { buildDispatchRequest } from "./dispatch";
 import { BUILD_STEPS, buildEngineOf } from "./types";
 import type { BuildFailure, BuildFailureContext } from "./types";
@@ -17,6 +17,8 @@ export interface GitHubAdapterOptions {
   /** Workflow file that runs source builds (ticket 13); defaults to source-build.yml. */
   sourceWorkflow?: string;
   ref?: string;
+  /** Per-artifact cap in bytes from `ARTIFACT_MAX_BYTES` (ticket 13); defaults to 2 GiB. */
+  artifactMaxBytes?: number;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -63,6 +65,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
     token,
     workflow,
     sourceWorkflow = "source-build.yml",
+    artifactMaxBytes = ARTIFACT_SIZE_LIMIT_BYTES,
     fetchImpl = fetch,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = options;
@@ -198,7 +201,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): BuildAdapter
       // Ticket 14: every artifact kind shares one per-artifact cap. It measures
       // the ZIP container (what the site serves, ticket 13), and the cache
       // enforces it again on the streamed byte count.
-      const limit = artifactSizeLimitBytes();
+      const limit = artifactMaxBytes;
       if (size > limit) {
         throw new ArtifactSizeLimitError(size, limit);
       }

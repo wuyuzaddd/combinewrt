@@ -27,6 +27,8 @@ interface ContainerHeaders {
   imageName: string;
   imageSha256: string | null;
   imageSize: number | null;
+  /** Only the cached-file path implements Range; the streaming fallback must not claim it. */
+  acceptRanges: boolean;
 }
 
 /**
@@ -40,9 +42,9 @@ function containerHeaders(input: ContainerHeaders): Record<string, string> {
     "content-type": "application/zip",
     "content-disposition": disposition(input.containerName),
     "cache-control": "private, no-store",
-    "accept-ranges": "bytes",
     "x-image-name": input.imageName,
   };
+  if (input.acceptRanges) headers["accept-ranges"] = "bytes";
   if (input.containerSha256) headers["x-checksum-sha256"] = input.containerSha256;
   if (input.imageSha256) headers["x-image-sha256"] = input.imageSha256;
   if (input.imageSize !== null) headers["x-image-size"] = String(input.imageSize);
@@ -56,6 +58,7 @@ function headersForFile(file: ArtifactFileInfo): Record<string, string> {
     imageName: file.name,
     imageSha256: file.imageSha256,
     imageSize: file.imageSize,
+    acceptRanges: true,
   });
 }
 
@@ -72,6 +75,7 @@ function headersForRecord(record: {
     imageName,
     imageSha256: record.artifactSha256 ?? null,
     imageSize: typeof record.artifactSize === "number" ? record.artifactSize : null,
+    acceptRanges: false,
   });
 }
 
@@ -156,7 +160,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (/no longer available/i.test(message)) {
       return jsonError(
         "expired",
-        "artifact 已过期或已被清理（GitHub Release 默认保留，站点缓存保留 7 天）",
+        "artifact 已过期或已被清理（GitHub artifact 保留 7 天，站点缓存按保留策略清理）",
         409,
       );
     }

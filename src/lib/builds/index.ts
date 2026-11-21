@@ -18,9 +18,11 @@ let cached: BuildService | undefined;
 let reconciler: Reconciler | undefined;
 
 function artifactCache() {
+  const config = getConfig();
   return createArtifactCache({
-    dir: getConfig().artifactCacheDir,
+    dir: config.artifactCacheDir,
     store: createArtifactCacheStore(getDatabase()),
+    limitBytes: config.artifactMaxBytes,
   });
 }
 
@@ -32,6 +34,7 @@ export function getBuildService(): BuildService {
     sessionSecret: getConfig().sessionSecret,
     pollIntervalMs: 5_000,
     cacheDir: getConfig().artifactCacheDir,
+    artifactMaxBytes: getConfig().artifactMaxBytes,
     cache: artifactCache(),
   });
   return cached;
@@ -45,7 +48,11 @@ export function startRetention(): void {
     try {
       const config = getConfig();
       const store = createArtifactCacheStore(getDatabase());
-      const cache = createArtifactCache({ dir: config.artifactCacheDir, store });
+      const cache = createArtifactCache({
+        dir: config.artifactCacheDir,
+        store,
+        limitBytes: config.artifactMaxBytes,
+      });
       // Age first (the retention promise), then the size ceiling; both keep
       // build records and manifests, they only evict cached files.
       const byAge = pruneArtifactCache(config.artifactCacheDir, config.artifactRetentionDays);

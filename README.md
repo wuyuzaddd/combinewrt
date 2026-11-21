@@ -143,6 +143,7 @@ npm run dev
 | `ARTIFACT_CACHE_DIR` | 否 | 站点产物缓存目录，默认与 DB 同目录的 `artifacts/` |
 | `ARTIFACT_RETENTION_DAYS` | 否 | 产物缓存保留天数，默认 7；0 表示不清理 |
 | `ARTIFACT_CACHE_MAX_BYTES` | 否 | 站点缓存总大小上限，默认 20 GiB；0 表示不限制 |
+| `ARTIFACT_MAX_BYTES` | 否 | 单产物下载上限，默认 2 GiB；量交付的 ZIP 容器（压缩后），不量镜像虚拟大小 |
 
 ## 脚本
 
