@@ -71,6 +71,63 @@ describe("source registry extension validation", () => {
     expect(violations.map((item) => item.message).join("\n")).toMatch(/recipeHash does not match/);
   });
 
+  it("accepts a local recipe that names the package", () => {
+    const localRecipe = "local:quickstart";
+    const registry = parseSourceRegistry({
+      schemaVersion: 1,
+      packages: [
+        extensionEntry({
+          name: "quickstart",
+          repo: "istoreos/quickstart",
+          ref,
+          subdir: ".",
+          recipe: localRecipe,
+          recipeHash: createHash("sha256").update(localRecipe).digest("hex"),
+        }),
+      ],
+    });
+    expect(registry.lookup("quickstart", { source: "extension" })).toMatchObject({
+      name: "quickstart",
+      recipe: localRecipe,
+      repo: "istoreos/quickstart",
+      ref,
+      subdir: ".",
+    });
+  });
+
+  it("rejects a local recipe that does not name the package", () => {
+    const localRecipe = "local:luci-app-quickstart";
+    const { violations } = validateSourceRegistryDocument({
+      packages: [
+        extensionEntry({
+          name: "quickstart",
+          repo: "istoreos/quickstart",
+          ref,
+          subdir: ".",
+          recipe: localRecipe,
+          recipeHash: createHash("sha256").update(localRecipe).digest("hex"),
+        }),
+      ],
+    });
+    expect(violations.map((item) => item.message).join("\n")).toMatch(/local recipe must be "local:quickstart"/);
+  });
+
+  it("rejects a local recipe without a matching recipeHash", () => {
+    const { violations } = validateSourceRegistryDocument({
+      packages: [
+        extensionEntry({
+          name: "quickstart",
+          repo: "istoreos/quickstart",
+          ref,
+          subdir: ".",
+          recipe: "local:quickstart",
+          recipeHash: "0".repeat(64),
+        }),
+      ],
+    });
+    expect(violations.map((item) => item.message).join("\n")).toMatch(/recipeHash does not match/);
+  });
+
   it("rejects arbitrary feed URLs anywhere in the document", () => {
     const { violations } = validateSourceRegistryDocument({
       packages: [extensionEntry({ recipe: "https://example.com/feed.tar.gz" })],

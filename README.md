@@ -43,6 +43,8 @@ V2 已完成 tickets 01–16：多目标模型、ImageBuilder/源码混合构建
 
 ### 包来源与镜像 feed set
 
+**扩展 feed 的上游与许可（2026-11-21）**：`quickstart` / `luci-app-quickstart` 来自 `istoreos/quickstart`（MIT，release `v0.17.1-rc20261028`，配方在编译仓 `.github/packages/`），`luci-app-store` / `luci-lib-taskd` / `luci-lib-xterm` / `taskd` 来自 `istoreos/istore`（MIT），`luci-app-partexp` 来自 `sirpdboy/luci-app-partexp`（Apache-2.0，仅 6.12 内核线）。`luci-app-store` 自带的 `is-opkg` 会用 `apk --allow-untrusted` 从 `istore.istoreos.com` 装包——我们只发布该包，**不修改它的运行时行为**，也没有把 `--allow-untrusted` 写进镜像或默认 repository；是否改为指向本站 feed 待单独决策。
+
 四层来源：official（ImmortalWrt，可选 `IMMORTALWRT_MIRROR`）、dllkids、supplement、extension。外部源必须先进 `config/sources/registry.json`（SPDX、source、pin、ABI、targets、`publicAllowed`）；每个包按 target × kernel line 解析成 `prebuilt` / `rebuild` / `blocked`，prebuilt 不可用或 ABI 不匹配时回退到已登记 recipe，否则 409。V2.0 不镜像外部二进制，只存 URL + pin。
 
 镜像 feed set（ticket 09）：

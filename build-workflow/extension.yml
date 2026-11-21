@@ -206,6 +206,9 @@ jobs:
           test -f "$RUNNER_TEMP/sdk/Makefile"
 
       - name: Fetch ${{ matrix.package }} sources
+        # `local:` recipes live in this repository and are staged from the
+        # checkout; every other entry is fetched from its pinned upstream commit.
+        if: matrix.local != true
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/src"
@@ -216,6 +219,10 @@ jobs:
           else
             test -f "$RUNNER_TEMP/src/${{ matrix.subdir }}/Makefile"
           fi
+
+      - name: Stage the local recipe
+        if: matrix.local == true
+        run: scripts/stage-local-recipe.sh "${{ matrix.package }}" "$RUNNER_TEMP/pkg"
 
       - name: Prepare SDK
         run: scripts/prepare-sdk.sh "$RUNNER_TEMP/sdk"
@@ -269,7 +276,9 @@ jobs:
           EXT_SUBDIR: ${{ matrix.subdir }}
         run: |
           set -euo pipefail
-          if [ "$EXT_SUBDIR" = "." ]; then
+          if [ "${{ matrix.local }}" = "true" ]; then
+            source_dir="$RUNNER_TEMP/pkg"
+          elif [ "$EXT_SUBDIR" = "." ]; then
             source_dir="$RUNNER_TEMP/src"
           else
             source_dir="$RUNNER_TEMP/src/$EXT_SUBDIR"
@@ -283,6 +292,24 @@ jobs:
             https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/apk-tools-static-3.0.9-r0.apk
           mkdir -p "$RUNNER_TEMP/apkstatic"
           tar -xzf "$RUNNER_TEMP/apk-tools.apk" -C "$RUNNER_TEMP/apkstatic" --ignore-zeros
+
+      - name: Assert the apk version is legal
+        # ADR 0007: `apk version` must accept the version we publish. Upstream
+        # versions such as `1.2.3-rc20260101` or a doubled `-r1-r7` are rejected
+        # here instead of inside the published index.
+        run: |
+          set -euo pipefail
+          apk_tool="$RUNNER_TEMP/apkstatic/sbin/apk.static"
+          apk_file="$(ls "$GITHUB_WORKSPACE"/out/*.apk | head -1)"
+          base="$(basename "$apk_file" .apk)"
+          version="${base#"${{ matrix.package }}"-}"
+          if [ -z "$version" ] || [ "$version" = "$base" ]; then
+            echo "cannot derive the version from $(basename "$apk_file")" >&2
+            exit 1
+          fi
+          echo "package version: $version"
+          "$apk_tool" version -t "$version" "$version" | tee out/apk-version.txt
+          echo "apk version: OK ($version)" | tee -a out/apk-version.txt
 
       - name: Verify built apk signature
         # Signing happens inside the SDK at build time, so the package verifies
@@ -369,6 +396,26 @@ jobs:
           mkdir -p build/verify
           cp -a artifacts/*.txt build/verify/ 2>/dev/null || true
 
+      - name: Assert no overlap with the official package index
+        # ADR 0007: the signed feed must never shadow an official ImmortalWrt
+        # package, because apk resolves by name/version and not by repository
+        # order. The official index of the same release is the reference set.
+        run: |
+          set -euo pipefail
+          # The official release is split into feeds; union all of them.
+          feeds="base luci packages routing telephony"
+          official_args=()
+          for feed in $feeds; do
+            out="$RUNNER_TEMP/official-$feed.adb"
+            curl -fsSL --retry 3 -o "$out" \
+              "https://downloads.immortalwrt.org/releases/$BASE_VERSION/packages/$FEED_ARCH/$feed/packages.adb"
+            official_args+=(--official-index "$out")
+          done
+          node scripts/check-official-overlap.mjs \
+            --manifest build/manifest.json \
+            "${official_args[@]}" \
+            --apk-tool "$RUNNER_TEMP/apkstatic/sbin/apk.static"
+
       - name: Bundle dependency test
         run: |
           node scripts/test-extension-bundles.mjs \
@@ -419,4 +466,5 @@ jobs:
             -f client_payload[target]="$TARGET" \
             -f client_payload[feed_lock]="${{ needs.prepare.outputs.feed_lock }}" \
             -f client_payload[publish_mode]="$PUBLISH_MODE" \
+            -f client_payload[feed_kind]=extension \
             -f client_payload[build_conclusion]="${{ needs.build.result }}"

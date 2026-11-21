@@ -6,15 +6,13 @@ import type { SupplementRecipe, SupplementRecipePackage } from "./recipe";
  * Packages the supplement feed ships today. The fallback keeps the watch alive
  * when `config/sources/registry.json` is absent (ticket 12 owns that document),
  * and it matches the build repo's `scripts/select-packages.mjs` allow-list.
+ *
+ * The iStore stack (luci-app-store, luci-lib-taskd, luci-lib-xterm, taskd) moved
+ * to the extension layer, where it is rebuilt from istoreos/istore instead of
+ * the kiddin9/op-packages mirror; publishing the same name from two feeds would
+ * make the installed index depend on repo order.
  */
-export const DEFAULT_SUPPLEMENT_PACKAGES = [
-  "luci-app-fwlive",
-  "luci-app-store",
-  "luci-app-substore",
-  "luci-lib-taskd",
-  "luci-lib-xterm",
-  "taskd",
-] as const;
+export const DEFAULT_SUPPLEMENT_PACKAGES = ["luci-app-fwlive", "luci-app-substore"] as const;
 
 export interface SupplementRecipeOptions {
   registry: SourceRegistry;

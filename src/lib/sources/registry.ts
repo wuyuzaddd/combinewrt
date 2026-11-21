@@ -46,6 +46,19 @@ function recipeFor(repo: string, ref: string, subdir: string): string {
 }
 
 /**
+ * Prefix of a recipe that lives in the build repository itself
+ * (`.github/packages/<name>`) instead of an upstream checkout. It exists for
+ * upstreams that publish prebuilt archives without an OpenWrt package
+ * definition (quickstart): the recipe is ours, the pinned `repo`/`ref` still
+ * name the upstream the published manifest points at.
+ */
+export const LOCAL_RECIPE_PREFIX = "local:";
+
+export function localRecipeFor(name: string): string {
+  return `${LOCAL_RECIPE_PREFIX}${name}`;
+}
+
+/**
  * Validate the nested `i18n` object. The status is required and restricted to
  * the ADR 0003 values; title/description are optional display text. This is
  * metadata only and deliberately independent of every admission check.
@@ -223,9 +236,17 @@ function validateEntry(
     if (!targets || targets.length === 0) fail("extension packages must declare the targets they support");
     if (patches && patches.length > 0) fail("extension packages do not support source patches yet");
     if (repo && ref && subdir) {
-      const expectedRecipe = recipeFor(repo, ref, subdir);
-      if (typeof raw.recipe !== "string" || raw.recipe !== expectedRecipe) {
-        fail(`extension recipe must be "${expectedRecipe}"`);
+      const declaredRecipe = typeof raw.recipe === "string" ? raw.recipe.trim() : "";
+      const local = declaredRecipe.startsWith(LOCAL_RECIPE_PREFIX);
+      // A local recipe is named after the package because the build workflow
+      // maps `local:<name>` to `.github/packages/<name>` with no extra field.
+      const expectedRecipe = local ? localRecipeFor(name) : recipeFor(repo, ref, subdir);
+      if (declaredRecipe !== expectedRecipe) {
+        fail(
+          local
+            ? `extension local recipe must be "${expectedRecipe}"`
+            : `extension recipe must be "${expectedRecipe}"`,
+        );
       }
       if (typeof raw.recipeHash !== "string" || !SHA256_PATTERN.test(raw.recipeHash)) {
         fail("extension recipeHash must be the sha256 of the recipe");

@@ -23,6 +23,7 @@
 | 9 | Feeds | 公开/私有 image feed set 正确生成并进 source offer | ✅ | 真实 preflight run 43709222330；feeds/source-offer 单测与 e2e |
 | 10 | Source sync | dllkids 自动采纳 + supplement 自动发布真实跑通一次 | ✅ | supplement 构建→发布→staging→提升真实跑通（`43702446473`/`43703618796`/`43703141721`/`43703283136`）且 main 部署 `43907601591`；**dllkids 自动采纳已在真实站点跑通**（2026-11-20，live feed index sha `36ad823d…`，641 个包）：首次观察即自动 `adopted_bootstrap` 落库（`adopted_by=auto`，seed `04a549ed…` 未被当作权威），随后两次目录刷新都用 DB pin 构建 snapshot `1`（12,262 个包），采纳时间 2026-11-20T13:30:47Z |
 | 11 | Build ops | 队列并发、失败标记、产物下载、source offer、V1 计划只读 | ✅ | 失败标记 `43705890215`、下载/保留期/2 GiB 上限（单测 + 路由测试）、source offer（e2e V2）、V1 只读（`44757195318` + e2e）；**队列真实派发与交付**：build `548c413f-b41b-4070-bf81-cb35a2adbe1c` 在 `MAX_CONCURRENT_BUILDS=1` 下排队 **204.3 s 且 `runId:null`（未调用 GitHub）**，槽位释放后由 reconciler 自动派发 → run [44758426869](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44758426869) 成功，**镜像内文件** sha256 `83c5cc6c01213096ea2e6c9e1809e6d55922f6c034301cc339a3d7445fcc9b70`，12,643,301 B，站点下载路由 **HTTP 200**。早前证据：`44294267917`、`44294943285`、`44298291283`。注意下载路由当前下发的是 GitHub artifact ZIP 容器而文件名标 `.tar.gz`，见“未验证”表中“开放缺陷”一行（ticket 13；2026-11-21 实现：继续交付 ZIP 容器，标注改为容器真实值并在前端提示解压；**真实下载复测已通过**：HTTP 200，12,598,254 B，`X-Checksum-SHA256` = `023fe721…`，`X-Image-Sha256` = `83c5cc6c…` / 12,643,301 B，206/416 均正确） |
+| 13 | Package feed | 上游新组（quickstart / iStore / partexp）进签名 feed，版本合法、签名可验证、来源可审计 | 🟡 | 构建：extension run [44893395104](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44893395104) **7/7 成功**（`manifest: 7/7 packages ok`），每个包 `apk version -t` 返回 `=`（含 `0.17.1_rc20261028-r7`）且 `apk verify` OK；bundle 依赖测试 15 bundles / 0 failure；发布：staging run [44894387084](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44894387084) 成功，7 个包与 `packages.adb` 用项目 feed key 重签后 `apk verify` 全 OK，`verify-feed: ok — 7 package versions`，`extension-staging.json` 的 `sourceRepo/sourceCommit/sourcePath` 逐一指向 istoreos/quickstart / istoreos/istore / sirpdboy/luci-app-partexp；同名断言：官方 5 个 feed 共 10,316 个包 ∩ 本 feed 7 个包 = ∅。**未做的部分见“未验证”表**：live 发布（ADR 0008 的 recipe 门禁要求人工批准）、真实 rootfs 内 `apk add` 安装、`feed-test.yml` 负例 |
 | 12 | Regression | V1 x86_64 标准构建仍通过；旧页面不报错 | ✅ | V1 run [44757195318](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44757195318)（build 仓 main `51d7102`，`workflow_dispatch`，conclusion success）：`immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img.gz` sha256 `022787df9a7f3b10a767ef13aef4f7fb366e0cbb6f23cbc1d1ee5f5a49015255`，21,262,492 B，manifest 为 4 字段 V1 形状；e2e V1 页面；迁移单测 |
 
 ## 字节口径说明
@@ -191,6 +192,63 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 
 **按 ADR 保留的兼容性（记录而非修改）**：V1 表单提交映射为 v2 计划（ADR 0009 冲突 3 已取代 ticket 03 的“旧 V1 表单仍走 v1 plan”），但工作流端仍接受扁平 V1 payload 并对其产出 4 字段 V1 manifest（§12 的 `44757195318` 即为该路径）；`ImageFormatId` 只留在 V1 只读路径；`DLLKIDS_INDEX_SHA256` 配置常量继续保留，但只是全新安装的 seed，DB `source_pins` 是唯一权威。
 
+### 14. 软件包扩展：quickstart / iStore / partexp（2026-11-21）
+
+**上游事实（均为 2026-11-21 用 `api.github.com` 重新核对，不采信二手说法）**
+
+| 包 | 上游 | pin | 许可 | 备注 |
+| --- | --- | --- | --- | --- |
+| `quickstart` | `istoreos/quickstart` | tag `v0.17.1-rc20261028` → commit `0183b167…` | MIT（`/license` API） | release asset `quickstart-binary-0.17.1-rc20261028.tar.gz`，16,229,016 B，sha256 `c2fa6bfe…`（与 release asset 的 `digest` 一致）；版本规范化为 `0.17.1_rc20261028-r7`（`-rc` 形式被 apk 拒收） |
+| `luci-app-quickstart` | 同上 + LuCI 包装 | 同上 | GPL-2.0-only | controller/view/i18n 取自 `kiddin9/op-packages@19a44706`（该仓 LICENSE 为 GPL-2.0），静态资源不 vendor |
+| `luci-app-store` / `luci-lib-taskd` / `luci-lib-xterm` / `taskd` | `istoreos/istore` | `a97ace34…`（2026-09-25） | MIT（仓库 LICENSE） | `luci-app-store` 的 `PKG_VERSION=0.2.1-r1`；此前 registry 按 op-packages 记成 GPL-3.0-only 是错的 |
+| `luci-app-partexp` | `sirpdboy/luci-app-partexp` | `ef79d6b8…` | Apache-2.0（`PKG_LICENSE`；文件头写 GPLv3） | 依赖 `kmod-loop`，故只声明 `kernelLines: ["6.12"]` |
+| `luci-app-netspeedtest` | `sirpdboy/luci-app-netspeedtest` | — | — | **本轮不做**：`api.github.com` 返回 `Repository access blocked`，且 `homebox`/`ookla-speedtest` 是 `PKG_HASH:=skip` 的不可再分发二进制 |
+
+**编译通道**：`istoreos/quickstart` 没有 OpenWrt 包定义（只有 Go 前端与 `web/`），所以 `extension` 通道新增了“本地配方”形态：
+`recipe: "local:<name>"` → 编译仓 `.github/packages/<name>`，`repo`/`ref` 仍作为发布审计的来源（`publish.json` 的 `sourceRepo/sourceCommit/sourcePath`）。站点侧
+`src/lib/sources/registry.ts` 与编译仓 `scripts/select-extension-packages.mjs` 用同一规则校验（本地配方名必须等于包名，`recipeHash = sha256(recipe)`）。
+
+**构建**（编译仓 `main` `de10c5c`，run [44893395104](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44893395104)，feed lock `e918983c30d1df22ffe98b180bd25850711a6fe6`）：
+
+| 包 | 版本 | 产物 |
+| --- | --- | --- |
+| quickstart | `0.17.1_rc20261028-r7` | 6,181,570 B；解包后 `/usr/sbin/quickstart` 13,811,233 B、`/etc/init.d/quickstart`、`/etc/config/quickstart`、`/etc/uci-defaults/09-quickstart`、`/www/luci-static/quickstart` 40 个文件（`app.js`/`index.js`/`vendor.js`/`style.css`/`i18n`/`device-icons`…） |
+| luci-app-quickstart | `0.17.1_rc20261028-r7` | controller（`quickstart.lua`、`istore_backend.lua`）、view（`home.htm`、`main.htm`）、`50_luci-quickstart`；无 htdocs 副本 |
+| luci-app-store | `0.2.1-r1` | |
+| luci-lib-taskd | `1.0.26-r1` | |
+| luci-lib-xterm | `4.18.0-r1` | |
+| taskd | `1.0.3-r2` | |
+| luci-app-partexp | `2.0.5-r20260318` | |
+
+每个 leg 的两个新断言都通过：`Assert the apk version is legal`（`apk version -t <v> <v>` → `=`）与 `Verify built apk signature`（`apk verify` OK）；
+manifest job 的 `bundle report: 15 bundles, 3 proxy, 7 nas/download/monitor, 0 failure(s), 6 skipped`。
+
+**发布**（feed 仓 `main` `af7aba5`，staging run [44894387084](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44894387084)）：7 个 apk 与 `packages.adb` 用项目 feed key 重签后逐个 `apk verify` OK，
+`verify-feed: ok — 7 package versions in catalog, index and on disk`；冻结路径 `/staging/extension/25.12.2/x86_64/e918983c…`，
+`extension-staging.json` 索引 sha256 `505027a2281b0318a45e9ec700f8ec8afdae5bc028ef5356b4a66286bdbc69d7`（1,964 B）。
+live 发布未执行：包集从 6 个（supplement）变为 7 个（extension），ADR 0008 的 recipe/包集门禁本来就会把这类变更压成“待人工批准”，
+批准后由同一 workflow 以 `publish_mode=live` 提升。
+
+**本轮顺带修掉的三个流水线缺陷（都有提交与 run 记录）**
+
+1. `include/scan.mk` 只把含 `call BuildPackage` 字样的 Makefile 计为包目录 —— 纯 `luci.mk` 配方会被静默忽略（`No rule to make target 'package/<name>/compile'`）；
+   配方现在保留 marker 行，`stage-local-recipe.sh` 也据此提前失败。
+2. `extension.yml` 派发 publish 时没传 `feed_kind`，feed 仓默认按 `supplement` 校验，扩展发布 100% 被 “not an packages workflow run” 拒掉；
+   现由派发方显式传 `feed_kind=extension`，`publish.yml` 同时用 `github.event.action` 兜底（`event_type=extension-built`）。
+3. `publish.yml` 的 deploy job 对 staging run 也断言“live 指针已服务且签名”，导致正确 staged 的 run 永远红；现在 `deploy` 只在 `publish_mode == live` 时运行。
+
+**约束遵守**：没有把 `--allow-untrusted` 写进镜像或默认 repositories（`workflow-yaml` 测试继续钉死允许清单）；没有改动签名密钥流程；
+所有下载都带 sha256（`PKG_HASH` 为 64-hex，`stage-local-recipe.sh` 拒绝 `skip`）；`luci-app-store` 的 `root/bin/is-opkg`
+仍会用 `apk --allow-untrusted` 从 `istore.istoreos.com` 拉包 —— **只发布包、不改其运行时行为**，风险写在 §12 的 11.5.1 与 README 里待决策。
+
+**已知遗留（不计入本轮验收）**
+
+- 真实 rootfs 内 `apk add quickstart luci-app-quickstart luci-app-store …` 与 `apk del` 干净卸载未跑（需先 live 发布，或直接对 staging 目录做 feed-test）。
+- `feed-test.yml` 的负例（篡改索引/未知密钥/篡改 apk）未重跑。
+- supplement feed 的 live 索引仍含旧的 `luci-app-store`/`luci-lib-taskd`/`luci-lib-xterm`/`taskd`（版本 `luci-lib-taskd 1.0.26-r2`、`taskd 1.0.3-r1`）；
+  下一次 supplement 发布（ALLOWED 已缩到 `luci-app-fwlive`/`luci-app-substore`）会移除它们。在那之前两个 feed 同名并存，apk 会取版本较高者（即旧 supplement 的 r2）。
+- `luci-app-netspeedtest` 未做（上游仓库 blocked + 不可再分发二进制）。
+
 ## 最终 V2 回归清单
 
 | 要求 | Run | 结果 |
@@ -219,6 +277,10 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 | source watch 24h/48h 连续延迟观察 | 现有 run 均为按需/手动触发；调度器单测覆盖 6h 节奏，但没有连续 48h 线上观察 |
 | IPv6/PPPoE/WiFi/switch-port 真机连通性 | 只验证生成与拒绝路径（单测 + e2e 409），无硬件启动测试 |
 | public vs private 镜像内 repository 文件 diff | 生成逻辑由单测覆盖，未对比两条真实镜像内的文件差异 |
+| 新组包在真实 rootfs 内实装（`apk add` / `apk del`） | 需要 live feed 或直接对 staging 目录跑 `feed-test.yml`；本轮只到 staging（见 §14） |
+| `feed-test.yml` 负例（篡改索引/未知密钥/篡改 apk） | 本轮未重跑；该 workflow 自身逻辑未改动 |
+| live 发布新组包 | 包集与 recipe 变化触发 ADR 0008 的人工批准门禁；staging 已就绪（`/staging/extension/25.12.2/x86_64/e918983c…`） |
+| `luci-app-netspeedtest` | 上游 `sirpdboy/luci-app-netspeedtest` 被 GitHub 屏蔽（`Repository access blocked`）+ `homebox`/`ookla-speedtest` 为 `PKG_HASH:=skip` 的不可再分发二进制，按提示词 §3.3 兜底条款本轮不做 |
 | **已修复（2026-11-21，ticket 13）：下载路由交付 ZIP 容器却按 `.tar.gz` 命名** | `GET /api/builds/<id>/artifact` 实际流式返回 zip 容器（12,598,254 B / `023fe721…`），却用 `Content-Disposition: …tar.gz` 与 `application/gzip` 标注；与构建记录的 `artifactSha256`/`artifactSize`（镜像内文件）不一致，用户拿到 zip 却按 `.tar.gz` 命名。**已按设计修复**：交付 ZIP 容器不变，标注改为容器真实值，补 `X-Image-*` 头部与页面解压提示（migration `150_artifact_container` 记录容器 sha256/size。单测/路由测试已覆盖；真实下载复测已于 2026-11-21 通过（compose 部署））；跟进票：`.scratch/v2-hardening/issues/13-artifact-container-labelling.md` |
 
 ## 本地可复现校验

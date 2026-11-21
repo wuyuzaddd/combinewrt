@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-15",
+  "updatedAt": "2026-11-21",
   "packages": [
     {
       "name": "luci-app-samba4",
@@ -126,23 +126,6 @@
       }
     },
     {
-      "name": "luci-app-store",
-      "source": "supplement",
-      "pin": "19a44706dde7554f21c9d0503cdcfc399914067f",
-      "license": "GPL-3.0-only",
-      "publicAllowed": true,
-      "strategy": "rebuild",
-      "targets": [
-        "x86/64"
-      ],
-      "recipe": "github:kiddin9/op-packages@19a44706dde7554f21c9d0503cdcfc399914067f/luci-app-store",
-      "i18n": {
-        "status": "curated",
-        "title": "iStore 应用商店"
-      },
-      "recipeHash": "379e3e2eb17f428c46549bb21445cc9c643faa63a663ed4be7341121c6f4b570"
-    },
-    {
       "name": "luci-theme-argon",
       "source": "extension",
       "repo": "jerrykuku/luci-theme-argon",
@@ -250,6 +233,160 @@
         "title": "Dockerman 容器管理"
       },
       "recipeHash": "d5967ddc17df6febb15ebfc7db9491226178275f38d439ed9f0dfa93131af8cd"
+    },
+    {
+      "name": "quickstart",
+      "source": "extension",
+      "repo": "istoreos/quickstart",
+      "ref": "0183b16726020b4196df064b3cc6173a581c2f9b",
+      "subdir": ".",
+      "pin": "0183b16726020b4196df064b3cc6173a581c2f9b",
+      "license": "MIT",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "local:quickstart",
+      "i18n": {
+        "status": "curated",
+        "title": "Quickstart 首次开机向导",
+        "description": "官方预编译二进制（v0.17.1-rc20261028），配方在编译仓 .github/packages/quickstart；版本号规范化为 0.17.1_rc20261028-r7 以通过 apk version。"
+      },
+      "recipeHash": "915d57591bfd34234e38d6a930d6690fd1053d8c1df0b696ef02fe3d2857b88f"
+    },
+    {
+      "name": "luci-app-quickstart",
+      "source": "extension",
+      "repo": "istoreos/quickstart",
+      "ref": "0183b16726020b4196df064b3cc6173a581c2f9b",
+      "subdir": ".",
+      "pin": "0183b16726020b4196df064b3cc6173a581c2f9b",
+      "license": "GPL-2.0-only",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "local:luci-app-quickstart",
+      "i18n": {
+        "status": "curated",
+        "title": "Quickstart 菜单（LuCI 包装）",
+        "description": "只含 controller/view/菜单/uci-defaults/i18n，静态资源取自同一份官方 tar 的 web/luci-static/quickstart，不重复打包。"
+      },
+      "recipeHash": "8c512e4d51148d5354521d1f97e6abcda047c4fae785d0169e170bce28f6d66c"
+    },
+    {
+      "name": "luci-app-store",
+      "source": "extension",
+      "repo": "istoreos/istore",
+      "ref": "a97ace34f2da358a015b094d326bba2697697f2e",
+      "subdir": "luci/luci-app-store",
+      "pin": "a97ace34f2da358a015b094d326bba2697697f2e",
+      "license": "MIT",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:istoreos/istore@a97ace34f2da358a015b094d326bba2697697f2e/luci/luci-app-store",
+      "i18n": {
+        "status": "curated",
+        "title": "iStore 应用商店",
+        "description": "官方 istoreos/istore 源码重建（MIT）。注意其 /bin/is-opkg 会用 apk --allow-untrusted 从 istore.istoreos.com 安装，本项目只发布软件包、不改变该运行时行为。"
+      },
+      "recipeHash": "fdbe09071e0c6245e9658951563650dcbb42ecbfd4061c7f263af587a05f622a"
+    },
+    {
+      "name": "luci-lib-taskd",
+      "source": "extension",
+      "repo": "istoreos/istore",
+      "ref": "a97ace34f2da358a015b094d326bba2697697f2e",
+      "subdir": "luci/luci-lib-taskd",
+      "pin": "a97ace34f2da358a015b094d326bba2697697f2e",
+      "license": "MIT",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:istoreos/istore@a97ace34f2da358a015b094d326bba2697697f2e/luci/luci-lib-taskd",
+      "i18n": {
+        "status": "curated",
+        "title": "iStore 任务库（LuCI）"
+      },
+      "recipeHash": "d0c7cbd42a2d45b5a63e8764cd29a4ad9f14edd1378fa6a6a0f8dadaf1e69021"
+    },
+    {
+      "name": "luci-lib-xterm",
+      "source": "extension",
+      "repo": "istoreos/istore",
+      "ref": "a97ace34f2da358a015b094d326bba2697697f2e",
+      "subdir": "luci/luci-lib-xterm",
+      "pin": "a97ace34f2da358a015b094d326bba2697697f2e",
+      "license": "MIT",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:istoreos/istore@a97ace34f2da358a015b094d326bba2697697f2e/luci/luci-lib-xterm",
+      "i18n": {
+        "status": "curated",
+        "title": "xterm.js 库（LuCI）"
+      },
+      "recipeHash": "da0d2d173507c86f0247a2a0a89dd2d3e329aa112b21be29000b7a0be105e6ac"
+    },
+    {
+      "name": "taskd",
+      "source": "extension",
+      "repo": "istoreos/istore",
+      "ref": "a97ace34f2da358a015b094d326bba2697697f2e",
+      "subdir": "luci/taskd",
+      "pin": "a97ace34f2da358a015b094d326bba2697697f2e",
+      "license": "MIT",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:istoreos/istore@a97ace34f2da358a015b094d326bba2697697f2e/luci/taskd",
+      "i18n": {
+        "status": "curated",
+        "title": "taskd 后台任务管理"
+      },
+      "recipeHash": "da9d20b8825bf23396023e5f4a026d73e6724429736a5f28b3f29793e647b6dc"
+    },
+    {
+      "name": "luci-app-partexp",
+      "source": "extension",
+      "repo": "sirpdboy/luci-app-partexp",
+      "ref": "ef79d6b8c7f1e4d476be55dabb4c34d5b7f334c5",
+      "subdir": "luci-app-partexp",
+      "pin": "ef79d6b8c7f1e4d476be55dabb4c34d5b7f334c5",
+      "license": "Apache-2.0",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "kernelLines": [
+        "6.12"
+      ],
+      "patches": [],
+      "recipe": "github:sirpdboy/luci-app-partexp@ef79d6b8c7f1e4d476be55dabb4c34d5b7f334c5/luci-app-partexp",
+      "i18n": {
+        "status": "curated",
+        "title": "自动分区挂载（partexp）",
+        "description": "依赖 kmod-loop，因此只对 6.12 内核线开放；上游 Makefile 头写 GPLv3 但 PKG_LICENSE 声明 Apache-2.0，以 PKG_LICENSE 为准。"
+      },
+      "recipeHash": "a9332eba69946afc41918ae07b423fd465564a5560896adc4c8f07f9cb1b0a3b"
     }
   ]
 }
