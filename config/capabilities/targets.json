@@ -49,7 +49,7 @@
     { "id": "usb-wired", "layer": "package/kernel", "title": "USB wired networking", "experimental": true },
     { "id": "usb-wifi", "layer": "package/kernel", "title": "USB WiFi", "experimental": true },
     { "id": "wwan", "layer": "package/kernel", "title": "WWAN", "experimental": true },
-    { "id": "bypass", "layer": "file/board", "title": "Bypass gateway", "experimental": false }
+    { "id": "bypass", "layer": "file/board", "title": "旁路由（Bypass gateway）", "experimental": false }
   ],
   "targets": [
     {

@@ -1,9 +1,9 @@
 {
   "id": "bypass",
   "layer": "file/board",
-  "title": "Bypass gateway",
+  "title": "旁路由（Bypass gateway）",
   "experimental": false,
-  "description": "Disables the LAN DHCP server and sets the gateway/DNS plus optional source-IP rules; conflicts with a DHCP server.",
+  "description": "旁路由 / 单臂路由：静态 LAN、关闭 DHCP 服务、停用 WAN、LAN 区开启 NAT，并把默认网关与 DNS 指向主路由；关闭 IPv6 委派（除非同时选择 IPv6 模式）。与 DHCP 服务器互斥，必须填写主路由 IP。",
   "requires": [],
   "conflicts": [
     "feature:dhcp-server"

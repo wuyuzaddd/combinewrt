@@ -148,6 +148,50 @@ describe("mode resolution", () => {
     expect(ok.state.network.lan.dhcp.enabled).toBe(false);
   });
 
+  it("generates a bypass gateway (旁路由) with no WAN client and LAN NAT", () => {
+    const result = resolve({
+      overlays: [{ id: "bypass", layer: "file/board" }],
+      lanIp: "192.168.1.2",
+      network: { bypass: { gateway: "192.168.1.1", dns: ["223.5.5.5", "119.29.29.29"] } },
+    });
+    expect(result.issues).toEqual([]);
+    const content = result.files.find((item) => item.path === `files${MODE_UCI_PATH}`)?.content ?? "";
+    expect(content).toContain("uci set network.lan.proto='static'");
+    expect(content).toContain("uci set dhcp.lan.ignore='1'");
+    expect(content).toContain("uci set network.wan.proto='none'");
+    expect(content).toContain("uci -q delete network.wan.dns");
+    expect(content).toContain("uci set firewall.@zone[0].masq='1'");
+    expect(content).toContain("uci set network.lan.gateway='192.168.1.1'");
+    expect(content).toContain("uci set network.lan.dns='223.5.5.5 119.29.29.29'");
+    // No DHCP/PPPoE client is left behind on the WAN side.
+    expect(content).not.toContain("network.wan.proto='dhcp'");
+    expect(content).not.toContain("network.wan.proto='pppoe'");
+    // IPv6 delegation belongs to the upstream router unless IPv6 is explicit.
+    expect(content).toContain("uci -q delete dhcp.lan.ra");
+    expect(content).toContain("uci set network.lan.delegate='0'");
+    expect(content).toContain("uci -q delete network.globals.ula_prefix");
+
+    const withIpv6 = resolve({
+      overlays: [
+        { id: "bypass", layer: "file/board" },
+        { id: "ipv6", layer: "file/board" },
+      ],
+      network: {
+        ipv6: "relay",
+        bypass: { gateway: "192.168.1.1" },
+      },
+    });
+    expect(withIpv6.issues).toEqual([]);
+    const ipv6Content = withIpv6.files.find((item) => item.path === `files${MODE_UCI_PATH}`)?.content ?? "";
+    expect(ipv6Content).not.toContain("uci -q delete dhcp.lan.ra");
+    expect(ipv6Content).toContain("uci set network.wan6.proto='relay'");
+  });
+
+  it("requires the main router IP when the bypass mode is selected", () => {
+    const result = resolve({ overlays: [{ id: "bypass", layer: "file/board" }] });
+    expect(result.issues.join("\n")).toMatch(/bypass.*gateway/i);
+  });
+
   it("requires a radio capability or the usb-wifi overlay for wifi", () => {
     const wifiNetwork = {
       ssid: "combinewrt",

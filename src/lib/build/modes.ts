@@ -663,6 +663,9 @@ function validateNetwork(
   if (!selected.has("bypass") && network.bypass) {
     issues.push('network.bypass requires the "bypass" mode.');
   }
+  if (selected.has("bypass") && !network.bypass?.gateway) {
+    issues.push("Mode \"bypass\" requires network.bypass.gateway (the main router IP).");
+  }
 
 }
 
@@ -686,23 +689,29 @@ function generateModeUci(
   }
   commits.add("dhcp");
 
-  lines.push(`uci set network.wan.proto=${shellQuote(network.wan.protocol)}`);
-  if (network.wan.device && network.wan.device !== "default") {
-    lines.push(`uci set network.wan.device=${shellQuote(network.wan.device)}`);
-  }
-  if (network.wan.protocol === "static") {
-    if (network.wan.ipv4) lines.push(`uci set network.wan.ipaddr=${shellQuote(network.wan.ipv4)}`);
-    if (network.wan.netmask) lines.push(`uci set network.wan.netmask=${shellQuote(network.wan.netmask)}`);
-    if (network.wan.gateway) lines.push(`uci set network.wan.gateway=${shellQuote(network.wan.gateway)}`);
-  }
-  if (network.wan.protocol === "pppoe") {
-    if (network.wan.username) lines.push(`uci set network.wan.username=${shellQuote(network.wan.username)}`);
-    if (network.wan.password) lines.push(`uci set network.wan.password=${shellQuote(network.wan.password)}`);
-    if (network.wan.mtu !== undefined) lines.push(`uci set network.wan.mtu=${shellQuote(String(network.wan.mtu))}`);
-  }
-  if (network.dns.length > 0) {
-    lines.push("uci set network.wan.peerdns='0'");
-    lines.push(`uci set network.wan.dns=${shellQuote(network.dns.join(" "))}`);
+  // A bypass gateway has no WAN of its own: the upstream router keeps the
+  // uplink and this box only serves its LAN. Emitting the normal WAN block
+  // would leave a DHCP/PPPoE client behind that the bypass block then has to
+  // undo, so it is skipped entirely.
+  if (!network.bypass) {
+    lines.push(`uci set network.wan.proto=${shellQuote(network.wan.protocol)}`);
+    if (network.wan.device && network.wan.device !== "default") {
+      lines.push(`uci set network.wan.device=${shellQuote(network.wan.device)}`);
+    }
+    if (network.wan.protocol === "static") {
+      if (network.wan.ipv4) lines.push(`uci set network.wan.ipaddr=${shellQuote(network.wan.ipv4)}`);
+      if (network.wan.netmask) lines.push(`uci set network.wan.netmask=${shellQuote(network.wan.netmask)}`);
+      if (network.wan.gateway) lines.push(`uci set network.wan.gateway=${shellQuote(network.wan.gateway)}`);
+    }
+    if (network.wan.protocol === "pppoe") {
+      if (network.wan.username) lines.push(`uci set network.wan.username=${shellQuote(network.wan.username)}`);
+      if (network.wan.password) lines.push(`uci set network.wan.password=${shellQuote(network.wan.password)}`);
+      if (network.wan.mtu !== undefined) lines.push(`uci set network.wan.mtu=${shellQuote(String(network.wan.mtu))}`);
+    }
+    if (network.dns.length > 0) {
+      lines.push("uci set network.wan.peerdns='0'");
+      lines.push(`uci set network.wan.dns=${shellQuote(network.dns.join(" "))}`);
+    }
   }
 
   if (selected.has("switch-port") && network.switchPort) {
@@ -711,7 +720,7 @@ function generateModeUci(
       lines.push(`uci set network.lan.device=${shellQuote(network.switchPort.lan[0]!)}`);
     } else {
       lines.push("uci set network.lan.device='br-lan'");
-      lines.push("uci -q delete network.br_lan");
+      lines.push("uci -q delete network.br_lan || true");
       lines.push("uci set network.br_lan='device'");
       lines.push("uci set network.br_lan.name='br-lan'");
       lines.push("uci set network.br_lan.type='bridge'");
@@ -737,12 +746,29 @@ function generateModeUci(
   }
 
   if (network.bypass) {
+    // Bypass gateway (旁路由 / single-arm gateway), matching the wizard shipped
+    // by iStoreOS/Kwrt: static LAN, DHCP server off, no WAN, LAN zone NAT on so
+    // clients that point their gateway/DNS at this box still reach the upstream
+    // router, and no IPv6 delegation (the upstream router owns the prefix).
+    lines.push("uci set network.lan.proto='static'");
+    lines.push("uci set network.wan.proto='none'");
+    lines.push("uci -q delete network.wan.dns || true");
+    lines.push("uci -q delete network.wan.peerdns || true");
+    lines.push("uci set firewall.@zone[0].masq='1'");
+    commits.add("firewall");
     if (network.bypass.gateway) {
       lines.push(`uci set network.lan.gateway=${shellQuote(network.bypass.gateway)}`);
     }
     const bypassDns = network.bypass.dns ?? network.dns;
     if (bypassDns.length > 0) {
       lines.push(`uci set network.lan.dns=${shellQuote(bypassDns.join(" "))}`);
+    }
+    if (!selected.has("ipv6")) {
+      lines.push("uci -q delete dhcp.lan.ra || true");
+      lines.push("uci -q delete dhcp.lan.dhcpv6 || true");
+      lines.push("uci set network.lan.delegate='0'");
+      lines.push("uci -q delete network.globals.ula_prefix || true");
+      commits.add("dhcp");
     }
     network.bypass.sourceIps?.forEach((source, index) => {
       lines.push("uci add firewall rule");
