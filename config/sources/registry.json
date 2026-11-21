@@ -387,6 +387,72 @@
         "description": "依赖 kmod-loop，因此只对 6.12 内核线开放；上游 Makefile 头写 GPLv3 但 PKG_LICENSE 声明 Apache-2.0，以 PKG_LICENSE 为准。"
       },
       "recipeHash": "a9332eba69946afc41918ae07b423fd465564a5560896adc4c8f07f9cb1b0a3b"
+    },
+    {
+      "name": "luci-app-netspeedtest",
+      "source": "extension",
+      "repo": "kiddin9/op-packages",
+      "ref": "19a44706dde7554f21c9d0503cdcfc399914067f",
+      "subdir": "luci-app-netspeedtest",
+      "pin": "19a44706dde7554f21c9d0503cdcfc399914067f",
+      "license": "GPL-3.0-only",
+      "publicAllowed": false,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "local:luci-app-netspeedtest",
+      "i18n": {
+        "status": "curated",
+        "title": "网络测速（netspeedtest，自用）",
+        "description": "上游 sirpdboy/luci-app-netspeedtest 被 GitHub 屏蔽，配方取自 op-packages@19a44706；publicAllowed=false，仅私有/自用镜像。"
+      },
+      "recipeHash": "d55ba07db19926ac5541a62070bbcc42d73a37bcad0ca4f7925d7bdebe3c1afa"
+    },
+    {
+      "name": "homebox",
+      "source": "extension",
+      "repo": "sirpdboy/homebox",
+      "ref": "a8312c5cd74f2b3fafbbb2eb164cf9064b74d7b2",
+      "subdir": ".",
+      "pin": "a8312c5cd74f2b3fafbbb2eb164cf9064b74d7b2",
+      "license": "LicenseRef-Proprietary",
+      "publicAllowed": false,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "local:homebox",
+      "i18n": {
+        "status": "curated",
+        "title": "homebox 内网测速（预编译，自用）",
+        "description": "预编译二进制（v1.0.1，amd64 musl），许可为专有；publicAllowed=false，仅私有/自用镜像，不得进入公开 feed。"
+      },
+      "recipeHash": "b7417ba15b45315fb75e312c46bd8b4afb9b2b8dba8f3b15bf8223cc889e83d5"
+    },
+    {
+      "name": "ookla-speedtest",
+      "source": "extension",
+      "repo": "kiddin9/op-packages",
+      "ref": "19a44706dde7554f21c9d0503cdcfc399914067f",
+      "subdir": "ookla-speedtest",
+      "pin": "19a44706dde7554f21c9d0503cdcfc399914067f",
+      "license": "LicenseRef-Ookla-Speedtest-EULA",
+      "publicAllowed": false,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "local:ookla-speedtest",
+      "i18n": {
+        "status": "curated",
+        "title": "Ookla Speedtest CLI（预编译，自用）",
+        "description": "官方 CLI（1.2.0），Ookla EULA 不允许再分发；publicAllowed=false，仅私有/自用镜像。"
+      },
+      "recipeHash": "98e7943ac044b36eb5b74d22a14f34327cfc4580aa3910dee824913e70b934ba"
     }
   ]
 }

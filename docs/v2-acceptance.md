@@ -202,7 +202,7 @@ V2.0 的真实构建证据全部来自 `x86/64` + `generic`。ARM 条目在 regi
 | `luci-app-quickstart` | 同上 + LuCI 包装 | 同上 | GPL-2.0-only | controller/view/i18n 取自 `kiddin9/op-packages@19a44706`（该仓 LICENSE 为 GPL-2.0），静态资源不 vendor |
 | `luci-app-store` / `luci-lib-taskd` / `luci-lib-xterm` / `taskd` | `istoreos/istore` | `a97ace34…`（2026-09-25） | MIT（仓库 LICENSE） | `luci-app-store` 的 `PKG_VERSION=0.2.1-r1`；此前 registry 按 op-packages 记成 GPL-3.0-only 是错的 |
 | `luci-app-partexp` | `sirpdboy/luci-app-partexp` | `ef79d6b8…` | Apache-2.0（`PKG_LICENSE`；文件头写 GPLv3） | 依赖 `kmod-loop`，故只声明 `kernelLines: ["6.12"]` |
-| `luci-app-netspeedtest` | `sirpdboy/luci-app-netspeedtest` | — | — | **本轮不做**：`api.github.com` 返回 `Repository access blocked`，且 `homebox`/`ookla-speedtest` 是 `PKG_HASH:=skip` 的不可再分发二进制 |
+| `luci-app-netspeedtest` + `homebox` + `ookla-speedtest` | `kiddin9/op-packages`（netspeedtest/ookla 镜像）、`sirpdboy/homebox` | `19a44706…`（op-packages）、`a8312c5c…`（homebox v1.0.1） | GPL-3.0-only / `LicenseRef-Proprietary` / `LicenseRef-Ookla-Speedtest-EULA` | **自用（私有）**：上游 netspeedtest 仓 `Repository access blocked`；homebox 为专有预编译、Ookla CLI 受 EULA 限制。三者 `publicAllowed: false`，本地配方 + 固定 `PKG_HASH`（`5640b5a9…` / `5690596c…`），只进私有/自用镜像 |
 
 **编译通道**：`istoreos/quickstart` 没有 OpenWrt 包定义（只有 Go 前端与 `web/`），所以 `extension` 通道新增了“本地配方”形态：
 `recipe: "local:<name>"` → 编译仓 `.github/packages/<name>`，`repo`/`ref` 仍作为发布审计的来源（`publish.json` 的 `sourceRepo/sourceCommit/sourcePath`）。站点侧
@@ -240,6 +240,12 @@ live 发布未执行：包集从 6 个（supplement）变为 7 个（extension�
 **约束遵守**：没有把 `--allow-untrusted` 写进镜像或默认 repositories（`workflow-yaml` 测试继续钉死允许清单）；没有改动签名密钥流程；
 所有下载都带 sha256（`PKG_HASH` 为 64-hex，`stage-local-recipe.sh` 拒绝 `skip`）；`luci-app-store` 的 `root/bin/is-opkg`
 仍会用 `apk --allow-untrusted` 从 `istore.istoreos.com` 拉包 —— **只发布包、不改其运行时行为**，风险写在 §12 的 11.5.1 与 README 里待决策。
+
+**自用（私有）组**：`luci-app-netspeedtest`（配方取自 `kiddin9/op-packages@19a44706`，上游 tarball 取不到）、`homebox`
+（预编译 v1.0.1，`PKG_HASH=5640b5a9…`，专有）、`ookla-speedtest`（官方 CLI 1.2.0，`PKG_HASH=5690596c…`，EULA 限制）。
+三者 `publicAllowed: false`、许可写成 `LicenseRef-*`；校验器（站点 `registry.ts` 与编译仓 `select-extension-packages.mjs`）
+只允许私有条目使用 `LicenseRef-*`，因此它们不可能被误认为开源件。新增 `monitor-netspeedtest` 私有 bundle。
+**边界**：这些包只能进私有/自用镜像，不进公开计划/公开 bundle，也不应 promote 到公开 feed（Pages 是公开可读的）。
 
 **已知遗留（不计入本轮验收）**
 
@@ -280,7 +286,7 @@ live 发布未执行：包集从 6 个（supplement）变为 7 个（extension�
 | 新组包在真实 rootfs 内实装（`apk add` / `apk del`） | 需要 live feed 或直接对 staging 目录跑 `feed-test.yml`；本轮只到 staging（见 §14） |
 | `feed-test.yml` 负例（篡改索引/未知密钥/篡改 apk） | 本轮未重跑；该 workflow 自身逻辑未改动 |
 | live 发布新组包 | 包集与 recipe 变化触发 ADR 0008 的人工批准门禁；staging 已就绪（`/staging/extension/25.12.2/x86_64/e918983c…`） |
-| `luci-app-netspeedtest` | 上游 `sirpdboy/luci-app-netspeedtest` 被 GitHub 屏蔽（`Repository access blocked`）+ `homebox`/`ookla-speedtest` 为 `PKG_HASH:=skip` 的不可再分发二进制，按提示词 §3.3 兜底条款本轮不做 |
+| 自用三件套的实装与公开边界 | `luci-app-netspeedtest`/`homebox`/`ookla-speedtest` 已按 `publicAllowed: false` 收录并可构建，但**不做**公开 feed 的 live 发布、不进公开镜像与公开 bundle；它们进私有镜像的实装验证同样需要 live/私有 feed，未跑 |
 | **已修复（2026-11-21，ticket 13）：下载路由交付 ZIP 容器却按 `.tar.gz` 命名** | `GET /api/builds/<id>/artifact` 实际流式返回 zip 容器（12,598,254 B / `023fe721…`），却用 `Content-Disposition: …tar.gz` 与 `application/gzip` 标注；与构建记录的 `artifactSha256`/`artifactSize`（镜像内文件）不一致，用户拿到 zip 却按 `.tar.gz` 命名。**已按设计修复**：交付 ZIP 容器不变，标注改为容器真实值，补 `X-Image-*` 头部与页面解压提示（migration `150_artifact_container` 记录容器 sha256/size。单测/路由测试已覆盖；真实下载复测已于 2026-11-21 通过（compose 部署））；跟进票：`.scratch/v2-hardening/issues/13-artifact-container-labelling.md` |
 
 ## 本地可复现校验

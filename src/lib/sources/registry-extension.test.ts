@@ -44,6 +44,37 @@ describe("source registry extension validation", () => {
     });
   });
 
+  it("accepts a custom licence reference only for a private package", () => {
+    const privateEntry = extensionEntry({
+      name: "homebox",
+      license: "LicenseRef-Proprietary",
+      publicAllowed: false,
+      repo: "sirpdboy/homebox",
+      ref,
+      subdir: ".",
+      recipe: "local:homebox",
+      recipeHash: createHash("sha256").update("local:homebox").digest("hex"),
+    });
+    expect(parseSourceRegistry({ packages: [privateEntry] }).lookup("homebox")?.license).toBe(
+      "LicenseRef-Proprietary",
+    );
+
+    const publicEntry = extensionEntry({
+      name: "homebox",
+      license: "LicenseRef-Proprietary",
+      publicAllowed: true,
+      repo: "sirpdboy/homebox",
+      ref,
+      subdir: ".",
+      recipe: "local:homebox",
+      recipeHash: createHash("sha256").update("local:homebox").digest("hex"),
+    });
+    const { violations } = validateSourceRegistryDocument({ packages: [publicEntry] });
+    expect(violations.map((item) => item.message).join("\n")).toMatch(
+      /custom reference and requires publicAllowed: false/,
+    );
+  });
+
   it("rejects an unreviewed SPDX identifier", () => {
     const { violations } = validateSourceRegistryDocument({ packages: [extensionEntry({ license: "WTFPL" })] });
     expect(violations.map((item) => item.message).join("\n")).toMatch(/not a reviewed SPDX identifier/);

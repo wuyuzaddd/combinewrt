@@ -266,6 +266,25 @@
       "tests": [
         "dependency"
       ]
+    },
+    {
+      "id": "monitor-netspeedtest",
+      "title": "网络测速（netspeedtest，自用）",
+      "description": "内网 homebox + 外网 Ookla 测速面板。三个包都不可再分发，仅用于私有/自用镜像，publicAllowed=false。",
+      "category": "monitor",
+      "packages": [
+        "luci-app-netspeedtest",
+        "homebox",
+        "ookla-speedtest"
+      ],
+      "targets": [
+        "x86/64"
+      ],
+      "license": "GPL-3.0-only",
+      "publicAllowed": false,
+      "tests": [
+        "dependency"
+      ]
     }
   ]
 }

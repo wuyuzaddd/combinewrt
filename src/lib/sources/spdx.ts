@@ -35,3 +35,17 @@ const SPDX_SET: ReadonlySet<string> = new Set(SPDX_IDS);
 export function isSpdxId(value: unknown): value is SpdxId {
   return typeof value === "string" && SPDX_SET.has(value);
 }
+
+/**
+ * SPDX custom licence reference (`LicenseRef-<idstring>`): a licence we read but
+ * cannot express as an SPDX identifier, such as a proprietary EULA.
+ *
+ * It is only acceptable for a package that is not public (`publicAllowed:
+ * false`), so a self-use package can be registered honestly instead of being
+ * mislabelled as open source; the registry rejects it for public entries.
+ */
+const LICENSE_REF_PATTERN = /^LicenseRef-[A-Za-z0-9][A-Za-z0-9.-]*$/;
+
+export function isLicenseRef(value: unknown): value is string {
+  return typeof value === "string" && LICENSE_REF_PATTERN.test(value);
+}

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PACKAGE_SOURCES, type PackageSource } from "../catalog/types";
-import { isSpdxId } from "./spdx";
+import { isLicenseRef, isSpdxId } from "./spdx";
 import {
   I18N_STATUSES,
   type AcquisitionStrategy,
@@ -141,10 +141,14 @@ function validateEntry(
     fail(`strategy must be one of ${STRATEGIES.join(", ")}`);
   }
 
-  if (!isSpdxId(raw.license)) {
+  const licenseIsRef = isLicenseRef(raw.license);
+  const privateOnly = raw.publicAllowed === false;
+  if (!isSpdxId(raw.license) && !(licenseIsRef && privateOnly)) {
     fail(
       typeof raw.license === "string"
-        ? `license "${raw.license}" is not a reviewed SPDX identifier`
+        ? licenseIsRef
+          ? `license "${raw.license}" is a custom reference and requires publicAllowed: false`
+          : `license "${raw.license}" is not a reviewed SPDX identifier`
         : "license is required (SPDX identifier)",
     );
   }
