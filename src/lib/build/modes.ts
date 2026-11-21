@@ -676,6 +676,22 @@ function generateModeUci(
   const lines: string[] = ["#!/bin/sh", "set -e", ""];
   const commits = new Set<string>(["network"]);
 
+  /**
+   * `uci set network.<section>.<option>` fails on a section that does not exist
+   * yet, and a stock x86/64 first boot only creates `lan` (plus `wan` when a
+   * second NIC is present): `wan6` never exists there. With `set -e` at the top
+   * of the generated script that aborted the whole mode overlay, so every block
+   * that writes into an interface section first ensures the section exists.
+   */
+  const ensureInterface = (name: string, device?: string) => {
+    const create = [`uci set network.${name}='interface'`];
+    if (device) create.push(`uci set network.${name}.device=${shellQuote(device)}`);
+    lines.push(`uci -q get network.${name} >/dev/null || { ${create.join("; ")}; }`);
+  };
+
+  ensureInterface("lan");
+  ensureInterface("wan");
+
   lines.push(`uci set network.lan.ipaddr=${shellQuote(network.lan.ipv4)}`);
   lines.push(`uci set network.lan.netmask=${shellQuote(network.lan.netmask)}`);
 
@@ -731,6 +747,8 @@ function generateModeUci(
   }
 
   if (selected.has("ipv6")) {
+    // Stock images have no wan6 interface at all; create it on the wan device.
+    ensureInterface("wan6", "@wan");
     if (network.ipv6 === "relay") {
       lines.push("uci set network.wan6.proto='relay'");
     } else if (network.ipv6 === "dhcpv6") {

@@ -43,6 +43,8 @@ V2 已完成 tickets 01–16：多目标模型、ImageBuilder/源码混合构建
 
 ### 包来源与镜像 feed set
 
+同名包以 dllkids 为准：私有镜像里同一包名如果 dllkids 与本站 feed 都有，`apk-dllkids` 包装器显式加入 dllkids 索引，而它的日期式版本号高于我们的版本号，所以装到的是 dllkids 的构建；公开镜像完全不含 dllkids，公开 feed 与它也没有交集。想用本站构建时不要走包装器即可。
+
 **自用（私有）包**：`luci-app-netspeedtest`、`homebox`、`ookla-speedtest` 三个在 registry 里是 `publicAllowed: false`——它们分别是 GPL-3.0 的 LuCI 面板、专有预编译二进制、Ookla EULA 限制的 CLI，只用于自己的私有镜像，不进公开镜像计划、不进公开 bundle，也不应 promote 到公开 feed。许可字段用 SPDX 的 `LicenseRef-*`，校验器只允许私有条目这样写。
 
 **扩展 feed 的上游与许可（2026-11-21）**：`quickstart` / `luci-app-quickstart` 来自 `istoreos/quickstart`（MIT，release `v0.17.1-rc20261028`，配方在编译仓 `.github/packages/`），`luci-app-store` / `luci-lib-taskd` / `luci-lib-xterm` / `taskd` 来自 `istoreos/istore`（MIT），`luci-app-partexp` 来自 `sirpdboy/luci-app-partexp`（Apache-2.0，仅 6.12 内核线）。`luci-app-store` 自带的 `is-opkg` 会用 `apk --allow-untrusted` 从 `istore.istoreos.com` 装包——我们只发布该包，**不修改它的运行时行为**，也没有把 `--allow-untrusted` 写进镜像或默认 repository；是否改为指向本站 feed 待单独决策。

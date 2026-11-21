@@ -318,6 +318,12 @@ export function buildImageFeedSet(
   ];
 
   if (isPrivate && resolvedOptions.dllkidsFeedUrl) {
+    // Decision (2026-11-21): for a package that exists in both dllkids and our
+    // signed feeds, the dllkids build is the authority in a private image. The
+    // wrapper adds the dllkids index explicitly, and its date-derived versions
+    // sort above ours, so apk resolves to the dllkids build. Nothing here tries
+    // to outrank it: the public feeds never contain dllkids, and a private image
+    // that wants our build simply does not call the wrapper.
     const dllkidsUrl = `${trimBase(resolvedOptions.dllkidsFeedUrl)}/packages.adb`;
     files.push({
       path: feedPlanPath(DLLKIDS_WRAPPER_PATH),

@@ -270,10 +270,24 @@ staging 发布 [44898161597](https://github.com/wuyuzaddd/combinewrt-packages/ac
    `luci-app-fwlive`、`luci-app-substore`；V1 扁平镜像同步。`luci-lib-taskd`/`taskd` 不再有 r2/r1 版本打架。
 5. **私有 bundle 的可安装性测试**：`test-bundle-installability.ts` 跳过 `publicAllowed: false` 的 bundle（它们的包按设计不在公开索引里）。
 
+6. **自用三件套的真实安装**：feed-client-test run [44902659697](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44902659697) **PASS**——
+   `installing 3 packages: homebox luci-app-netspeedtest ookla-speedtest` → 版本核对 → `clean uninstall verified` →
+   篡改索引/伪装签名/篡改 apk 全部被拒。过程中修掉三个测试脚本缺陷：包名写死（改为从 `catalog.json` 推导）、
+   受害者包写死 `luci-app-store`（改为取清单第一个）、以及 apk 缓存导致篡改包被"接受"（先清缓存，并把卸载检查挪到负例之前）。
+7. **IPv6 模式在真实 rootfs 上验证（2026-11-21）**：用官方 `immortalwrt-25.12.2-x86-64-rootfs.tar.gz` 解出的 rootfs
+   chroot 执行生成的 `/etc/uci-defaults/90-combinewrt-modes`。**发现并修掉一个真实缺陷**：`uci set network.<section>.<option>`
+   在 section 不存在时返回 `Invalid argument`，而 x86/64 首启只会创建 `lan`（有第二块网卡才有 `wan`），**从不创建 `wan6`**；
+   脚本首行又是 `set -e`，于是整个 mode overlay 在 `wan6` 那行静默中止（连前面的 `uci set` 也不会 commit）。
+   现在生成器对 lan/wan/wan6 先 `uci -q get … || uci set network.<name>='interface'`（wan6 额外 `device='@wan'`）。
+   修复后在同一 rootfs 上（stock 形态：lan+wan、无 wan6）**rc=0**，结果为
+   `network.wan6.device='@wan'`、`proto='dhcpv6'`、`reqaddress='try'`、`reqprefix='auto'`，`lan.ipaddr` 与 `dhcp.lan.*` 也都落库。
+   **边界**：这是配置层验证，IPv6 实际连通性仍需真机拨号环境。
+
 **仍不在本轮范围**
 
 - 与官方索引同名断言、许可断言都已在流水线里自动跑（extension manifest job）。
 - 上游 `sirpdboy/luci-app-netspeedtest` 仍被 GitHub 屏蔽；自用组用的是 op-packages 的镜像配方。
+- 私有镜像里 dllkids 与本站 feed 同名时以 dllkids 为准（版本号更高，`apk-dllkids` 包装器显式加该源）。
 
 ## 最终 V2 回归清单
 
@@ -301,7 +315,7 @@ staging 发布 [44898161597](https://github.com/wuyuzaddd/combinewrt-packages/ac
 | 真正 QEMU/init 启动镜像并拉起 dockerd 跑容器 | 本机无 KVM；Docker 行用 boot-equivalent tmpfs + chroot 验证（run `44309616413`），未做完整开机与容器运行 |
 | bundle 包在构建出的镜像内实装 | bundle 闭包可安装性已用真实 `apk add --simulate` 执行（`44753804235`，13/13，见 §7），但未在真实构建产物的 rootfs 内 `apk add` 落盘 |
 | source watch 24h/48h 连续延迟观察 | 现有 run 均为按需/手动触发；调度器单测覆盖 6h 节奏，但没有连续 48h 线上观察 |
-| IPv6/PPPoE/WiFi/switch-port 真机连通性 | 只验证生成与拒绝路径（单测 + e2e 409），无硬件启动测试 |
+| IPv6/PPPoE/WiFi/switch-port 真机**连通性** | 生成/拒绝路径有单测与 e2e；IPv6 额外做了"生成脚本在真实 25.12.2 rootfs 上执行并落库"的配置层验证（见 §14 第 7 条，过程中修掉 wan6 不存在的真实缺陷），但没有真机拨号/上网测试；PPPoE/WiFi/switch-port 无硬件 |
 | public vs private 镜像内 repository 文件 diff | 生成逻辑由单测覆盖，未对比两条真实镜像内的文件差异 |
 | ~~新组包在真实 rootfs 内实装（`apk add` / `apk del`）~~ 已完成 | feed-client-test run `44900226329`：7 包装入、版本核对、`apk del` 干净卸载（见 §14） |
 | ~~`feed-test.yml` 负例~~ 已重跑 | run `44900226329`：篡改索引 / 伪装签名索引 / 篡改 apk 全部 `rejected (exit 1)` |
