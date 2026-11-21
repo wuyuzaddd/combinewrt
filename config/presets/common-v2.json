@@ -91,9 +91,9 @@
           "source": "official"
         },
         {
-          "name": "luci-app-wireguard",
-          "description": "WireGuard 虚拟专用网的网页配置",
-          "license": "GPL-2.0-only",
+          "name": "luci-proto-wireguard",
+          "description": "WireGuard 协议支持（LuCI 配置界面）",
+          "license": "Apache-2.0",
           "source": "official"
         },
         {
@@ -617,6 +617,127 @@
           "description": "自定义命令面板",
           "license": "GPL-2.0-only",
           "source": "official"
+        }
+      ]
+    },
+    {
+      "id": "personal",
+      "title": "个人常用",
+      "description": "按用户 2026-11-21 清单固定的常用软件包（主题走 extension bundle，不在此列）",
+      "packages": [
+        {
+          "name": "luci-app-lucky",
+          "description": "lucky 内网穿透与端口转发面板",
+          "license": "NOASSERTION",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-fastnet",
+          "description": "TCP 拥塞控制与网络加速面板",
+          "license": "NOASSERTION",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-ksmbd",
+          "description": "KSMBD 内核 SMB 文件共享服务",
+          "license": "Apache-2.0",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-bandix",
+          "description": "按应用统计网络带宽占用",
+          "license": "Apache-2.0",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-arpbind",
+          "description": "ARP 绑定，固定内网设备的 IP 与 MAC",
+          "license": "NOASSERTION",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-dufs",
+          "description": "轻量 HTTP 文件服务器，支持 WebDAV",
+          "license": "Apache-2.0",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-smartdns",
+          "description": "SmartDNS 国内外分流解析",
+          "license": "GPL-3.0-or-later",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-store",
+          "description": "iStore 应用商店",
+          "license": "NOASSERTION",
+          "source": "supplement"
+        },
+        {
+          "name": "qemu-ga",
+          "description": "QEMU guest agent，供宿主机查询状态与下发关机",
+          "license": "GPL-2.0-only",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-wrtbwmon",
+          "description": "基于 nftables 的每主机带宽统计",
+          "license": "NOASSERTION",
+          "source": "dllkids"
+        },
+        {
+          "name": "btop",
+          "description": "终端系统资源监视器",
+          "license": "Apache-2.0",
+          "source": "official"
+        },
+        {
+          "name": "luci-app-webdav",
+          "description": "WebDAV 服务端管理面板",
+          "license": "NOASSERTION",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-substore",
+          "description": "订阅转换与代理订阅管理",
+          "license": "NOASSERTION",
+          "source": "supplement"
+        },
+        {
+          "name": "luci-app-partexp",
+          "description": "分区扩容工具（partexp）",
+          "license": "Apache-2.0",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-mosdns",
+          "description": "mosdns 分流解析器管理面板",
+          "license": "NOASSERTION",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-ipsec-server",
+          "description": "IPsec/L2TP 服务端管理",
+          "license": "NOASSERTION",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-fwlive",
+          "description": "实时防火墙连接图",
+          "license": "Apache-2.0",
+          "source": "supplement"
+        },
+        {
+          "name": "luci-app-vlmcsd",
+          "description": "KMS 激活服务（vlmcsd）",
+          "license": "NOASSERTION",
+          "source": "dllkids"
+        },
+        {
+          "name": "luci-app-adguardhome",
+          "description": "AdGuard Home DNS 过滤面板",
+          "license": "GPL-2.0-only",
+          "source": "dllkids"
         }
       ]
     }
