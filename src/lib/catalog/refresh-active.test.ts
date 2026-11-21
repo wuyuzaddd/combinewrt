@@ -1,9 +1,13 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { migrate, openDatabase } from "../db";
 import { upsertSourcePin } from "../source-watch/store";
 import {
   activeDllkidsPin,
   activeSourceConfig,
+  cachedDllkidsIndex,
   resolveActiveDllkidsPin,
   resolvePlanDllkidsPin,
 } from "./refresh-active";
@@ -87,5 +91,59 @@ describe("active dllkids pin", () => {
     expect(activeDllkidsPin(db, { dllkidsIndexSha256: ENV_SEED })).toBe(ADOPTED);
     expect(activeSourceConfig(db, configured(ENV_SEED)).dllkidsIndexSha256).toBe(ADOPTED);
     db.close();
+  });
+});
+
+describe("cached dllkids index", () => {
+  it("reuses the adopted pin's cached bytes instead of refetching a throttled feed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cw-pin-"));
+    try {
+      const bytes = Buffer.from("adb-bytes");
+      const cachePath = join(dir, "index.adb");
+      writeFileSync(cachePath, bytes);
+      const db = openDatabase(":memory:");
+      migrate(db);
+      upsertSourcePin(db, {
+        source: "dllkids",
+        status: "active",
+        value: ADOPTED,
+        observedAt: "2026-11-21T00:00:00Z",
+        adoptedAt: "2026-11-21T00:00:01Z",
+        adoptedBy: "test",
+        cachePath,
+        cacheSha256: ADOPTED,
+        metadata: {},
+      } as never);
+
+      expect(Buffer.from(cachedDllkidsIndex(db) ?? [])).toEqual(bytes);
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores cached bytes whose sha does not match the pin", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cw-pin-"));
+    try {
+      const cachePath = join(dir, "index.adb");
+      writeFileSync(cachePath, "stale");
+      const db = openDatabase(":memory:");
+      migrate(db);
+      upsertSourcePin(db, {
+        source: "dllkids",
+        status: "active",
+        value: ADOPTED,
+        observedAt: "2026-11-21T00:00:00Z",
+        adoptedAt: "2026-11-21T00:00:01Z",
+        adoptedBy: "test",
+        cachePath,
+        cacheSha256: "9".repeat(64),
+        metadata: {},
+      } as never);
+      expect(cachedDllkidsIndex(db)).toBeNull();
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

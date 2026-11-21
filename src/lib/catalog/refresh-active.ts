@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config";
+import { readFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { createBaseVersionStore } from "../base/store";
 import { readSourcePin } from "../source-watch/store";
@@ -81,14 +82,42 @@ export function activeSourceConfig(
   return { ...config, dllkidsIndexSha256: activeDllkidsPin(db, config) };
 }
 
+/**
+ * The adopted dllkids index bytes the source watch already cached, when they
+ * still hash to the active pin.
+ *
+ * A catalog refresh re-downloading a 100 KB index from a throttled feed on
+ * every run is what made "refresh catalog" fail on flaky links while the pin
+ * was already adopted and verified. The cached bytes are the same bytes the
+ * pin was adopted from, and the sha is re-checked by the source loader, so the
+ * refresh keeps its integrity guarantee; live re-observation stays the source
+ * watch's job.
+ */
+export function cachedDllkidsIndex(
+  db: Pick<DatabaseSync, "prepare">,
+): Uint8Array | null {
+  const pin = readSourcePin(db as DatabaseSync, "dllkids", "active");
+  if (!pin || !pin.cachePath || pin.cacheSha256 !== pin.value) return null;
+  try {
+    return new Uint8Array(readFileSync(pin.cachePath));
+  } catch {
+    return null;
+  }
+}
+
 export async function refreshActiveCatalog(input: {
   db: DatabaseSync;
   config: AppConfig;
 }): Promise<RefreshResult> {
   const { db, config } = input;
   const baseVersion = createBaseVersionStore(db).active()?.version ?? config.baseVersion;
+  const cached = cachedDllkidsIndex(db);
   const result = await refreshCatalog({
-    source: createImmortalWrtSource(createConfiguredImmortalWrtSource(activeSourceConfig(db, config), baseVersion)),
+    source: createImmortalWrtSource(
+      createConfiguredImmortalWrtSource(activeSourceConfig(db, config), baseVersion, {
+        ...(cached ? { dllkidsIndexBytes: cached } : {}),
+      }),
+    ),
     db,
   });
   createCatalogStore(db).activateSnapshot(result.snapshot.id);

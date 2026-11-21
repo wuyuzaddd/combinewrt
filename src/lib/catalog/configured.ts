@@ -20,11 +20,16 @@ export type ConfiguredSourceConfig = Pick<
 export function createConfiguredImmortalWrtSource(
   config: ConfiguredSourceConfig,
   baseVersion: string,
+  options: { dllkidsIndexBytes?: Uint8Array } = {},
 ): ImmortalWrtSourceOptions {
   return {
     baseVersion,
     apkBin: config.apkBin,
-    dllkids: { baseUrl: config.dllkidsFeedUrl, indexSha256: config.dllkidsIndexSha256 },
+    dllkids: {
+      baseUrl: config.dllkidsFeedUrl,
+      indexSha256: config.dllkidsIndexSha256,
+      ...(options.dllkidsIndexBytes ? { indexBytes: options.dllkidsIndexBytes } : {}),
+    },
     supplement:
       config.supplementFeedCommit || config.supplementKeyFingerprint
         ? {
