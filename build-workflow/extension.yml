@@ -274,6 +274,7 @@ jobs:
       - name: Build ${{ matrix.package }}
         env:
           EXT_SUBDIR: ${{ matrix.subdir }}
+          EXT_LICENSE: ${{ matrix.license }}
         run: |
           set -euo pipefail
           if [ "${{ matrix.local }}" = "true" ]; then

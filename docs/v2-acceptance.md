@@ -23,7 +23,7 @@
 | 9 | Feeds | 公开/私有 image feed set 正确生成并进 source offer | ✅ | 真实 preflight run 43709222330；feeds/source-offer 单测与 e2e |
 | 10 | Source sync | dllkids 自动采纳 + supplement 自动发布真实跑通一次 | ✅ | supplement 构建→发布→staging→提升真实跑通（`43702446473`/`43703618796`/`43703141721`/`43703283136`）且 main 部署 `43907601591`；**dllkids 自动采纳已在真实站点跑通**（2026-11-20，live feed index sha `36ad823d…`，641 个包）：首次观察即自动 `adopted_bootstrap` 落库（`adopted_by=auto`，seed `04a549ed…` 未被当作权威），随后两次目录刷新都用 DB pin 构建 snapshot `1`（12,262 个包），采纳时间 2026-11-20T13:30:47Z |
 | 11 | Build ops | 队列并发、失败标记、产物下载、source offer、V1 计划只读 | ✅ | 失败标记 `43705890215`、下载/保留期/2 GiB 上限（单测 + 路由测试）、source offer（e2e V2）、V1 只读（`44757195318` + e2e）；**队列真实派发与交付**：build `548c413f-b41b-4070-bf81-cb35a2adbe1c` 在 `MAX_CONCURRENT_BUILDS=1` 下排队 **204.3 s 且 `runId:null`（未调用 GitHub）**，槽位释放后由 reconciler 自动派发 → run [44758426869](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44758426869) 成功，**镜像内文件** sha256 `83c5cc6c01213096ea2e6c9e1809e6d55922f6c034301cc339a3d7445fcc9b70`，12,643,301 B，站点下载路由 **HTTP 200**。早前证据：`44294267917`、`44294943285`、`44298291283`。注意下载路由当前下发的是 GitHub artifact ZIP 容器而文件名标 `.tar.gz`，见“未验证”表中“开放缺陷”一行（ticket 13；2026-11-21 实现：继续交付 ZIP 容器，标注改为容器真实值并在前端提示解压；**真实下载复测已通过**：HTTP 200，12,598,254 B，`X-Checksum-SHA256` = `023fe721…`，`X-Image-Sha256` = `83c5cc6c…` / 12,643,301 B，206/416 均正确） |
-| 13 | Package feed | 上游新组（quickstart / iStore / partexp）进签名 feed，版本合法、签名可验证、来源可审计 | 🟡 | 构建：extension run [44893395104](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44893395104) **7/7 成功**（`manifest: 7/7 packages ok`），每个包 `apk version -t` 返回 `=`（含 `0.17.1_rc20261028-r7`）且 `apk verify` OK；bundle 依赖测试 15 bundles / 0 failure；发布：staging run [44894387084](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44894387084) 成功，7 个包与 `packages.adb` 用项目 feed key 重签后 `apk verify` 全 OK，`verify-feed: ok — 7 package versions`，`extension-staging.json` 的 `sourceRepo/sourceCommit/sourcePath` 逐一指向 istoreos/quickstart / istoreos/istore / sirpdboy/luci-app-partexp；同名断言：官方 5 个 feed 共 10,316 个包 ∩ 本 feed 7 个包 = ∅。**未做的部分见“未验证”表**：live 发布（ADR 0008 的 recipe 门禁要求人工批准）、真实 rootfs 内 `apk add` 安装、`feed-test.yml` 负例 |
+| 13 | Package feed | 上游新组（quickstart / iStore / partexp）进签名 feed，版本合法、签名可验证、来源可审计、可装可卸 | ✅ | 构建 run [44898837356](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44898837356) 7/7（`manifest: 7/7 packages ok`，含许可元数据修复）；live 发布 run [44899539978](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44899539978) 成功，线上 `extension/25.12.2/x86_64/packages.adb` sha256 `215888a0…`，7 个包许可分别为 MIT / GPL-2.0-only / Apache-2.0；真实客户端 run [44900226329](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44900226329) **PASS**：7 个包在一次性 rootfs 内 `apk add` 全装、版本与 catalog 一致、`apk del` 干净卸载，篡改索引/伪装签名/篡改 apk 三种负例全部被拒；bundle 可安装性 14 通过 / 0 失败 / 2 跳过（私有 bundle 与目标不符者）；官方 5 个 feed 共 10,316 个包 ∩ 本 feed = ∅；supplement 已重发（[44900389243](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44900389243)），线上只余 `luci-app-fwlive`/`luci-app-substore`，iStore 同名双发问题消除 |
 | 12 | Regression | V1 x86_64 标准构建仍通过；旧页面不报错 | ✅ | V1 run [44757195318](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44757195318)（build 仓 main `51d7102`，`workflow_dispatch`，conclusion success）：`immortalwrt-25.12.2-x86-64-generic-ext4-combined-efi.img.gz` sha256 `022787df9a7f3b10a767ef13aef4f7fb366e0cbb6f23cbc1d1ee5f5a49015255`，21,262,492 B，manifest 为 4 字段 V1 形状；e2e V1 页面；迁移单测 |
 
 ## 字节口径说明
@@ -253,13 +253,27 @@ staging 发布 [44898161597](https://github.com/wuyuzaddd/combinewrt-packages/ac
 
 **边界**：这些包只能进私有/自用镜像，不进公开计划/公开 bundle，也不应 promote 到公开 feed（Pages 是公开可读的）。
 
-**已知遗留（不计入本轮验收）**
+**线上收尾（2026-11-21 当天完成）**
 
-- 真实 rootfs 内 `apk add quickstart luci-app-quickstart luci-app-store …` 与 `apk del` 干净卸载未跑（需先 live 发布，或直接对 staging 目录做 feed-test）。
-- `feed-test.yml` 的负例（篡改索引/未知密钥/篡改 apk）未重跑。
-- supplement feed 的 live 索引仍含旧的 `luci-app-store`/`luci-lib-taskd`/`luci-lib-xterm`/`taskd`（版本 `luci-lib-taskd 1.0.26-r2`、`taskd 1.0.3-r1`）；
-  下一次 supplement 发布（ALLOWED 已缩到 `luci-app-fwlive`/`luci-app-substore`）会移除它们。在那之前两个 feed 同名并存，apk 会取版本较高者（即旧 supplement 的 r2）。
-- `luci-app-netspeedtest` 未做（上游仓库 blocked + 不可再分发二进制）。
+1. **许可元数据修复**：发布出去的 apk 原先不带 `PKG_LICENSE`（`istoreos/istore` 的 LuCI 包都没写），站点会把它们标成“未知许可/仅限自用”。
+   现在 `select-extension-packages.mjs` 把 registry 里审过的许可放进 matrix，`build-extension-package.sh` 只在配方自己没声明时用
+   `PKG_LICENSE=<registry>` 覆盖命令行；`luci-app-quickstart` 也在配方里写死 `GPL-2.0-only`。重跑 [44898837356](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44898837356) 7/7，
+   线上索引每个包的许可都正确（`luci-app-store` 现在带 `MIT`）。
+2. **live 发布**：[44899539978](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44899539978) 成功，deploy job 的“live 指针已服务且签名”断言通过；
+   线上 `extension/25.12.2/x86_64/packages.adb` sha256 `215888a0…`，7 个包齐全。
+3. **真实客户端安装/卸载**：[44900226329](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44900226329) 的 `install` job PASS——
+   `installing 7 packages` → `all 7 packages installed at catalog versions` → 三种篡改负例全部 `rejected (exit 1)` →
+   `removing 7 packages` → `clean uninstall verified`。`feed-client-test.sh` 的包列表改成从生成的 `catalog.json` 推导，
+   `feed-test.yml` 增加 `feed_kind`，所以 supplement/extension 两条通道都能测。
+4. **supplement 去重**：重发 [44900236770](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/44900236770)（2/2）+ 发布
+   [44900389243](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/44900389243)，线上 supplement 索引只剩
+   `luci-app-fwlive`、`luci-app-substore`；V1 扁平镜像同步。`luci-lib-taskd`/`taskd` 不再有 r2/r1 版本打架。
+5. **私有 bundle 的可安装性测试**：`test-bundle-installability.ts` 跳过 `publicAllowed: false` 的 bundle（它们的包按设计不在公开索引里）。
+
+**仍不在本轮范围**
+
+- 与官方索引同名断言、许可断言都已在流水线里自动跑（extension manifest job）。
+- 上游 `sirpdboy/luci-app-netspeedtest` 仍被 GitHub 屏蔽；自用组用的是 op-packages 的镜像配方。
 
 ## 最终 V2 回归清单
 
@@ -289,10 +303,10 @@ staging 发布 [44898161597](https://github.com/wuyuzaddd/combinewrt-packages/ac
 | source watch 24h/48h 连续延迟观察 | 现有 run 均为按需/手动触发；调度器单测覆盖 6h 节奏，但没有连续 48h 线上观察 |
 | IPv6/PPPoE/WiFi/switch-port 真机连通性 | 只验证生成与拒绝路径（单测 + e2e 409），无硬件启动测试 |
 | public vs private 镜像内 repository 文件 diff | 生成逻辑由单测覆盖，未对比两条真实镜像内的文件差异 |
-| 新组包在真实 rootfs 内实装（`apk add` / `apk del`） | 需要 live feed 或直接对 staging 目录跑 `feed-test.yml`；本轮只到 staging（见 §14） |
-| `feed-test.yml` 负例（篡改索引/未知密钥/篡改 apk） | 本轮未重跑；该 workflow 自身逻辑未改动 |
-| live 发布新组包 | 包集与 recipe 变化触发 ADR 0008 的人工批准门禁；staging 已就绪（`/staging/extension/25.12.2/x86_64/e918983c…`） |
-| 自用三件套的实装与公开边界 | `luci-app-netspeedtest`/`homebox`/`ookla-speedtest` 已按 `publicAllowed: false` 收录并可构建，但**不做**公开 feed 的 live 发布、不进公开镜像与公开 bundle；它们进私有镜像的实装验证同样需要 live/私有 feed，未跑 |
+| ~~新组包在真实 rootfs 内实装（`apk add` / `apk del`）~~ 已完成 | feed-client-test run `44900226329`：7 包装入、版本核对、`apk del` 干净卸载（见 §14） |
+| ~~`feed-test.yml` 负例~~ 已重跑 | run `44900226329`：篡改索引 / 伪装签名索引 / 篡改 apk 全部 `rejected (exit 1)` |
+| ~~live 发布新组包~~ 已完成 | publish run `44899539978`（live），线上 extension 索引 sha256 `215888a0…`；supplement 去重见 `44900389243` |
+| 自用三件套的实装与公开边界 | `luci-app-netspeedtest`/`homebox`/`ookla-speedtest` 已按 `publicAllowed: false` 收录并可构建（run `44898006568`），**不**进公开 feed / 公开镜像 / 公开 bundle；私有镜像内的实装验证未跑（需要私有 feed） |
 | **已修复（2026-11-21，ticket 13）：下载路由交付 ZIP 容器却按 `.tar.gz` 命名** | `GET /api/builds/<id>/artifact` 实际流式返回 zip 容器（12,598,254 B / `023fe721…`），却用 `Content-Disposition: …tar.gz` 与 `application/gzip` 标注；与构建记录的 `artifactSha256`/`artifactSize`（镜像内文件）不一致，用户拿到 zip 却按 `.tar.gz` 命名。**已按设计修复**：交付 ZIP 容器不变，标注改为容器真实值，补 `X-Image-*` 头部与页面解压提示（migration `150_artifact_container` 记录容器 sha256/size。单测/路由测试已覆盖；真实下载复测已于 2026-11-21 通过（compose 部署））；跟进票：`.scratch/v2-hardening/issues/13-artifact-container-labelling.md` |
 
 ## 本地可复现校验
