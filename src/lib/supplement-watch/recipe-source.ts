@@ -7,12 +7,19 @@ import type { SupplementRecipe, SupplementRecipePackage } from "./recipe";
  * when `config/sources/registry.json` is absent (ticket 12 owns that document),
  * and it matches the build repo's `scripts/select-packages.mjs` allow-list.
  *
- * The iStore stack (luci-app-store, luci-lib-taskd, luci-lib-xterm, taskd) moved
- * to the extension layer, where it is rebuilt from istoreos/istore instead of
- * the kiddin9/op-packages mirror; publishing the same name from two feeds would
- * make the installed index depend on repo order.
+ * The iStore stack is rebuilt from istoreos/istore by the extension layer AND
+ * kept here: the supplement repository line is what existing devices use, so a
+ * name must never disappear from it (2026-11-22: shrinking this list to two
+ * packages emptied four packages from /supplement/.../packages.adb).
  */
-export const DEFAULT_SUPPLEMENT_PACKAGES = ["luci-app-fwlive", "luci-app-substore"] as const;
+export const DEFAULT_SUPPLEMENT_PACKAGES = [
+  "luci-app-fwlive",
+  "luci-app-store",
+  "luci-app-substore",
+  "luci-lib-taskd",
+  "luci-lib-xterm",
+  "taskd",
+] as const;
 
 export interface SupplementRecipeOptions {
   registry: SourceRegistry;
