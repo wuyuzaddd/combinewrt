@@ -8,6 +8,8 @@ import { presetPackages } from "@/lib/build/presets";
 import {
   addPackage,
   buildSubmitBody,
+  exportBuildConfig,
+  parseBuildConfig,
   defaultBuildForm,
   findProfile,
   removePackage,
@@ -35,12 +37,18 @@ import type { SourceWatchSummary } from "./source-watch-panel";
  * throw away what the user typed. The root password is deliberately excluded.
  */
 const DRAFT_KEY = "combinewrt.build.draft.v1";
+/** Handed to `/build/plan` so the standalone preview renders without a refetch. */
+const PENDING_PLAN_KEY = "combinewrt.build.pending-plan.v1";
+const secondaryButton =
+  "cursor-pointer rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-emerald-600";
 
 interface Props {
   ui: BuildUiOptions;
   releases: ReleaseOption[];
   baseVersion: string;
   initialConfig: InitialBuildConfig | null;
+  /** Full portable snapshot from a stored build; wins over `initialConfig`. */
+  initialState: BuildFormState | null;
   sourceWatch: SourceWatchSummary;
   fromBuildId: string | null;
 }
@@ -49,9 +57,11 @@ function parseRemoveList(value: string): string[] {
   return [...new Set(value.split(/[,\s]+/).map((item) => item.trim()).filter(Boolean))];
 }
 
-export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatch, fromBuildId }: Props) {
+export function BuildForm({ ui, releases, baseVersion, initialConfig, initialState, sourceWatch, fromBuildId }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState<BuildFormState>(() => defaultBuildForm(ui, releases, initialConfig));
+  const [form, setForm] = useState<BuildFormState>(
+    () => initialState ?? defaultBuildForm(ui, releases, initialConfig),
+  );
   const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<PackageSearchItem[]>([]);
@@ -94,6 +104,53 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
     }
   }
 
+  function downloadConfig(name: string): void {
+    const file = exportBuildConfig(form);
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${name}.combinewrt-build.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importConfig(file: File | null): void {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = parseBuildConfig(JSON.parse(String(reader.result)), form);
+        if (!parsed.ok) {
+          setFormIssues(parsed.issues.map((issue) => ({ field: "import", label: "导入配置", message: issue })));
+          return;
+        }
+        setForm(parsed.config);
+        setFormIssues([]);
+        setError(`已导入配置${parsed.savedAt ? `（导出时间 ${new Date(parsed.savedAt).toLocaleString("zh-CN")}）` : ""}。`);
+      } catch {
+        setFormIssues([{ field: "import", label: "导入配置", message: "文件不是有效的 JSON" }]);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  async function saveConfig(): Promise<void> {
+    const name = window.prompt("给这份配置起个名字", `配置 ${new Date().toLocaleDateString("zh-CN")}`);
+    if (!name) return;
+    const response = await fetch("/api/configs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, document: exportBuildConfig(form) }),
+    });
+    const data = (await response.json()) as { ok?: boolean; issues?: string[] };
+    if (!response.ok) {
+      setFormIssues((data.issues ?? ["保存失败"]).map((issue) => ({ field: "save", label: "保存配置", message: issue })));
+      return;
+    }
+    setError(`已保存到「我的配置」：${name}`);
+  }
+
   function clearDraft() {
     try {
       window.localStorage.removeItem(DRAFT_KEY);
@@ -109,7 +166,7 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
-    if (initialConfig) return;
+    if (initialConfig || initialState) return;
     try {
       const raw = window.localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
@@ -122,7 +179,7 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
     } catch {
       // a corrupted draft is ignored rather than blocking the form
     }
-  }, [initialConfig]);
+  }, [initialConfig, initialState]);
 
   useEffect(() => {
     if (firstRender.current) {
@@ -262,10 +319,11 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
     resetPlan();
 
     try {
+      const submitBody = buildSubmitBody(form, ui, password);
       const response = await fetch("/api/build/plan", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(buildSubmitBody(form, ui, password)),
+        body: JSON.stringify(submitBody),
       });
       const data = (await response.json()) as {
         ok: boolean;
@@ -291,6 +349,22 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
       }
       setPlan(data.plan ?? null);
       setConflicts(data.conflicts ?? []);
+      if (data.plan) {
+        try {
+          // The root password is stripped on purpose: the standalone preview
+          // asks for it again before dispatching.
+          const safeBody = { ...submitBody };
+          delete safeBody.rootPassword;
+          window.sessionStorage.setItem(
+            PENDING_PLAN_KEY,
+            JSON.stringify({ form, plan: data.plan, body: safeBody, savedAt: new Date().toISOString() }),
+          );
+        } catch {
+          // storage disabled: stay on the form, the inline preview still works
+        }
+        router.push("/build/plan");
+        return;
+      }
     } catch {
       setError("请求失败，请检查网络后重试。");
     } finally {
@@ -449,7 +523,7 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
             />
           )}
 
-          {restoredAt && !initialConfig ? (
+          {restoredAt && !initialConfig && !initialState ? (
             <p className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 text-xs text-slate-400">
               已恢复 {new Date(restoredAt).toLocaleString("zh-CN")} 保存在本浏览器的配置（不包含 root 密码）。
               <button className="ml-2 underline hover:text-slate-200" onClick={clearDraft} type="button">
@@ -479,6 +553,27 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
               ))}
             </ul>
           )}
+
+          <div className="flex flex-wrap gap-2">
+            <button className={secondaryButton} onClick={() => downloadConfig("build-config")} type="button">
+              导出配置（JSON）
+            </button>
+            <label className={secondaryButton}>
+              导入配置
+              <input
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(event) => importConfig(event.target.files?.[0] ?? null)}
+                type="file"
+              />
+            </label>
+            <button className={secondaryButton} onClick={saveConfig} type="button">
+              保存到「我的配置」
+            </button>
+            <a className={secondaryButton} href="/configs">
+              我的配置
+            </a>
+          </div>
 
           <button
             className="w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50"

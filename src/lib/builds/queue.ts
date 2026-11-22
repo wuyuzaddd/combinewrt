@@ -3,7 +3,7 @@ import type { BuildPlan } from "../build/types";
 import type { DispatchPayloadCodec } from "./dispatch-payload";
 import { isRedactedPlan } from "./redact";
 import type { BuildStore } from "./store";
-import type { BuildAdapter, BuildRecord } from "./types";
+import type { BuildAdapter, BuildRecord, StoredBuildConfig } from "./types";
 import { buildEngineOf, buildTargetOf } from "./types";
 
 /**
@@ -24,7 +24,7 @@ export interface BuildQueue {
   /** Configured concurrency cap (`MAX_CONCURRENT_BUILDS`). */
   readonly maxConcurrent: number;
   /** Create a queued build row. Never dispatches. */
-  enqueue(plan: BuildPlan): BuildRecord;
+  enqueue(plan: BuildPlan, config?: StoredBuildConfig | null): BuildRecord;
   /** Dispatch queued builds FIFO until the cap is reached. */
   pump(): Promise<void>;
   /** Builds currently claimed for dispatch. */
@@ -68,14 +68,14 @@ export function createBuildQueue(options: BuildQueueOptions): BuildQueue {
   // the same guarantee across processes.
   let tail: Promise<void> = Promise.resolve();
 
-  function enqueue(plan: BuildPlan): BuildRecord {
+  function enqueue(plan: BuildPlan, config: StoredBuildConfig | null = null): BuildRecord {
     const id = randomUUID();
     const timestamp = now().toISOString();
     store.create(
       {
         id,
         plan,
-        config: plan.config ?? null,
+        config: config ?? plan.config ?? null,
         status: "queued",
         runId: null,
         adapter: adapter.name,

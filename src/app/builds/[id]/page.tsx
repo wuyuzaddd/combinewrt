@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
 import { artifactKindFor } from "@/lib/builds/service";
+import { storedConfigFields } from "@/lib/builds/config-json";
 import { createBuildStore } from "@/lib/builds/store";
 import { getDatabase } from "@/lib/db";
 import type { BuildStep } from "@/lib/builds/types";
@@ -191,16 +192,35 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
         <p className="text-xs uppercase tracking-wider text-slate-500">构建配置</p>
-        {build.config ? (
-          <dl className="mt-2 grid gap-x-6 gap-y-1 text-slate-300 sm:grid-cols-2">
-            <div><dt className="inline text-slate-500">hostname：</dt><dd className="inline font-mono">{build.config.hostname}</dd></div>
-            <div><dt className="inline text-slate-500">时区：</dt><dd className="inline font-mono">{build.config.timezone}</dd></div>
-            <div><dt className="inline text-slate-500">LAN：</dt><dd className="inline font-mono">{build.config.lanIp} / {build.config.netmask}</dd></div>
-            <div><dt className="inline text-slate-500">镜像：</dt><dd className="inline font-mono">{imageTypeForPlan(build.plan)}</dd></div>
-          </dl>
-        ) : (
-          <p className="mt-2 text-xs text-slate-500">旧记录没有保存表单配置。</p>
-        )}
+        {(() => {
+          const fields = storedConfigFields(build.config);
+          if (!fields) return <p className="mt-2 text-xs text-slate-500">旧记录没有保存表单配置。</p>;
+          return (
+            <dl className="mt-2 grid gap-x-6 gap-y-1 text-slate-300 sm:grid-cols-2">
+              <div><dt className="inline text-slate-500">hostname：</dt><dd className="inline font-mono">{fields.hostname || "—"}</dd></div>
+              <div><dt className="inline text-slate-500">时区：</dt><dd className="inline font-mono">{fields.timezone || "—"}</dd></div>
+              <div><dt className="inline text-slate-500">LAN：</dt><dd className="inline font-mono">{fields.lanIp || "—"} / {fields.netmask || "—"}</dd></div>
+              <div><dt className="inline text-slate-500">镜像：</dt><dd className="inline font-mono">{imageTypeForPlan(build.plan)}</dd></div>
+            </dl>
+          );
+        })()}
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <a
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-emerald-600"
+            href={`/api/builds/${build.id}/config`}
+          >
+            导出配置
+          </a>
+          <Link
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-emerald-600"
+            href={`/build?from=${build.id}`}
+          >
+            用这份配置重新构建
+          </Link>
+          <Link className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-emerald-600" href="/configs">
+            我的配置
+          </Link>
+        </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2">

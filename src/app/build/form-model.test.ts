@@ -20,6 +20,9 @@ import {
   toggleBundle,
   toggleMode,
   variantFromImageType,
+  exportBuildConfig,
+  formStateFromSubmitBody,
+  parseBuildConfig,
   validateBuildForm,
 } from "./form-model";
 
@@ -270,5 +273,50 @@ describe("validateBuildForm", () => {
     const broken = { ...form, mode: "advanced" as const, lanIp: "10.0.0.999", netmask: "255.255.255.0" };
     expect(validateBuildForm(broken, ui, "rootpass1").map((issue) => issue.field)).toContain("lanIp");
     expect(validateBuildForm({ ...broken, mode: "simple" }, ui, "rootpass1")).toEqual([]);
+  });
+});
+
+describe("config documents", () => {
+  it("exports a document without the root password", () => {
+    const form = defaultBuildForm(ui, releases);
+    const document = exportBuildConfig(form);
+    expect(document.format).toBe("combinewrt-build");
+    expect(document.schemaVersion).toBe(1);
+    expect(JSON.stringify(document)).not.toContain("rootPassword");
+  });
+
+  it("round-trips an exported document", () => {
+    const form = defaultBuildForm(ui, releases);
+    const parsed = parseBuildConfig(exportBuildConfig({ ...form, hostname: "gw-1" }), form);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.config.hostname).toBe("gw-1");
+  });
+
+  it("reports invalid field types instead of applying them", () => {
+    const form = defaultBuildForm(ui, releases);
+    const parsed = parseBuildConfig(
+      { format: "combinewrt-build", schemaVersion: 1, config: { ...form, packages: "luci" } },
+      form,
+    );
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.issues[0]).toContain("packages");
+  });
+
+  it("rebuilds a full form state from a submitted body", () => {
+    const form = {
+      ...defaultBuildForm(ui, releases),
+      hostname: "cm-1",
+      mode: "advanced" as const,
+      packages: ["luci-app-store"],
+      defaultTheme: "luci-theme-argon",
+    };
+    const body = buildSubmitBody(form, ui, "rootpass1");
+    const restored = formStateFromSubmitBody(body);
+    expect(restored.hostname).toBe("cm-1");
+    expect(restored.targetId).toBe(form.targetId);
+    expect(restored.release).toBe(form.release);
+    expect(restored.packages).toContain("luci-app-store");
+    expect(restored.defaultTheme).toBe("luci-theme-argon");
+    expect(restored.mode).toBe(form.mode);
   });
 });

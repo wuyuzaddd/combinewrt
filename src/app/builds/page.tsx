@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { imageTypeForPlan } from "@/lib/build/artifact-name";
 import { getSession } from "@/lib/auth/current-session";
 import { getBuildService } from "@/lib/builds";
+import { storedConfigFields } from "@/lib/builds/config-json";
 
 const STATUS_STYLES: Record<string, string> = {
   queued: "bg-slate-800 text-slate-200",
@@ -68,9 +69,10 @@ export default async function BuildsPage({
                   <p className="font-mono text-sm text-slate-200">{build.plan.artifactName}</p>
                   <p className="mt-1 text-xs text-slate-500">
                     {build.plan.profileTitle} · {imageTypeForPlan(build.plan)} ·{" "}
-                    {build.config
-                      ? `${build.config.hostname} / ${build.config.lanIp}`
-                      : "旧记录无表单配置"}{" "}
+                    {(() => {
+                      const fields = storedConfigFields(build.config);
+                      return fields ? `${fields.hostname || "—"} / ${fields.lanIp || "—"}` : "旧记录无表单配置";
+                    })()}{" "}
                     · {new Date(build.createdAt).toLocaleString("zh-CN")}
                   </p>
                 </div>

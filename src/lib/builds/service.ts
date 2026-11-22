@@ -23,7 +23,7 @@ import { extractSingleFile } from "./zip";
 import { createDispatchPayloadCodec, type DispatchPayloadCodec } from "./dispatch-payload";
 import { createBuildQueue } from "./queue";
 import type { BuildStore } from "./store";
-import type { ArtifactDownload, BuildAdapter, BuildRecord, BuildStatus } from "./types";
+import type { ArtifactDownload, BuildAdapter, BuildRecord, BuildStatus, StoredBuildConfig } from "./types";
 import { buildEngineOf } from "./types";
 
 const LOG_LIMIT = 20_000;
@@ -42,7 +42,7 @@ function tail(text: string | undefined): string | undefined {
 
 export interface BuildService {
   /** Enqueue the plan and dispatch it if a slot is free (ticket 13). */
-  submit(plan: BuildPlan): Promise<BuildRecord>;
+  submit(plan: BuildPlan, config?: StoredBuildConfig | null): Promise<BuildRecord>;
   /** Create a queued build row without dispatching it. */
   enqueue(plan: BuildPlan): BuildRecord;
   /** Dispatch queued builds FIFO up to the configured cap. */
@@ -306,14 +306,14 @@ export function createBuildService(options: {
   }
 
   return {
-    async submit(plan) {
-      const record = queue.enqueue(plan);
+    async submit(plan, config) {
+      const record = queue.enqueue(plan, config ?? null);
       await queue.pump();
       return store.get(record.id) ?? record;
     },
 
-    enqueue(plan) {
-      return queue.enqueue(plan);
+    enqueue(plan: BuildPlan, config?: StoredBuildConfig | null) {
+      return queue.enqueue(plan, config ?? null);
     },
 
     pump,

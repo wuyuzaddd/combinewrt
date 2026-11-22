@@ -529,6 +529,56 @@ export function buildSubmitBody(
   };
 }
 
+/**
+ * Inverse of `buildSubmitBody`: turn the V2 submission the browser POSTs back
+ * into the same `BuildFormState` the form edits, so a stored build can prefill
+ * the form with full fidelity (the old `?from=` path only restored six fields).
+ *
+ * The root password is dropped on purpose: it is never persisted with a config.
+ */
+export function formStateFromSubmitBody(body: Record<string, unknown>): BuildFormState {
+  const record = (value: unknown): Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const strings = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  const text = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
+
+  const variant = record(body.imageVariant);
+  const network = record(body.network);
+  const modes = Array.isArray(body.modes)
+    ? body.modes.flatMap((item) => {
+        const mode = record(item);
+        return typeof mode.id === "string" ? [mode.id] : [];
+      })
+    : [];
+
+  return {
+    mode: Object.keys(network).length > 0 ? "advanced" : "simple",
+    targetId: text(body.target, ""),
+    profileId: text(body.profile, ""),
+    release: text(body.baseVersion, ""),
+    kernelLine: text(body.kernelLine, ""),
+    variant: {
+      boot: text(variant.boot, "efi") as BuildFormState["variant"]["boot"],
+      filesystem: text(variant.filesystem, "ext4") as BuildFormState["variant"]["filesystem"],
+      artifact: text(variant.artifact, "combined") as BuildFormState["variant"]["artifact"],
+    },
+    overlaySizeMb: typeof variant.overlaySizeMb === "number" ? variant.overlaySizeMb : 0,
+    basePreset: body.basePreset === "common" ? "common" : "minimal",
+    modes,
+    hostname: text(body.hostname, ""),
+    timezone: text(body.timezone, ""),
+    lanIp: text(body.lanIp, ""),
+    netmask: text(body.netmask, ""),
+    network: Object.keys(network).length > 0 ? (network as unknown as BuildFormState["network"]) : DEFAULT_NETWORK,
+    packages: strings(body.packages),
+    removePackages: strings(body.removePackages),
+    bundles: [],
+    defaultTheme: typeof body.theme === "string" ? body.theme : null,
+    visibility: body.visibility === "public" ? "public" : "private",
+  };
+}
+
 /** Packages a bundle or theme adds, used for preview chips without duplicating logic. */
 export function expandedPackages(state: BuildFormState, ui: BuildUiOptions): string[] {
   const result = [...state.packages];
@@ -559,4 +609,141 @@ export function i18nBadges(status: PackageSearchItem["i18nStatus"]): string[] {
   if (status === "auto") return ["自动翻译"];
   if (status === "unreviewed") return ["未审核"];
   return [];
+}
+
+/**
+ * Portable build configuration (ticket: config export/import).
+ *
+ * The root password is never part of this file: it is a per-build secret, and a
+ * config that travels between machines must not carry one.
+ */
+export const BUILD_CONFIG_FORMAT = "combinewrt-build";
+
+export interface BuildConfigFile {
+  format: typeof BUILD_CONFIG_FORMAT;
+  schemaVersion: 1;
+  savedAt: string;
+  config: BuildFormState;
+}
+
+export function exportBuildConfig(state: BuildFormState): BuildConfigFile {
+  return {
+    format: BUILD_CONFIG_FORMAT,
+    schemaVersion: 1,
+    savedAt: new Date().toISOString(),
+    config: state,
+  };
+}
+
+export type ParseBuildConfigResult =
+  | { ok: true; config: BuildFormState; savedAt: string | null; warnings: string[] }
+  | { ok: false; issues: string[] };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function takeString(raw: Record<string, unknown>, key: keyof BuildFormState, base: string, issues: string[]): string {
+  const value = raw[key];
+  if (value === undefined) return base;
+  if (typeof value !== "string") {
+    issues.push(`字段 ${String(key)} 应为字符串`);
+    return base;
+  }
+  return value;
+}
+
+/** Merge one imported file over the caller's current defaults, validating types. */
+export function parseBuildConfig(value: unknown, base: BuildFormState): ParseBuildConfigResult {
+  if (!isRecord(value)) return { ok: false, issues: ["配置文件不是一个 JSON 对象"] };
+  if (value.format !== undefined && value.format !== BUILD_CONFIG_FORMAT) {
+    return { ok: false, issues: [`不是 combinewrt 构建配置（format=${String(value.format)}）`] };
+  }
+  const warnings: string[] = [];
+  if (value.schemaVersion !== undefined && value.schemaVersion !== 1) {
+    warnings.push(`配置版本 ${String(value.schemaVersion)} 高于当前支持的 1，未知字段会被忽略`);
+  }
+  const raw = value.config ?? value;
+  if (!isRecord(raw)) return { ok: false, issues: ["配置缺少 config 对象"] };
+
+  const issues: string[] = [];
+  const config: BuildFormState = { ...base };
+
+  const mode = raw.mode;
+  if (mode !== undefined) {
+    if (mode === "simple" || mode === "advanced") config.mode = mode;
+    else issues.push("mode 只能是 simple 或 advanced");
+  }
+  const visibility = raw.visibility;
+  if (visibility !== undefined) {
+    if (visibility === "private" || visibility === "public") config.visibility = visibility;
+    else issues.push("visibility 只能是 private 或 public");
+  }
+
+  config.targetId = takeString(raw, "targetId", base.targetId, issues);
+  config.profileId = takeString(raw, "profileId", base.profileId, issues);
+  config.release = takeString(raw, "release", base.release, issues);
+  config.kernelLine = takeString(raw, "kernelLine", base.kernelLine, issues);
+  config.hostname = takeString(raw, "hostname", base.hostname, issues);
+  config.timezone = takeString(raw, "timezone", base.timezone, issues);
+  config.lanIp = takeString(raw, "lanIp", base.lanIp, issues);
+  config.netmask = takeString(raw, "netmask", base.netmask, issues);
+
+  if (raw.basePreset !== undefined) {
+    if (raw.basePreset === "minimal" || raw.basePreset === "common") config.basePreset = raw.basePreset;
+    else issues.push("basePreset 只能是 minimal 或 common");
+  }
+
+  if (raw.overlaySizeMb !== undefined) {
+    if (typeof raw.overlaySizeMb === "number" && Number.isFinite(raw.overlaySizeMb)) {
+      config.overlaySizeMb = raw.overlaySizeMb;
+    } else {
+      issues.push("overlaySizeMb 应为数字");
+    }
+  }
+
+  if (raw.variant !== undefined) {
+    const variant = raw.variant;
+    if (
+      isRecord(variant) &&
+      typeof variant.boot === "string" &&
+      typeof variant.filesystem === "string" &&
+      typeof variant.artifact === "string"
+    ) {
+      config.variant = {
+        boot: variant.boot as BuildFormState["variant"]["boot"],
+        filesystem: variant.filesystem as BuildFormState["variant"]["filesystem"],
+        artifact: variant.artifact as BuildFormState["variant"]["artifact"],
+      };
+    } else {
+      issues.push("variant 需要 boot / filesystem / artifact 三个字符串字段");
+    }
+  }
+
+  for (const key of ["modes", "packages", "removePackages", "bundles"] as const) {
+    const value = raw[key];
+    if (value === undefined) continue;
+    if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+      config[key] = value as string[];
+    } else {
+      issues.push(`${key} 应为字符串数组`);
+    }
+  }
+
+  if (raw.defaultTheme !== undefined) {
+    if (raw.defaultTheme === null || typeof raw.defaultTheme === "string") {
+      config.defaultTheme = raw.defaultTheme;
+    } else {
+      issues.push("defaultTheme 应为字符串或 null");
+    }
+  }
+
+  if (raw.network !== undefined) {
+    if (isRecord(raw.network)) config.network = { ...base.network, ...(raw.network as BuildFormState["network"]) };
+    else issues.push("network 应为对象");
+  }
+
+  if (issues.length > 0) return { ok: false, issues };
+  const savedAt = typeof value.savedAt === "string" ? value.savedAt : null;
+  return { ok: true, config, savedAt, warnings };
 }

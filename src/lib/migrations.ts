@@ -361,4 +361,21 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE builds ADD COLUMN artifact_container_size INTEGER;
     `,
   },
+  {
+    version: "160_saved_configs",
+    // Build-config management: named reusable form snapshots. `builds.config_json`
+    // already keeps one snapshot per build; this table is the user-owned list
+    // (rename, delete, apply) and shares the same `combinewrt-build` document.
+    sql: `
+      CREATE TABLE saved_configs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        source_build_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX saved_configs_updated ON saved_configs(updated_at DESC);
+    `,
+  },
 ];

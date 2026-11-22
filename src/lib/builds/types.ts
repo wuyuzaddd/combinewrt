@@ -51,11 +51,25 @@ export interface BuildFailure {
   context?: BuildFailureContext;
 }
 
+
+/**
+ * What `builds.config_json` holds for a V2 build: the portable form snapshot
+ * produced by `exportBuildConfig()` in the build form model. It is the same
+ * document a user can export to a file or save under `/configs`, minus the root
+ * password.
+ */
+export interface StoredBuildConfig {
+  format: "combinewrt-build";
+  schemaVersion: 1;
+  savedAt: string;
+  config: unknown;
+}
+
 export interface BuildRecord {
   id: string;
   plan: BuildPlan;
   /** V1 rows keep `imageType`; V2 rows store the variant-only config. */
-  config?: BuildConfig | BuildConfigV2 | null;
+  config?: BuildConfig | BuildConfigV2 | StoredBuildConfig | null;
   status: BuildStatus;
   runId: string | null;
   adapter: "github" | "fake";

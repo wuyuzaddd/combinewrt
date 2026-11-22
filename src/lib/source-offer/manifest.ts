@@ -304,7 +304,10 @@ export function createSourceOffer(
     // Patch contents are not embedded because the manifest is served from the
     // site; the repository path is the authoritative copy.
     patches: plan.patches ?? [],
-    config: build.config ?? plan.config ?? null,
+    // V2 rows hold the portable snapshot; the manifest keeps the bare config shape.
+    config: ((build.config && "format" in build.config && build.config.format === "combinewrt-build"
+      ? build.config.config
+      : build.config) ?? plan.config ?? null) as unknown as BuildConfig | null,
     generatedFiles: plan.files.map((file) => file.path),
     ...(modeSummary ? { modes: modeSummary } : {}),
     ...(v2 ? { v2 } : {}),

@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth/current-session";
 import { isBuildPlanV2Form, validateBuildForm, validateBuildFormV2 } from "@/lib/build/validate";
 import { getBuildService } from "@/lib/builds";
 import { preparePlanForForm, preparePlanV2ForForm } from "@/lib/builds/prepare";
+import { exportBuildConfig, formStateFromSubmitBody } from "@/app/build/form-model";
 
 export async function GET(request: Request = new Request("http://localhost/api/builds")) {
   const session = await getSession();
@@ -44,7 +45,10 @@ export async function POST(request: Request) {
         );
       }
 
-      const build = await getBuildService().submit(prepared.plan);
+      // Persist the portable form snapshot with the build so a failed build can
+      // be reloaded or exported without the browser draft (no root password).
+      const storedConfig = exportBuildConfig(formStateFromSubmitBody(validation.value as unknown as Record<string, unknown>));
+      const build = await getBuildService().submit(prepared.plan, storedConfig);
       if (build.status === "failed") {
         return NextResponse.json({ ok: false, error: build.error, build }, { status: 502 });
       }

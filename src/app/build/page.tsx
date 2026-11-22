@@ -13,11 +13,13 @@ import { imageTypeForPlan } from "@/lib/build/artifact-name";
 import { loadModeDeclarations } from "@/lib/build/modes";
 import { createBuildUiOptions } from "@/lib/build/ui-options";
 import { getBuildService } from "@/lib/builds";
+import { createSavedConfigStore } from "@/lib/configs/store";
 import { getSourceWatchService } from "@/lib/source-watch";
 import { readSourcePin } from "@/lib/source-watch/store";
 import { getSupplementWatchService } from "@/lib/supplement-watch";
 import { BuildForm } from "./build-form";
-import { releaseOptions, type InitialBuildConfig } from "./form-model";
+import { defaultBuildForm, parseBuildConfig, releaseOptions, type BuildFormState, type InitialBuildConfig } from "./form-model";
+import { portableConfig } from "@/lib/builds/config-json";
 import type { SourceWatchSummary } from "./source-watch-panel";
 
 function safeRead<T>(read: () => T, fallback: T): T {
@@ -32,23 +34,28 @@ function safeRead<T>(read: () => T, fallback: T): T {
 export default async function BuildPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{ from?: string; config?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login?next=/build");
-  const { from } = await searchParams;
+  const { from, config: configId } = await searchParams;
   const sourceBuild = from ? getBuildService().get(from) : null;
-  // V1 records store `imageType` in their config; V2 records do not, so the V1
-  // format is derived from the plan for the read-only prefill (ADR 0009 ruling 4).
-  const initialConfig: InitialBuildConfig | null = sourceBuild?.config
+  const storedConfig = sourceBuild?.config ?? null;
+  // V2 rows hold the portable `combinewrt-build` snapshot; older rows hold a bare
+  // config object and only carry the six legacy fields.
+  const legacyConfig =
+    storedConfig && !portableConfig(storedConfig) && "hostname" in storedConfig
+      ? (storedConfig as InitialBuildConfig & { imageType?: string })
+      : null;
+  const initialConfig: InitialBuildConfig | null = legacyConfig
     ? {
-        ...sourceBuild.config,
-        imageType:
-          "imageType" in sourceBuild.config ? sourceBuild.config.imageType : imageTypeForPlan(sourceBuild.plan),
+        ...legacyConfig,
+        imageType: legacyConfig.imageType ?? imageTypeForPlan(sourceBuild!.plan),
       }
     : null;
 
   const db = getDatabase();
+  const savedConfigRow = configId ? safeRead(() => createSavedConfigStore(db).get(configId), null) : null;
   const store = createCatalogStore(db);
   const baseStore = createBaseVersionStore(db);
   const snapshot = store.getActiveSnapshot();
@@ -92,6 +99,14 @@ export default async function BuildPage({
     ...release,
     snapshotAvailable: release.snapshotAvailable || store.latestForBaseVersion(release.version) !== null,
   }));
+
+  // Full-fidelity prefill: parse the portable snapshot against the live UI
+  // options so a failed build restores every field, not just the legacy six.
+  const reusableDocument = savedConfigRow?.document ?? storedConfig;
+  const parsedStored = reusableDocument
+    ? parseBuildConfig(reusableDocument, defaultBuildForm(ui, releases, initialConfig))
+    : null;
+  const initialState: BuildFormState | null = parsedStored?.ok ? parsedStored.config : null;
 
   const dllkids = safeRead(() => getSourceWatchService().readOverview(), null);
   const supplement = safeRead(() => getSupplementWatchService().readOverview(), null);
@@ -167,6 +182,7 @@ export default async function BuildPage({
         releases={releases}
         baseVersion={snapshot.baseVersion}
         initialConfig={initialConfig}
+        initialState={initialState}
         sourceWatch={sourceWatch}
         fromBuildId={from ?? null}
       />

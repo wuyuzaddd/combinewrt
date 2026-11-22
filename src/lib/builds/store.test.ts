@@ -60,7 +60,8 @@ describe("build store", () => {
     expect(store.count()).toBe(3);
     expect(store.list(2, 0).map((item) => item.id)).toEqual(["c", "b"]);
     expect(store.list(2, 2).map((item) => item.id)).toEqual(["a"]);
-    expect(store.get("b")?.config?.hostname).toBe("host-b");
+    const stored = store.get("b")?.config;
+    expect(stored && "hostname" in stored ? stored.hostname : null).toBe("host-b");
     db.close();
   });
 
