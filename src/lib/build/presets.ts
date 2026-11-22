@@ -5,6 +5,7 @@ export const COMMON_PACKAGES: readonly string[] = [
   "luci-ssl",
   "luci-app-firewall",
   "luci-app-ttyd",
+  "luci-app-log-viewer",
   "luci-app-samba4",
   "luci-app-netdata",
   "luci-app-diskman",
