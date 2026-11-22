@@ -20,8 +20,10 @@ function disposition(name: string): string {
 }
 
 interface ContainerHeaders {
-  /** Browser-facing filename: the ZIP container, `<image>.zip`. */
-  containerName: string;
+  /** Browser-facing filename of the bytes on the wire: the image, or the archive. */
+  servedName: string;
+  /** Content type of the bytes on the wire. */
+  contentType: string;
   /** sha256 of the bytes actually sent; null when the site has not hashed them. */
   containerSha256: string | null;
   imageName: string;
@@ -32,15 +34,15 @@ interface ContainerHeaders {
 }
 
 /**
- * Headers for a response whose body is the GitHub artifact ZIP container
- * (ticket 13). The container facts describe the bytes on the wire, and the
- * `X-Image-*` trio publishes the manifest facts so a download can be verified
- * before and after unpacking.
+ * Headers for a served artifact. The site unpacks the GitHub ZIP once, so the
+ * body is normally the image itself: name, content type and checksum all
+ * describe those bytes. `X-Image-*` keeps publishing the manifest facts (they
+ * match the body now; they still let a client verify a build record).
  */
 function containerHeaders(input: ContainerHeaders): Record<string, string> {
   const headers: Record<string, string> = {
-    "content-type": "application/zip",
-    "content-disposition": disposition(input.containerName),
+    "content-type": input.contentType,
+    "content-disposition": disposition(input.servedName),
     "cache-control": "private, no-store",
     "x-image-name": input.imageName,
   };
@@ -53,7 +55,8 @@ function containerHeaders(input: ContainerHeaders): Record<string, string> {
 
 function headersForFile(file: ArtifactFileInfo): Record<string, string> {
   return containerHeaders({
-    containerName: file.containerName,
+    servedName: file.containerName,
+    contentType: file.contentType,
     containerSha256: file.sha256,
     imageName: file.name,
     imageSha256: file.imageSha256,
@@ -70,7 +73,8 @@ function headersForRecord(record: {
 }): Record<string, string> {
   const imageName = record.artifactName as string;
   return containerHeaders({
-    containerName: artifactContainerName(imageName),
+    servedName: artifactContainerName(imageName),
+    contentType: "application/zip",
     containerSha256: record.artifactContainerSha256 ?? null,
     imageName,
     imageSha256: record.artifactSha256 ?? null,

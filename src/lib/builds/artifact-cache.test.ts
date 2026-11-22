@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate, openDatabase } from "../db";
 import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError } from "../image/postprocess";
@@ -47,13 +48,52 @@ describe("createArtifactCache", () => {
       body: new Uint8Array(bytes),
     });
 
+    // The body is not a ZIP, so it is stored as the container (`<name>.zip`).
     expect(entry.buildId).toBe("build-1");
-    expect(entry.filename).toBe("image.img.gz");
+    expect(entry.filename).toBe("image.img.gz.zip");
     expect(entry.kind).toBe("combined");
     expect(entry.size).toBe(bytes.length);
     expect(entry.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
     expect(existsSync(entry.path)).toBe(true);
-    expect(entry.path).toBe(join(dir, "build-1", "image.img.gz"));
+    expect(entry.path).toBe(join(dir, "build-1", "image.img.gz.zip"));
+  });
+
+  it("unpacks a one-file ZIP so the image itself is cached", async () => {
+    const dir = cacheDirectory();
+    const cache = createArtifactCache({ dir, store: store() });
+    const image = Buffer.from("real-image-bytes");
+    const container = Buffer.from(zipSync({ "image.img.gz": new Uint8Array(image) }));
+
+    const entry = await cache.archive("build-zip", "image.img.gz", "combined", {
+      name: "image.img.gz",
+      contentType: "application/zip",
+      size: container.length,
+      body: new Uint8Array(container),
+    });
+
+    expect(entry.filename).toBe("image.img.gz");
+    expect(entry.size).toBe(image.length);
+    expect(entry.sha256).toBe(createHash("sha256").update(image).digest("hex"));
+    expect(entry.path).toBe(join(dir, "build-zip", "image.img.gz"));
+    expect(existsSync(entry.path)).toBe(true);
+    // The archive is only an intermediate: it must not double the cache budget.
+    expect(existsSync(join(dir, "build-zip", "image.img.gz.zip"))).toBe(false);
+  });
+
+  it("keeps the archive when it does not hold exactly one file", async () => {
+    const dir = cacheDirectory();
+    const cache = createArtifactCache({ dir, store: store() });
+    const container = Buffer.from(zipSync({ "a.img": new Uint8Array([1]), "b.img": new Uint8Array([2]) }));
+
+    const entry = await cache.archive("build-many", "bundle.img.gz", "combined", {
+      name: "bundle.img.gz",
+      contentType: "application/zip",
+      size: container.length,
+      body: new Uint8Array(container),
+    });
+
+    expect(entry.filename).toBe("bundle.img.gz.zip");
+    expect(entry.size).toBe(container.length);
   });
 
   it("streams a chunked body and survives a restart", async () => {
@@ -78,9 +118,9 @@ describe("createArtifactCache", () => {
 
     // A new process must find the artifact through the persisted index.
     const restarted = createArtifactCache({ dir, store: createArtifactCacheStore(db) });
-    const found = restarted.lookup("build-2", "rootfs.img");
+    const found = restarted.lookup("build-2", "rootfs.img.zip");
     expect(found?.size).toBe(5);
-    expect(found?.path).toBe(join(dir, "build-2", "rootfs.img"));
+    expect(found?.path).toBe(join(dir, "build-2", "rootfs.img.zip"));
   });
 
   it("rejects a declared size above the cap without writing a file", async () => {
@@ -138,7 +178,7 @@ describe("createArtifactCache", () => {
     });
 
     expect(sanitizeArtifactFilename("../../evil.img")).toBe("evil.img");
-    expect(entry.filename).toBe("evil.img");
+    expect(entry.filename).toBe("evil.img.zip");
     expect(entry.path.startsWith(dir)).toBe(true);
     expect(existsSync(join(dir, "..", "evil.img"))).toBe(false);
   });

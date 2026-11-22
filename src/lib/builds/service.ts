@@ -1,12 +1,25 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  closeSync,
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { BuildPlan } from "../build/types";
 import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError, assertArtifactSize } from "../image/postprocess";
 import type { ArtifactCache } from "./artifact-cache";
 import type { ArtifactCacheEntry } from "./artifact-store";
+import { extractSingleFile } from "./zip";
 import { createDispatchPayloadCodec, type DispatchPayloadCodec } from "./dispatch-payload";
 import { createBuildQueue } from "./queue";
 import type { BuildStore } from "./store";
@@ -82,6 +95,20 @@ export interface ArtifactFileInfo {
  * in `.zip` (legacy rows stored the container name directly) are left alone so
  * a download never becomes `*.zip.zip`.
  */
+/**
+ * Content type of a served artifact, derived from its own filename. The image
+ * formats OpenWrt ships are already compressed, so the type only has to be
+ * honest about the encoding, not to invite the browser to decode it.
+ */
+export function contentTypeForArtifact(name: string): string {
+  if (/\.zip$/i.test(name)) return "application/zip";
+  if (/\.(img|tar)\.gz$/i.test(name) || /\.gz$/i.test(name)) return "application/gzip";
+  if (/\.xz$/i.test(name)) return "application/x-xz";
+  if (/\.zst$/i.test(name)) return "application/zstd";
+  if (/\.tar$/i.test(name)) return "application/x-tar";
+  return "application/octet-stream";
+}
+
 export function artifactContainerName(imageName: string): string {
   return /\.zip$/i.test(imageName) ? imageName : `${imageName}.zip`;
 }
@@ -442,7 +469,7 @@ export function createBuildService(options: {
       if (!record || record.status !== "succeeded" || !record.runId || !record.artifactName) return null;
 
       const cached = cachedEntry(record);
-      if (cached) return withContainerDigest(cached, record);
+      if (cached) return withContainerDigest(await ensureImageFile(cached, record), record);
       // Without an index a downloaded artifact may only exist as a stream.
       if (!cache) return null;
 
@@ -456,12 +483,20 @@ export function createBuildService(options: {
   function cachedEntry(record: BuildRecord): ArtifactCacheEntry | null {
     const filename = record.artifactName as string;
     if (cache) {
-      const found = cache.lookup(record.id, filename);
-      if (found) return found;
+      // The extracted image first, then the archive it came from (a cache that
+      // predates server-side extraction, or a ZIP with more than one entry).
+      for (const candidate of [filename, `${filename}.zip`]) {
+        const found = cache.lookup(record.id, candidate);
+        if (found) return found;
+      }
     }
     if (!cacheDir) return null;
     const timestamp = new Date().toISOString();
-    for (const candidate of [join(cacheDir, `${record.id}.zip`), join(cacheDir, record.id, filename)]) {
+    for (const candidate of [
+      join(cacheDir, `${record.id}.zip`),
+      join(cacheDir, record.id, filename),
+      join(cacheDir, record.id, `${filename}.zip`),
+    ]) {
       if (!existsSync(candidate)) continue;
       return {
         buildId: record.id,
@@ -480,12 +515,68 @@ export function createBuildService(options: {
     return null;
   }
 
+  /**
+   * Unpack a cache entry that still holds the GitHub ZIP.
+   *
+   * New downloads are unpacked by `cache.archive()`; this handles a cache that
+   * predates that (the archive was stored under the image name) and any entry
+   * whose first bytes are still a ZIP. Returns the image entry when it worked,
+   * the original entry when the file is already the image or cannot be unpacked.
+   */
+  async function ensureImageFile(entry: ArtifactCacheEntry, record: BuildRecord): Promise<ArtifactCacheEntry> {
+    if (/\.zip$/i.test(entry.filename) || !cacheDir) return entry;
+    let magic: Buffer;
+    try {
+      const fd = openSync(entry.path, "r");
+      try {
+        magic = Buffer.alloc(4);
+        readSync(fd, magic, 0, 4, 0);
+      } finally {
+        closeSync(fd);
+      }
+    } catch {
+      return entry;
+    }
+    if (magic[0] !== 0x50 || magic[1] !== 0x4b || magic[2] !== 0x03 || magic[3] !== 0x04) return entry;
+
+    const name = record.artifactName as string;
+    const target = join(cacheDir, record.id, name);
+    // Unpack next to the target and rename over it: a legacy cache already
+    // stores the archive under the image name, so reading and writing the same
+    // path would truncate the input.
+    mkdirSync(dirname(target), { recursive: true });
+    const temp = `${target}.${randomUUID()}.part`;
+    const extracted = await extractSingleFile(entry.path, temp, name);
+    if (!extracted) {
+      rmSync(temp, { force: true });
+      return entry;
+    }
+    if (entry.path !== target && entry.path.startsWith(cacheDir)) rmSync(entry.path, { force: true });
+    renameSync(temp, target);
+    // The stale index row for the archive is dropped by `lookup()` itself the
+    // next time it points at a file that no longer exists.
+    return {
+      buildId: record.id,
+      filename: name,
+      relativePath: `${record.id}/${name}`,
+      kind: entry.kind,
+      size: extracted.size,
+      sha256: extracted.sha256,
+      createdAt: entry.createdAt,
+      updatedAt: new Date().toISOString(),
+      path: target,
+    };
+  }
+
   function toFileInfo(entry: ArtifactCacheEntry, record: BuildRecord): ArtifactFileInfo {
     const name = record.artifactName as string;
+    // The cached entry is the real image after server-side extraction, so the
+    // served name/type come from the file on disk, not from the container idea.
+    const served = entry.relativePath.split("/").pop() ?? artifactContainerName(name);
     return {
       name,
-      containerName: artifactContainerName(name),
-      contentType: "application/zip",
+      containerName: served,
+      contentType: contentTypeForArtifact(served),
       size: entry.size,
       path: entry.path,
       kind: entry.kind,
@@ -503,6 +594,9 @@ export function createBuildService(options: {
    */
   async function withContainerDigest(entry: ArtifactCacheEntry, record: BuildRecord): Promise<ArtifactFileInfo> {
     const file = toFileInfo(entry, record);
+    // After extraction the served bytes ARE the image; recording its digest as
+    // the container digest is exactly the conflation ticket 13 removed.
+    if (!/\.zip$/i.test(file.containerName)) return file;
     const remembered =
       file.sha256 !== null &&
       record.artifactContainerSha256 === file.sha256 &&

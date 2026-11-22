@@ -15,6 +15,7 @@ import { pipeline } from "node:stream/promises";
 import { ARTIFACT_SIZE_LIMIT_BYTES, ArtifactSizeLimitError, formatBytes, assertArtifactSize } from "../image/postprocess";
 import type { ArtifactCacheEntry, ArtifactCacheStats, ArtifactCacheStore } from "./artifact-store";
 import type { ArtifactDownload } from "./types";
+import { extractSingleFile } from "./zip";
 
 /**
  * Site artifact cache (ticket 14).
@@ -110,16 +111,51 @@ export function createArtifactCache(options: {
           await pipeline(source, meter, createWriteStream(temp));
         }
 
-        const finalPath = join(dir, safeBuild, safeName);
-        renameSync(temp, finalPath);
+        // GitHub serves workflow artifacts as a ZIP that holds exactly one
+        // file. Unpack it once here so the download is the real image: its own
+        // name, its own content type and the checksum of the bytes the browser
+        // receives. A ZIP that is not a single-file archive stays as it is.
+        const zipName = /\.zip$/i.test(safeName);
+        const containerName = zipName ? safeName : `${safeName}.zip`;
+        const containerPath = join(dir, safeBuild, containerName);
+        renameSync(temp, containerPath);
+
         const timestamp = now().toISOString();
+        const containerSha256 = hash.digest("hex");
+        let stored = {
+          filename: containerName,
+          relativePath: `${safeBuild}/${containerName}`,
+          size: written,
+          sha256: containerSha256 as string | null,
+        };
+
+        if (!zipName) {
+          const imagePath = join(dir, safeBuild, safeName);
+          const extracted = await extractSingleFile(containerPath, imagePath, safeName);
+          if (extracted) {
+            if (extracted.size > limitBytes) {
+              // The compressed container fit but the image itself does not:
+              // keep the container rather than exceeding the cache budget.
+              rmSync(imagePath, { force: true });
+            } else {
+              rmSync(containerPath, { force: true });
+              stored = {
+                filename: safeName,
+                relativePath: `${safeBuild}/${safeName}`,
+                size: extracted.size,
+                sha256: extracted.sha256,
+              };
+            }
+          }
+        }
+
         const row = {
           buildId: safeBuild,
-          filename: safeName,
-          relativePath: `${safeBuild}/${safeName}`,
+          filename: stored.filename,
+          relativePath: stored.relativePath,
           kind,
-          size: written,
-          sha256: hash.digest("hex"),
+          size: stored.size,
+          sha256: stored.sha256,
           createdAt: timestamp,
           updatedAt: timestamp,
         };

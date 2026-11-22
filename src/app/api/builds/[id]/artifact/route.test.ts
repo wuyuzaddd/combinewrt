@@ -54,8 +54,8 @@ beforeEach(() => {
   state.build = { id: "b1", status: "succeeded", artifactName: "image.img.gz" };
   state.file = {
     name: "image.img.gz",
-    containerName: "image.img.gz.zip",
-    contentType: "application/zip",
+    containerName: "image.img.gz",
+    contentType: "application/gzip",
     size: CONTENT.length,
     path: artifactPath(),
     kind: "combined",
@@ -125,13 +125,25 @@ describe("GET /api/builds/[id]/artifact", () => {
     expect(body.error).toBe("artifact download failed");
   });
 
-  it("describes the ZIP container and the image inside it", async () => {
+  it("serves the unpacked image with its own name, type and checksum", async () => {
     const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
-    expect(response.headers.get("content-type")).toBe("application/zip");
+    expect(response.headers.get("content-type")).toBe("application/gzip");
+    expect(response.headers.get("content-disposition")).toContain("image.img.gz");
     expect(response.headers.get("x-checksum-sha256")).toBe("c0ffee");
     expect(response.headers.get("x-image-name")).toBe("image.img.gz");
     expect(response.headers.get("x-image-sha256")).toBe("beef");
     expect(response.headers.get("x-image-size")).toBe("123");
+  });
+
+  it("still describes a container when the archive could not be unpacked", async () => {
+    state.file = {
+      ...(state.file as Record<string, unknown>),
+      containerName: "image.img.gz.zip",
+      contentType: "application/zip",
+    };
+    const response = await GET(new Request("http://localhost/api/builds/b1/artifact"), params);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+    expect(response.headers.get("content-disposition")).toContain("image.img.gz.zip");
   });
 
   it("omits unknown digests instead of inventing one", async () => {

@@ -4,7 +4,7 @@ import { imageTypeForPlan } from "@/lib/build/artifact-name";
 import { getSession } from "@/lib/auth/current-session";
 import { formatSize } from "@/lib/catalog/format";
 import { getBuildService } from "@/lib/builds";
-import { artifactContainerName, artifactKindFor } from "@/lib/builds/service";
+import { artifactKindFor } from "@/lib/builds/service";
 import { createBuildStore } from "@/lib/builds/store";
 import { getDatabase } from "@/lib/db";
 import type { BuildStep } from "@/lib/builds/types";
@@ -165,28 +165,19 @@ export default async function BuildDetailPage({ params }: { params: Promise<{ id
             className="w-fit rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950"
             href={`/api/builds/${build.id}/artifact`}
           >
-            下载产物（ZIP 容器{build.artifactContainerSize ? `，${formatSize(build.artifactContainerSize)}` : ""}）
+            下载产物（{build.artifactName}
+            {build.artifactSize ? `，${formatSize(build.artifactSize)}` : ""}）
           </a>
           <p className="break-all font-mono text-xs text-slate-500">
-            下载文件 ZIP 容器 · 产物类型 {artifactKind} ·{" "}
-            {build.artifactContainerSize
-              ? formatSize(build.artifactContainerSize)
-              : "大小未记录（首次下载后补记）"}
-            {build.artifactContainerSha256
-              ? ` · sha256 ${build.artifactContainerSha256}`
-              : " · sha256 未记录（首次下载后补记）"}
-          </p>
-          <p className="break-all font-mono text-xs text-slate-500">
-            解压后镜像 {build.artifactName} ·{" "}
-            {build.artifactSha256 ? `sha256 ${build.artifactSha256}` : "sha256 尚未记录"}
-            {build.artifactSize ? ` · ${formatSize(build.artifactSize)}` : ""}
+            产物 {build.artifactName} · 类型 {artifactKind} ·{" "}
+            {build.artifactSize ? formatSize(build.artifactSize) : "大小未记录"}
+            {build.artifactSha256 ? ` · sha256 ${build.artifactSha256}` : " · sha256 尚未记录"}
           </p>
           <p className="text-xs text-slate-500">
-            下载的是 GitHub artifact 的 ZIP 容器（内含镜像与 manifest.json），需解压后使用：
-            <code className="mx-1 rounded bg-slate-900 px-1 py-0.5 font-mono">
-              unzip {artifactContainerName(build.artifactName)}
-            </code>
-            （Windows / macOS 可右键或双击解压）。
+            站点会把 GitHub 的 ZIP 打包解开，浏览器拿到的就是镜像文件本身（文件名、类型、校验和都与上面一致）。
+            只有当某次构建的归档不是一个单文件 ZIP，或解包后的镜像超过本站上限时，才会退回交付 ZIP 容器
+            （文件名以 <code className="rounded bg-slate-900 px-1 py-0.5 font-mono">.zip</code> 结尾，
+            sha256 为容器摘要），此时才需要自行解压。
           </p>
         </div>
       )}
