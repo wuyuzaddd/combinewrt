@@ -563,6 +563,12 @@
           "description": "日志轮转工具",
           "license": "GPL-2.0-only",
           "source": "official"
+        },
+        {
+          "name": "luci-app-log-viewer",
+          "description": "高级 syslog / 内核日志查看（tail、搜索、过滤）",
+          "license": "MIT",
+          "source": "extension"
         }
       ]
     },

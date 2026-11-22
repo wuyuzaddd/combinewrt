@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-21",
+  "updatedAt": "2026-11-22",
   "packages": [
     {
       "name": "luci-app-samba4",
@@ -453,6 +453,28 @@
         "description": "官方 CLI（1.2.0），Ookla EULA 不允许再分发；publicAllowed=false，仅私有/自用镜像。"
       },
       "recipeHash": "98e7943ac044b36eb5b74d22a14f34327cfc4580aa3910dee824913e70b934ba"
+    },
+    {
+      "name": "luci-app-log-viewer",
+      "source": "extension",
+      "repo": "gSpotx2f/luci-app-log",
+      "ref": "b8539ff6b52c8ca4c90e94b33e69b5b288a9dcae",
+      "subdir": ".",
+      "pin": "b8539ff6b52c8ca4c90e94b33e69b5b288a9dcae",
+      "license": "MIT",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:gSpotx2f/luci-app-log@b8539ff6b52c8ca4c90e94b33e69b5b288a9dcae/.",
+      "i18n": {
+        "status": "curated",
+        "title": "日志查看器（log-viewer）",
+        "description": "高级 syslog / 内核日志查看器（tail、搜索、过滤），上游 gSpotx2f/luci-app-log v1.5.0-r5，MIT；依赖 ucode + ucode-mod-fs。"
+      },
+      "recipeHash": "e5824e4112519189c5f31355734de0471ef40a59f55310c0468d0b28e734b6e1"
     }
   ]
 }
