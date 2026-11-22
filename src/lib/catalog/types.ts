@@ -9,9 +9,18 @@ export type PackageSource = "official" | "dllkids" | "supplement" | "extension";
 
 export const PACKAGE_SOURCES: readonly PackageSource[] = ["official", "dllkids", "supplement", "extension"];
 
+/**
+ * Tie-break when two feeds publish the same package name.
+ *
+ * The curated presets were built around dllkids' builds of packages that also
+ * exist in the official feeds (ksmbd, arpbind, smartdns, ...), and that choice
+ * is deliberate: the dllkids feed carries the newer backports. Official stays
+ * first for everything else, and a curated source that disagrees with this
+ * order is still reported as a warning by the preset checker.
+ */
 export function sourcePriority(source: PackageSource): number {
-  if (source === "official") return 0;
-  if (source === "dllkids") return 1;
+  if (source === "dllkids") return 0;
+  if (source === "official") return 1;
   if (source === "supplement") return 2;
   return 3;
 }

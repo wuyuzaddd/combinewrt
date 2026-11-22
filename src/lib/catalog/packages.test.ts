@@ -115,13 +115,16 @@ describe("dedupePackages", () => {
     expect(merged.find((item) => item.name === "6in4")?.version).toBe("99");
   });
 
-  it("keeps shadowed packages from different sources", () => {
+  it("keeps shadowed packages from different sources, dllkids first", () => {
+    // The curated presets rely on dllkids' builds of packages that also exist
+    // in the official feeds, so the duplicate rows sort with dllkids ahead of
+    // official; the acquisition strategy follows this first row.
     const official = pkg("same", "13");
     const dllkids = { ...pkg("same", "12"), source: "dllkids" as const };
     const result = dedupePackages([official, dllkids]);
     expect(result.map((item) => `${item.source}:${item.name}@${item.version}`)).toEqual([
-      "official:same@13",
       "dllkids:same@12",
+      "official:same@13",
     ]);
   });
 

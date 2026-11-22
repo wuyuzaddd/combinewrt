@@ -241,7 +241,7 @@
           "name": "luci-app-diskman",
           "description": "磁盘分区与格式化面板，操作前需人工确认",
           "license": "Apache-2.0",
-          "source": "supplement"
+          "source": "official"
         },
         {
           "name": "smartmontools",
@@ -520,7 +520,7 @@
           "name": "luci-app-filetransfer",
           "description": "网页上传与下载文件",
           "license": "Apache-2.0",
-          "source": "official"
+          "source": "dllkids"
         },
         {
           "name": "luci-app-uhttpd",
@@ -561,12 +561,6 @@
         {
           "name": "logrotate",
           "description": "日志轮转工具",
-          "license": "GPL-2.0-only",
-          "source": "official"
-        },
-        {
-          "name": "luci-app-log",
-          "description": "系统日志查看面板",
           "license": "GPL-2.0-only",
           "source": "official"
         }
@@ -696,7 +690,7 @@
           "name": "luci-app-smartdns",
           "description": "SmartDNS 国内外分流解析",
           "license": "GPL-3.0-or-later",
-          "source": "dllkids"
+          "source": "official"
         },
         {
           "name": "luci-app-store",
