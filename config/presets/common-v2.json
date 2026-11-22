@@ -672,7 +672,7 @@
           "name": "luci-app-ksmbd",
           "description": "KSMBD 内核 SMB 文件共享服务",
           "license": "Apache-2.0",
-          "source": "dllkids"
+          "source": "official"
         },
         {
           "name": "luci-app-bandix",
@@ -684,13 +684,13 @@
           "name": "luci-app-arpbind",
           "description": "ARP 绑定，固定内网设备的 IP 与 MAC",
           "license": "NOASSERTION",
-          "source": "dllkids"
+          "source": "official"
         },
         {
           "name": "luci-app-dufs",
           "description": "轻量 HTTP 文件服务器，支持 WebDAV",
           "license": "Apache-2.0",
-          "source": "dllkids"
+          "source": "official"
         },
         {
           "name": "luci-app-smartdns",
@@ -762,13 +762,13 @@
           "name": "luci-app-vlmcsd",
           "description": "KMS 激活服务（vlmcsd）",
           "license": "NOASSERTION",
-          "source": "dllkids"
+          "source": "official"
         },
         {
           "name": "luci-app-adguardhome",
           "description": "AdGuard Home DNS 过滤面板",
           "license": "GPL-2.0-only",
-          "source": "dllkids"
+          "source": "official"
         }
       ]
     }
