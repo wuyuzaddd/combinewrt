@@ -283,6 +283,17 @@ staging 发布 [44898161597](https://github.com/wuyuzaddd/combinewrt-packages/ac
    `network.wan6.device='@wan'`、`proto='dhcpv6'`、`reqaddress='try'`、`reqprefix='auto'`，`lan.ipaddr` 与 `dhcp.lan.*` 也都落库。
    **边界**：这是配置层验证，IPv6 实际连通性仍需真机拨号环境。
 
+**2026-11-22 事故与修复（feed 缩容）**：11-21 为了去重把 supplement 的构建白名单从 6 个缩到 2 个（iStore 四件套改由
+extension 重建），随后那次 supplement 发布把线上索引与站点首页换成了 2 个包——`/supplement/.../packages.adb` 是既有设备
+正在用的行，四个包等于对它们消失；而 extension 源没有 HTML 页面，首页看起来就像"包全没了"。
+
+修复：白名单与站点 watch recipe 恢复为 6 个，重发 [45016529071](https://github.com/wuyuzaddd/combinewrt-build/actions/runs/45016529071)（6/6）
+并 live 发布 [45016691031](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/45016691031)，首页与扁平镜像恢复 6 个包。
+
+新增不变量：发布流程现在会对比"线上索引"与"待发布索引"的包名集合，**任一包名消失即失败**，除非显式 `allow_shrink=true`
+（发布 [45017070969](https://github.com/wuyuzaddd/combinewrt-packages/actions/runs/45017070969) 验证：`published: 6, next: 6 / no package dropped`）。
+首发（指针 404）不拦。代价是 supplement 与 extension 同时发布同名包（apk 取版本号高者），这是已知且接受的取舍。
+
 **仍不在本轮范围**
 
 - 与官方索引同名断言、许可断言都已在流水线里自动跑（extension manifest job）。
