@@ -360,6 +360,136 @@ export function selectedOverlaySizeMb(state: BuildFormState, profile: ProfileOpt
   return aligned;
 }
 
+/**
+ * One thing the browser can fix before asking the server for a plan.
+ *
+ * The plan form used to disable its button instead of saying what was wrong, so
+ * a missing password looked like "the button is broken". Validation is a pure
+ * function of the form state so the UI can list every problem at once, and so
+ * the same list can be shown before a plan and before a dispatch.
+ */
+export interface FormIssue {
+  /** Stable field key, e.g. `target` or `rootPassword`. */
+  field: string;
+  /** Section/field name shown to the user. */
+  label: string;
+  message: string;
+}
+
+const HOSTNAME_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
+const IPV4_RE = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+
+function isIpv4(value: string): boolean {
+  return IPV4_RE.test(value) && value.split(".").every((part) => Number(part) <= 255);
+}
+
+const MIN_PASSWORD = 8;
+
+/** Every problem that must be fixed before a build plan can be generated. */
+export function validateBuildForm(
+  state: BuildFormState,
+  ui: BuildUiOptions,
+  rootPassword: string,
+): FormIssue[] {
+  const issues: FormIssue[] = [];
+  const target = findTarget(ui, state.targetId);
+  if (!target) {
+    issues.push({ field: "target", label: "目标设备", message: "还没有选择目标设备" });
+  } else if (!target.buildable) {
+    issues.push({
+      field: "target",
+      label: "目标设备",
+      message: `${target.title} 当前不可构建，请换一个目标设备`,
+    });
+  }
+
+  const profile = findProfile(ui, state.targetId, state.profileId);
+  if (!profile) {
+    issues.push({ field: "profile", label: "设备 profile", message: "还没有选择设备 profile" });
+  } else if (!profile.buildable) {
+    issues.push({
+      field: "profile",
+      label: "设备 profile",
+      message: `${profile.title} 当前不可构建${profile.disabledReason ? `：${profile.disabledReason}` : ""}`,
+    });
+  }
+
+  if (!state.release) {
+    issues.push({ field: "release", label: "目录基线", message: "还没有选择目录基线版本" });
+  }
+
+  const variant = profile?.variants.find(
+    (item) =>
+      item.boot === state.variant.boot &&
+      item.filesystem === state.variant.filesystem &&
+      item.artifact === state.variant.artifact,
+  );
+  if (!variant) {
+    issues.push({ field: "variant", label: "镜像变体", message: "还没有选择镜像变体" });
+  } else if (!variant.supported) {
+    issues.push({
+      field: "variant",
+      label: "镜像变体",
+      message: `${variant.label} 当前不受支持${variant.disabledReason ? `：${variant.disabledReason}` : ""}`,
+    });
+  }
+
+  if (state.mode === "advanced") {
+    const line = profile?.kernelLines.find((item) => item.id === state.kernelLine);
+    if (!line) {
+      issues.push({ field: "kernelLine", label: "内核线", message: "还没有选择内核线" });
+    } else if (!line.offered) {
+      issues.push({
+        field: "kernelLine",
+        label: "内核线",
+        message: `${line.id} 当前不提供${line.disabledReason ? `：${line.disabledReason}` : ""}`,
+      });
+    }
+  }
+
+  if (profile && state.variant.artifact !== "rootfs") {
+    const range = profile.overlay;
+    if (
+      Number.isFinite(state.overlaySizeMb) &&
+      range &&
+      (state.overlaySizeMb < range.minMb || state.overlaySizeMb > range.maxMb)
+    ) {
+      issues.push({
+        field: "overlaySizeMb",
+        label: "覆盖分区大小",
+        message: `需在 ${range.minMb}–${range.maxMb} MB 之间（当前 ${state.overlaySizeMb} MB）`,
+      });
+    }
+  }
+
+  if (!HOSTNAME_RE.test(state.hostname)) {
+    issues.push({
+      field: "hostname",
+      label: "主机名",
+      message: "只能包含字母、数字和连字符，且不能以连字符开头或结尾（1–63 个字符）",
+    });
+  }
+
+  if (state.mode === "advanced") {
+    if (state.lanIp && !isIpv4(state.lanIp)) {
+      issues.push({ field: "lanIp", label: "LAN IP", message: "不是合法的 IPv4 地址" });
+    }
+    if (state.netmask && !isIpv4(state.netmask)) {
+      issues.push({ field: "netmask", label: "子网掩码", message: "不是合法的 IPv4 地址" });
+    }
+  }
+
+  if (rootPassword.length < MIN_PASSWORD) {
+    issues.push({
+      field: "rootPassword",
+      label: "root 密码",
+      message: `至少 ${MIN_PASSWORD} 位（当前 ${rootPassword.length} 位）`,
+    });
+  }
+
+  return issues;
+}
+
 /** The exact V2 planner form the browser POSTs to `/api/build/plan` and `/api/builds`. */
 export function buildSubmitBody(
   state: BuildFormState,

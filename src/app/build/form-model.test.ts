@@ -20,6 +20,7 @@ import {
   toggleBundle,
   toggleMode,
   variantFromImageType,
+  validateBuildForm,
 } from "./form-model";
 
 const registry = loadCapabilities();
@@ -230,5 +231,44 @@ describe("releaseOptions (ticket 11)", () => {
     expect(releaseOptions([], "25.12.2", "25.12.2")).toEqual([
       { version: "25.12.2", active: true, snapshotAvailable: true, channel: "release" },
     ]);
+  });
+});
+
+describe("validateBuildForm", () => {
+  it("accepts a complete simple form", () => {
+    const form = defaultBuildForm(ui, releases);
+    expect(validateBuildForm(form, ui, "rootpass1")).toEqual([]);
+  });
+
+  it("lists every problem instead of disabling the button", () => {
+    const form = defaultBuildForm(ui, releases);
+    const issues = validateBuildForm({ ...form, hostname: "-bad name-", overlaySizeMb: 1 }, ui, "short");
+    const fields = issues.map((issue) => issue.field);
+    expect(fields).toEqual(expect.arrayContaining(["hostname", "overlaySizeMb", "rootPassword"]));
+    expect(issues.find((issue) => issue.field === "rootPassword")?.message).toContain("至少 8 位");
+    expect(issues.find((issue) => issue.field === "hostname")?.message).toContain("字母、数字和连字符");
+  });
+
+  it("reports a missing target and profile", () => {
+    const form = defaultBuildForm(ui, releases);
+    const issues = validateBuildForm({ ...form, targetId: "nope/arch", profileId: "nope" }, ui, "rootpass1");
+    expect(issues.map((issue) => issue.field)).toEqual(expect.arrayContaining(["target", "profile"]));
+  });
+
+  it("reports a variant the profile does not offer", () => {
+    const form = defaultBuildForm(ui, releases);
+    const issues = validateBuildForm(
+      { ...form, variant: { boot: "efi", filesystem: "ext4", artifact: "emmc" } },
+      ui,
+      "rootpass1",
+    );
+    expect(issues.map((issue) => issue.field)).toContain("variant");
+  });
+
+  it("validates the advanced-only fields only in Advanced mode", () => {
+    const form = defaultBuildForm(ui, releases);
+    const broken = { ...form, mode: "advanced" as const, lanIp: "10.0.0.999", netmask: "255.255.255.0" };
+    expect(validateBuildForm(broken, ui, "rootpass1").map((issue) => issue.field)).toContain("lanIp");
+    expect(validateBuildForm({ ...broken, mode: "simple" }, ui, "rootpass1")).toEqual([]);
   });
 });

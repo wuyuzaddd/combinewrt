@@ -299,6 +299,9 @@ function SystemSettings({
           type="password"
           value={password}
         />
+        {password.length > 0 && password.length < 8 ? (
+          <span className="mt-1 block text-[11px] text-rose-300">至少 8 位（当前 {password.length} 位）</span>
+        ) : null}
       </label>
       <fieldset className="mt-4">
         <legend className="text-sm text-slate-300">镜像用途</legend>

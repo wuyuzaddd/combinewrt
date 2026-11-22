@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BuildConflict, BuildPlan } from "@/lib/build/types";
 import type { BuildUiOptions, BundleOption } from "@/lib/build/ui-types";
 import { presetPackages } from "@/lib/build/presets";
@@ -16,7 +16,9 @@ import {
   selectDefaultTheme,
   toggleThemePackage,
   toggleBundle,
+  validateBuildForm,
   type BuildFormState,
+  type FormIssue,
   type FormMode,
   type InitialBuildConfig,
   type PackageSearchItem,
@@ -26,6 +28,13 @@ import { AdvancedForm, SimpleForm, type FormSectionProps } from "./form-sections
 import { PackagePicker } from "./package-picker";
 import { PlanPreview } from "./plan-preview";
 import type { SourceWatchSummary } from "./source-watch-panel";
+
+/**
+ * Unfinished form state lives in this browser, not on the server: a refused or
+ * abandoned attempt (wrong password, a missing field, a closed tab) should not
+ * throw away what the user typed. The root password is deliberately excluded.
+ */
+const DRAFT_KEY = "combinewrt.build.draft.v1";
 
 interface Props {
   ui: BuildUiOptions;
@@ -57,6 +66,11 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dispatching, setDispatching] = useState(false);
+  const [formIssues, setFormIssues] = useState<FormIssue[]>([]);
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const firstRender = useRef(true);
+  const restored = useRef(false);
 
   const profile = findProfile(ui, form.targetId, form.profileId);
   const kernelLine = profile?.kernelLines.find((line) => line.id === form.kernelLine);
@@ -66,7 +80,59 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
     setConflicts([]);
     setIssues([]);
     setError("");
+    setFormIssues([]);
   }
+
+  function persistDraft(): string | null {
+    const savedAt = new Date().toISOString();
+    try {
+      window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt, form }));
+      setDraftSavedAt(savedAt);
+      return savedAt;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearDraft() {
+    try {
+      window.localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // storage disabled; nothing to clear
+    }
+    setRestoredAt(null);
+    setDraftSavedAt(null);
+  }
+
+  // Restore an unfinished draft once, unless the page was opened from an
+  // existing build (that config is the explicit starting point).
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    if (initialConfig) return;
+    try {
+      const raw = window.localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { savedAt?: string; form?: Partial<BuildFormState> };
+      if (!parsed?.form) return;
+      // Restoring the draft is a one-time client-only sync after mount.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is not available during render
+      setForm((current) => ({ ...current, ...parsed.form }));
+      setRestoredAt(parsed.savedAt ?? new Date().toISOString());
+    } catch {
+      // a corrupted draft is ignored rather than blocking the form
+    }
+  }, [initialConfig]);
+
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    persistDraft();
+    // persistDraft reads the latest state; `form` is the dependency that matters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
 
   function update<K extends keyof BuildFormState>(key: K, value: BuildFormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -180,6 +246,18 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    const problems = validateBuildForm(form, ui, password);
+    if (problems.length > 0) {
+      setBusy(false);
+      setFormIssues(problems);
+      const savedAt = persistDraft();
+      setError(
+        `还有 ${problems.length} 项需要处理；当前配置${
+          savedAt ? `已保存到本浏览器（${new Date(savedAt).toLocaleString("zh-CN")}）` : "保存失败（浏览器存储不可用）"
+        }，改好后直接重试即可。`,
+      );
+      return;
+    }
     setBusy(true);
     resetPlan();
 
@@ -222,6 +300,14 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
 
   async function dispatchBuild() {
     if (!plan || plan.conflicts.length > 0 || conflicts.length > 0) return;
+    const problems = validateBuildForm(form, ui, password);
+    if (problems.length > 0) {
+      setFormIssues(problems);
+      persistDraft();
+      setError(`还有 ${problems.length} 项需要处理，本次没有派发构建；配置已保存到本浏览器。`);
+      return;
+    }
+    setFormIssues([]);
     setDispatching(true);
     setError("");
 
@@ -363,6 +449,28 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
             />
           )}
 
+          {restoredAt && !initialConfig ? (
+            <p className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 text-xs text-slate-400">
+              已恢复 {new Date(restoredAt).toLocaleString("zh-CN")} 保存在本浏览器的配置（不包含 root 密码）。
+              <button className="ml-2 underline hover:text-slate-200" onClick={clearDraft} type="button">
+                清除草稿
+              </button>
+            </p>
+          ) : null}
+
+          {formIssues.length > 0 ? (
+            <div className="rounded-lg border border-rose-900 bg-rose-950/40 p-3 text-sm text-rose-200">
+              <p className="font-medium">还有 {formIssues.length} 项需要处理：</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {formIssues.map((issue) => (
+                  <li key={issue.field}>
+                    <span className="text-rose-100">{issue.label}</span>：{issue.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           {error && <p className="rounded-lg border border-rose-900 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p>}
           {issues.length > 0 && (
             <ul className="rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-200">
@@ -374,11 +482,15 @@ export function BuildForm({ ui, releases, baseVersion, initialConfig, sourceWatc
 
           <button
             className="w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50"
-            disabled={busy || password.length < 8}
+            disabled={busy}
             type="submit"
           >
             {busy ? "生成中…" : "生成构建计划"}
           </button>
+          <p className="text-xs text-slate-500">
+            点击后会先在浏览器里检查表单：缺项或填错会逐条列在上面并拒绝生成，同时把当前配置保存在本浏览器
+            {draftSavedAt ? `（上次保存 ${new Date(draftSavedAt).toLocaleString("zh-CN")}）` : ""}。
+          </p>
         </form>
 
         <PlanPreview
