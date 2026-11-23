@@ -17,6 +17,7 @@ import type {
   RequestedPackage,
 } from "./types";
 import { generateUciDefaults } from "./uci";
+import { virtualProviderLookup } from "./virtual-providers";
 
 export interface PlanContext {
   baseVersion: string;
@@ -52,7 +53,12 @@ export async function createBuildPlan(form: BuildFormInput, context: PlanContext
 
   const formatConflicts: BuildConflict[] = [...removal.conflicts];
   const requests = collectRequests({ ...form, packages: packagesAfterRemoval }, formatConflicts);
-  const { entries, missingDependencies } = resolveDependencies(requests, context.lookup, context.lookupAll);
+  const { entries, missingDependencies } = resolveDependencies(
+    requests,
+    context.lookup,
+    context.lookupAll,
+    virtualProviderLookup,
+  );
   const names = entries.map((entry) => entry.name);
   const sourceConflicts = findSourceConflicts(requests, entries, context, form.packagePins ?? []);
   const downloads = buildDownloadManifest(entries, context, sourceConflicts);

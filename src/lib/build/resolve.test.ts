@@ -51,4 +51,26 @@ describe("resolveDependencies", () => {
       },
     ]);
   });
+
+  it("maps a virtual dependency to the provider present in the snapshot", () => {
+    const table: PackageLookup = (name) => {
+      if (name === "app") return { version: "1", depends: ["ip"], source: "official" as const, sourcePin: "", sha256: null, filename: "app-1.apk", downloadUrl: null, feed: "packages" };
+      if (name === "ip-full") return { version: "6", depends: [], source: "official" as const, sourcePin: "", sha256: null, filename: "ip-full-6.apk", downloadUrl: null, feed: "packages" };
+      return null;
+    };
+    const { entries, missingDependencies } = resolveDependencies(["app"], table, undefined, (name) =>
+      name === "ip" ? ["ip-full", "ip-tiny"] : [],
+    );
+    expect(missingDependencies).toEqual([]);
+    expect(entries.map((item) => item.name)).toEqual(["app", "ip-full"]);
+  });
+
+  it("still reports a virtual name when no provider exists", () => {
+    const table: PackageLookup = (name) =>
+      name === "app" ? { version: "1", depends: ["ip"], source: "official" as const, sourcePin: "", sha256: null, filename: "app-1.apk", downloadUrl: null, feed: "packages" } : null;
+    const { missingDependencies } = resolveDependencies(["app"], table, undefined, (name) =>
+      name === "ip" ? ["ip-full"] : [],
+    );
+    expect(missingDependencies).toEqual(["ip"]);
+  });
 });

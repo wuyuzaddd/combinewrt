@@ -119,4 +119,31 @@ describe("catalogue-level dependency closure", () => {
     expect(result.conflicts).toHaveLength(2);
     expect(new Set(result.conflicts.map((conflict) => conflict.names.join(">")) ).size).toBe(2);
   });
+
+  it("treats a virtual dependency as satisfied when its provider is in the plan", () => {
+    const lookup: PackageLookup = (name) => {
+      if (name === "app") return entry("app", { depends: ["ip"] });
+      if (name === "ip-full") return entry("ip-full");
+      return null;
+    };
+    const result = checkDependencyClosure({
+      entries: [resolved("app"), resolved("ip-full")],
+      lookup,
+      sources: registry(),
+      virtuals: (name) => (name === "ip" ? ["ip-full", "ip-tiny"] : []),
+    });
+    expect(result.conflicts).toEqual([]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("keeps the warning when a virtual name has no provider either", () => {
+    const lookup: PackageLookup = (name) => (name === "app" ? entry("app", { depends: ["linkease-app-entry"] }) : null);
+    const result = checkDependencyClosure({
+      entries: [resolved("app")],
+      lookup,
+      sources: registry(),
+      virtuals: () => [],
+    });
+    expect(result.warnings).toHaveLength(1);
+  });
 });

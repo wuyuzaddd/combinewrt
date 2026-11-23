@@ -22,6 +22,7 @@ import {
 import { resolveModes } from "./modes";
 import { composeV1BasePlan } from "./v1-base-plan";
 import { parsePackageRef } from "./refs";
+import { virtualProviderLookup } from "./virtual-providers";
 import { applyPackageRemovals, findRemovalDependencyConflicts } from "./removal";
 import type {
   BuildConflict,
@@ -341,7 +342,12 @@ export async function createBuildPlanV2(
   // preflight remains the authority for a concrete image; this check only
   // turns a snapshot-decidable known gap into a 409 and leaves everything else
   // as a warning.
-  const closure = checkDependencyClosure({ entries: resolved, lookup: context.lookup, sources });
+  const closure = checkDependencyClosure({
+    entries: resolved,
+    lookup: context.lookup,
+    sources,
+    virtuals: virtualProviderLookup,
+  });
 
   const removalConflicts = findRemovalDependencyConflicts({
     removals: removal.removed,

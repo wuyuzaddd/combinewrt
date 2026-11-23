@@ -1,6 +1,7 @@
 import type { SourceRegistry } from "../sources/types";
 import { parseDependency } from "./resolve";
 import type { BuildConflict, PackageLookup, ResolvedEntry } from "./types";
+import type { VirtualProviderLookup } from "./virtual-providers";
 
 /**
  * Catalogue-level dependency-closure check (ticket 12 hardening).
@@ -17,6 +18,8 @@ export interface DependencyClosureInput {
   entries: readonly ResolvedEntry[];
   lookup: PackageLookup;
   sources: SourceRegistry;
+  /** Alias table for names apk resolves through `Provides` (see virtual-providers). */
+  virtuals?: VirtualProviderLookup;
 }
 
 export interface DependencyClosureResult {
@@ -50,6 +53,13 @@ export function checkDependencyClosure(input: DependencyClosureInput): Dependenc
       // candidate that still resolves is therefore outside the plan on purpose
       // (a removal); the removal conflict owns that decision.
       if (candidates.some((candidate) => input.lookup(candidate) !== null)) continue;
+      // A virtual name is satisfied by one of its declared providers: either the
+      // provider is already in the plan, or the snapshot carries it and the
+      // image preflight will pull it in.
+      const virtualProvider = candidates
+        .flatMap((candidate) => input.virtuals?.(candidate) ?? [])
+        .find((provider) => selected.has(provider) || input.lookup(provider) !== null);
+      if (virtualProvider) continue;
 
       for (const candidate of candidates) {
         const record = input.sources.lookup(candidate);

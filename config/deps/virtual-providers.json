@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "note": "Dependency names that apk satisfies through a virtual/Provides relationship. The catalog snapshot only indexes package names, so a literal lookup reports these as missing even though the feed provides them. Order matters: the first candidate present in the active snapshot wins.",
+  "providers": {
+    "ip": ["ip-full", "ip-tiny"],
+    "ip6tables": ["iptables-nft", "iptables-legacy"],
+    "iptables": ["iptables-nft", "iptables-legacy"],
+    "uci-firewall": ["firewall4", "firewall"],
+    "libffmpeg": ["libffmpeg-full", "libffmpeg-mini", "ffmpeg"],
+    "libjpeg": ["libjpeg-turbo"],
+    "libncursesw6": ["libncurses6"],
+    "libudev": ["libudev-zero"],
+    "nginx": ["nginx-ssl", "nginx-full"],
+    "miniupnpd": ["miniupnpd-nftables", "miniupnpd"],
+    "wget-any": ["wget-ssl", "wget-nossl"],
+    "luci-ssl-nginx": ["luci-ssl-openssl", "luci-ssl"]
+  }
+}

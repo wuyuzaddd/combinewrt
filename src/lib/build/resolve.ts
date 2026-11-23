@@ -1,4 +1,5 @@
 import type { PackageLookup, PackageLookupAll, RequestedPackage, ResolvedEntry } from "./types";
+import type { VirtualProviderLookup } from "./virtual-providers";
 
 // Skips negative dependencies, version constraints, and virtual provides
 // (`so:`, `cmd:`, `PACKAGE_x:y`) that the ImageBuilder resolves at build time.
@@ -34,6 +35,12 @@ export function resolveDependencies(
   requested: Array<string | RequestedPackage>,
   lookup: PackageLookup,
   lookupAll?: PackageLookupAll,
+  /**
+   * Optional alias table for dependency names apk resolves through `Provides`
+   * (`ip` → `ip-full`, `nginx` → `nginx-ssl`, ...). Without it those names are
+   * reported as missing even though the snapshot carries the provider.
+   */
+  virtuals?: VirtualProviderLookup,
 ): { entries: ResolvedEntry[]; missingDependencies: string[] } {
   const entries: ResolvedEntry[] = [];
   const seen = new Set<string>();
@@ -67,6 +74,16 @@ export function resolveDependencies(
       if (!chosen) continue;
       if (seen.has(chosen)) continue;
       if (!available) {
+        const provider = candidates
+          .flatMap((candidate) => virtuals?.(candidate) ?? [])
+          .find((name) => (forced.get(name) ?? preferred(name)) !== null);
+        if (provider) {
+          if (!seen.has(provider)) {
+            seen.add(provider);
+            queue.push({ name: provider, source: "dependency" });
+          }
+          continue;
+        }
         missing.add(chosen);
         continue;
       }
