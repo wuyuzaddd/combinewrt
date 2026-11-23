@@ -338,6 +338,22 @@ export function BaseVersionPanel({
         </p>
       )}
 
+      {state.check?.autoAdopted && (
+        <p
+          className={`mt-2 rounded-lg border p-2 text-xs ${
+            state.check.autoAdopted.error
+              ? "border-rose-900 bg-rose-950/40 text-rose-200"
+              : "border-emerald-900 bg-emerald-950/30 text-emerald-200"
+          }`}
+        >
+          {state.check.autoAdopted.error
+            ? `新版本 ${state.check.autoAdopted.version} 已发现，但自动采用失败：${state.check.autoAdopted.error}`
+            : `已自动采用 ImmortalWrt ${state.check.autoAdopted.version}（${new Date(
+                state.check.autoAdopted.at,
+              ).toLocaleString("zh-CN")}），正在后台刷新目录并提交冒烟构建。`}
+        </p>
+      )}
+
       {state.candidate && (
         <div className="mt-4 rounded-lg border border-amber-800/60 bg-amber-950/30 p-3">
           <p className="text-amber-200">

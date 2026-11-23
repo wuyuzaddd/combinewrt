@@ -51,7 +51,7 @@ interface Harness {
   failRefresh(fail: boolean): void;
 }
 
-function harness(options: { seedPin?: string } = {}): Harness {
+function harness(options: { seedPin?: string; autoAdoptSameVersionHash?: boolean } = {}): Harness {
   const db = openDatabase(":memory:");
   migrate(db);
   const cacheDir = tempDir();
@@ -81,6 +81,7 @@ function harness(options: { seedPin?: string } = {}): Harness {
   };
 
   const service = createSourceWatchService({
+    autoAdoptSameVersionHash: options.autoAdoptSameVersionHash,
     db,
     cacheDir,
     watcher: createDllkidsRepoRefWatcher({
@@ -181,32 +182,38 @@ describe("source watch service", () => {
     });
   });
 
-  it("blocks a same-version package hash change and only adopts when forced", async () => {
+  it("adopts a same-version package hash change automatically and records it", async () => {
     const h = harness();
     const pinA = await baseline(h);
+
+    const pinB = h.setPayload(dumpOf([{ name: "luci", version: "1.0", sha: HEX_B }]));
+    const result = await h.service.check();
+
+    expect(result.status).toBe("adopted");
+    expect(result.reason).toBe("same_version_hash_changed");
+    expect(result.autoAdopted).toBe(true);
+    expect(result.diff?.sameVersionHashChanges).toEqual([
+      { name: "luci", version: "1.0", from: HEX_A, to: HEX_B },
+    ]);
+    expect(h.service.readOverview().active?.value).toBe(pinB);
+    expect(h.service.readOverview().state.candidateReason).toBe("auto_adopted_same_version_hash");
+    expect(h.refreshLog).toHaveLength(1);
+    expect(events(h.db, "adopted_same_version_hash")).toHaveLength(1);
+    expect(pinA).not.toBe(pinB);
+  });
+
+  it("still blocks a same-version hash change when auto-adopt is disabled", async () => {
+    const h = harness({ autoAdoptSameVersionHash: false });
+    await baseline(h);
 
     const pinB = h.setPayload(dumpOf([{ name: "luci", version: "1.0", sha: HEX_B }]));
     const blocked = await h.service.check();
 
     expect(blocked.status).toBe("blocked");
     expect(blocked.reason).toBe("same_version_hash_changed");
-    expect(blocked.diff?.sameVersionHashChanges).toEqual([
-      { name: "luci", version: "1.0", from: HEX_A, to: HEX_B },
-    ]);
-    expect(h.service.readOverview().active?.value).toBe(pinA);
     expect(h.service.readOverview().candidate?.value).toBe(pinB);
     expect(h.refreshLog).toHaveLength(0);
     expect(events(h.db, "blocked_same_version_hash")).toHaveLength(1);
-
-    const refused = await h.service.adopt();
-    expect(refused).toMatchObject({ ok: false, blocked: true, reason: "same_version_hash_changed" });
-    expect(h.refreshLog).toHaveLength(0);
-
-    const forced = await h.service.adopt({ force: true });
-    expect(forced.ok).toBe(true);
-    expect(h.refreshLog).toHaveLength(1);
-    expect(h.service.readOverview().active?.value).toBe(pinB);
-    expect(events(h.db, "adopted_forced")).toHaveLength(1);
   });
 
   it("bootstrap-adopts the first observation on a fresh deployment with no baseline", async () => {

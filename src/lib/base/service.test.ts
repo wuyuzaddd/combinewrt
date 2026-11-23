@@ -45,6 +45,7 @@ describe("base version service", () => {
     const db = database();
     const store = createBaseVersionStore(db);
     const service = createBaseVersionService({
+      autoAdopt: false,
       store,
       fetchImpl: fakeFetch(),
       refresh: vi.fn(),
@@ -56,6 +57,27 @@ describe("base version service", () => {
     expect(check.latest?.version).toBe("25.12.3");
     expect(service.readState().active?.version).toBe("25.12.2");
     expect(service.readState().candidate?.version).toBe("25.12.3");
+    db.close();
+  });
+
+  it("adopts a newly published release automatically", async () => {
+    const db = database();
+    const store = createBaseVersionStore(db);
+    const refresh = vi.fn(async () => ({ snapshotId: 7 }));
+    const submitSmoke = vi.fn(async () => ({ buildId: "smoke-1" }));
+    const service = createBaseVersionService({
+      store,
+      fetchImpl: fakeFetch(),
+      refresh,
+      submitSmoke,
+    });
+
+    const check = await service.checkForNewRelease();
+    expect(check.error).toBeNull();
+    expect(check.autoAdopted?.version).toBe("25.12.3");
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledWith("25.12.3"));
+    expect(service.readState().active?.version).toBe("25.12.3");
+    expect(service.readState().previous?.version).toBe("25.12.2");
     db.close();
   });
 
@@ -84,6 +106,8 @@ describe("base version service", () => {
     const submitSmoke = vi.fn(async () => ({ buildId: "build-1" }));
     const triggerSupplementBuild = vi.fn(async () => ({ runId: null }));
     const service = createBaseVersionService({
+      // This test drives the manual bump path, so automatic adoption is off.
+      autoAdopt: false,
       store,
       fetchImpl: fakeFetch(),
       refresh,

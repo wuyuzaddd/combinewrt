@@ -52,6 +52,16 @@ function formatTime(value: string | null): string {
   return value ? new Date(value).toLocaleString("zh-CN") : "尚未检查";
 }
 
+const REASON_LABELS: Record<string, string> = {
+  unchanged: "无变化",
+  safe_change: "上游更新，已自动采纳",
+  same_version_hash_changed: "同版本哈希变化（需人工确认）",
+  upstream_changed_auto_adopt: "上游内容变化，已自动采纳",
+  auto_adopted_same_version_hash: "上游内容变化，已自动采纳",
+  baseline_missing: "缺少基线缓存，已阻止",
+  adoption_failed: "采纳失败",
+};
+
 export function SourceWatchPanel({
   sourceWatch,
   fromBuildId,
@@ -103,7 +113,9 @@ export function SourceWatchPanel({
                 候选 {short(sourceWatch.dllkids.candidatePin)}
               </p>
               {sourceWatch.dllkids.candidateReason ? (
-                <p className="mt-1 text-xs text-amber-300">{sourceWatch.dllkids.candidateReason}</p>
+                <p className="mt-1 text-xs text-amber-300">
+                  {REASON_LABELS[sourceWatch.dllkids.candidateReason] ?? sourceWatch.dllkids.candidateReason}
+                </p>
               ) : null}
               {sourceWatch.dllkids.lastError ? (
                 <p className="mt-1 break-all text-xs text-rose-300">{sourceWatch.dllkids.lastError}</p>

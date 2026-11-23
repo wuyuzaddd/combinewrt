@@ -38,6 +38,12 @@ export interface SourceWatchServiceOptions {
   /** Transactional catalog refresh for one pin. Must throw when activation fails. */
   refresh: SourcePinRefresh;
   intervalMs?: number;
+  /**
+   * Adopt a same-version index change automatically instead of blocking it.
+   * Defaults to true (policy 2026-11-23); the adoption is still recorded as an
+   * event so the change is visible afterwards.
+   */
+  autoAdoptSameVersionHash?: boolean;
   now?: () => Date;
   adoptedBy?: string;
 }
@@ -97,6 +103,7 @@ function candidateDiff(record: SourcePinRecord | null): PackageDiff | null {
 
 export function createSourceWatchService(options: SourceWatchServiceOptions): SourceWatchService {
   const {
+    autoAdoptSameVersionHash = true,
     db,
     cacheDir,
     watcher,
@@ -166,7 +173,7 @@ export function createSourceWatchService(options: SourceWatchServiceOptions): So
     force: boolean;
     adoptedBy: string;
     /** Distinguishes the one-time fresh-deployment bootstrap from a normal auto-adopt. */
-    reason?: "adopted" | "adopted_forced" | "adopted_bootstrap";
+    reason?: "adopted" | "adopted_forced" | "adopted_bootstrap" | "adopted_same_version_hash";
   }): Promise<AdoptPinResult> {
     const candidate = readSourcePin(db, SOURCE, "candidate");
     if (!candidate) {
@@ -451,9 +458,16 @@ export function createSourceWatchService(options: SourceWatchServiceOptions): So
       baselineMissing && !hasSourcePinAdoptionHistory(db, SOURCE);
     const diff = baseline ? diffPackages(baseline.packages, observation.parsed.packages) : null;
     const sameVersionChange = Boolean(diff && diff.sameVersionHashChanges.length > 0);
-    const blocked = (baselineMissing && !bootstrapEligible) || sameVersionChange;
+    // 2026-11-23 policy: an upstream index change is adopted automatically and
+    // only reported. The old guard is still available with
+    // SOURCE_WATCH_AUTO_ADOPT=0; a missing baseline always blocks because the
+    // guard could not run at all.
+    const autoAdoptUpstream = sameVersionChange && autoAdoptSameVersionHash;
+    const blocked = (baselineMissing && !bootstrapEligible) || (sameVersionChange && !autoAdoptUpstream);
     const blockedReason = sameVersionChange
-      ? "same_version_hash_changed"
+      ? autoAdoptUpstream
+        ? "upstream_changed_auto_adopt"
+        : "same_version_hash_changed"
       : baselineMissing
         ? "baseline_missing"
         : null;
@@ -508,7 +522,11 @@ export function createSourceWatchService(options: SourceWatchServiceOptions): So
     const adopted = await adoptCandidate({
       force: false,
       adoptedBy,
-      reason: bootstrapEligible ? "adopted_bootstrap" : undefined,
+      reason: bootstrapEligible
+        ? "adopted_bootstrap"
+        : autoAdoptUpstream
+          ? "adopted_same_version_hash"
+          : undefined,
     });
     if (!adopted.ok) {
       return {
@@ -519,13 +537,18 @@ export function createSourceWatchService(options: SourceWatchServiceOptions): So
         diff,
       };
     }
+    if (autoAdoptUpstream) {
+      // Keep the reason visible in the overview even after adoptCandidate clears it.
+      patchSourceWatchState(db, SOURCE, { candidateReason: "auto_adopted_same_version_hash" }, nowIso());
+    }
     return {
       ...baseResult("adopted"),
       observedPin: adopted.adoptedPin,
       activePin: adopted.adoptedPin,
       snapshotId: adopted.snapshotId,
-      reason: "safe_change",
+      reason: autoAdoptUpstream ? "same_version_hash_changed" : "safe_change",
       diff,
+      autoAdopted: autoAdoptUpstream,
     };
   }
 

@@ -23,6 +23,7 @@ function createService(): BaseVersionService {
   const catalogStore = createCatalogStore(db);
 
   return createBaseVersionService({
+    autoAdopt: config.baseVersionAutoAdopt,
     store: createBaseVersionStore(db),
     activeSnapshotId: () => catalogStore.getActiveSnapshot()?.id ?? null,
     activateSnapshot: (snapshotId) => catalogStore.activateSnapshot(snapshotId),

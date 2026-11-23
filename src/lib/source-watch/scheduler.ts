@@ -49,6 +49,7 @@ export function getSourceWatchService(): SourceWatchService {
   const config = getConfig();
   const db = getDatabase();
   cached = createSourceWatchService({
+    autoAdoptSameVersionHash: config.sourceWatchAutoAdopt,
     db,
     cacheDir: config.sourceCacheDir,
     intervalMs: config.sourceWatchIntervalHours * 60 * 60 * 1000,

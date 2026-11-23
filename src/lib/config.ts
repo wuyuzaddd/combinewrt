@@ -70,6 +70,14 @@ export interface AppConfig {
    */
   artifactMaxBytes: number;
   sourceWatchIntervalHours: number;
+  /**
+   * Upstream policy (2026-11-23): when the dllkids index changes under the same
+   * advertised version, adopt it automatically and only report it. Set
+   * `SOURCE_WATCH_AUTO_ADOPT=0` to restore the old block-and-review behaviour.
+   */
+  sourceWatchAutoAdopt: boolean;
+  /** Adopt a newly published ImmortalWrt release instead of waiting for a click. */
+  baseVersionAutoAdopt: boolean;
   sourceCacheDir: string;
 }
 
@@ -258,6 +266,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   ) {
     issues.push("SOURCE_WATCH_INTERVAL_HOURS must be an integer between 1 and 168");
   }
+  const sourceWatchAutoAdopt = (env.SOURCE_WATCH_AUTO_ADOPT?.trim() || "1") !== "0";
+  const baseVersionAutoAdopt = (env.BASE_VERSION_AUTO_ADOPT?.trim() || "1") !== "0";
   const sourceCacheDir =
     env.SOURCE_CACHE_DIR?.trim() || join(dirname(databasePath), "source-cache");
   const buildRef = env.BUILD_REF?.trim() || "main";
@@ -358,6 +368,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     artifactCacheMaxBytes,
     artifactMaxBytes,
     sourceWatchIntervalHours,
+    sourceWatchAutoAdopt,
+    baseVersionAutoAdopt,
     sourceCacheDir,
   };
 }

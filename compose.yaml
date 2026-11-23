@@ -42,6 +42,11 @@ services:
       SOURCE_CACHE_DIR: /data/source-cache
     ports:
       - "${COMBINEWRT_PORT:-3100}:3000"
+    # The host's IPv6 route is broken (down.dllkids.xyz resolves to AAAA and
+    # every IPv6 connect black-holes). Turning IPv6 off inside this container
+    # makes getaddrinfo return IPv4 only, so fetch works without pinning IPs.
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
     volumes:
       - ./compose-data:/data
     healthcheck:

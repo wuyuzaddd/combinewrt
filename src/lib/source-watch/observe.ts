@@ -32,6 +32,27 @@ export function createHttpRepoRefWatcher<T>(
 
   let inFlight: Promise<RepoRefObservation<T>> | null = null;
 
+  // A hanging upstream must not freeze the watch queue: every request gets a
+  // hard deadline and one retry, and 4xx answers are not retried.
+  const FETCH_TIMEOUT_MS = 90_000;
+
+  async function fetchIndex(): Promise<Response> {
+    let lastError: unknown = new Error(`GET ${options.ref} failed`);
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const response = await fetchImpl(options.ref, {
+          headers: { accept: "application/octet-stream" },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (response.ok || response.status < 500) return response;
+        lastError = new Error(`GET ${options.ref} failed: ${response.status}`);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
   async function observeOnce(): Promise<RepoRefObservation<T>> {
     const observedAt = (options.now ?? (() => new Date()))().toISOString();
     const base: RepoRefObservation<T> = {
@@ -45,9 +66,7 @@ export function createHttpRepoRefWatcher<T>(
     };
 
     try {
-      const response = await fetchImpl(options.ref, {
-        headers: { accept: "application/octet-stream" },
-      });
+      const response = await fetchIndex();
       if (!response.ok) {
         throw new Error(`GET ${options.ref} failed: ${response.status}`);
       }

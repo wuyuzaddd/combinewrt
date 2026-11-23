@@ -16,6 +16,7 @@ export type PinEventReason =
   | "adopted"
   | "adopted_forced"
   | "adopted_bootstrap"
+  | "adopted_same_version_hash"
   | "blocked_same_version_hash"
   | "blocked_baseline_missing"
   | "adoption_rolled_back"
@@ -49,6 +50,8 @@ export interface SourcePinEvent {
 export type WatchCandidateReason =
   | "safe_change"
   | "same_version_hash_changed"
+  | "upstream_changed_auto_adopt"
+  | "auto_adopted_same_version_hash"
   | "baseline_missing"
   | "adoption_failed"
   | "unchanged"
@@ -175,6 +178,8 @@ export interface WatchCheckResult {
   reason: string | null;
   diff: PackageDiff | null;
   error: string | null;
+  /** True when the check adopted an upstream change automatically (notification only). */
+  autoAdopted?: boolean;
 }
 
 export interface SourceWatchOverview {

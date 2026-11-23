@@ -13,6 +13,7 @@ const REASON_LABELS: Record<PinEventReason, string> = {
   adopted: "自动采纳",
   adopted_forced: "强制采纳",
   adopted_bootstrap: "首次观察，引导采纳",
+  adopted_same_version_hash: "上游变化，自动采纳",
   blocked_same_version_hash: "同版本哈希变化，已阻止",
   blocked_baseline_missing: "缺少基线缓存，已阻止",
   adoption_rolled_back: "刷新失败，已回滚",
@@ -23,6 +24,8 @@ const REASON_LABELS: Record<PinEventReason, string> = {
 const STATE_LABELS: Record<string, string> = {
   safe_change: "发现安全变更",
   same_version_hash_changed: "同版本哈希变化",
+  upstream_changed_auto_adopt: "上游内容变化，已自动采纳",
+  auto_adopted_same_version_hash: "上游内容变化，已自动采纳",
   baseline_missing: "缺少基线缓存",
   adoption_failed: "采纳失败",
   unchanged: "无变化",

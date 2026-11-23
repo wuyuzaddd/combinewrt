@@ -18,6 +18,12 @@ export interface BaseVersionServiceOptions {
   activeSnapshotId?: () => number | null;
   activateSnapshot?: (snapshotId: number) => boolean;
   fetchImpl?: typeof fetch;
+  /**
+   * Adopt a newly published ImmortalWrt release automatically (policy
+   * 2026-11-23). The switch still runs the normal refresh + smoke build.
+   * `BASE_VERSION_AUTO_ADOPT=0` restores manual adoption.
+   */
+  autoAdopt?: boolean;
   now?: () => Date;
 }
 
@@ -44,6 +50,7 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
     activeSnapshotId,
     activateSnapshot,
     fetchImpl = fetch,
+    autoAdopt = true,
     now = () => new Date(),
   } = options;
   function readState(): BaseVersionState {
@@ -61,6 +68,41 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
       smoke: store.smoke(),
       supplementBuild: store.supplementBuild(),
     };
+  }
+
+  async function bumpVersion(version: string): Promise<BaseVersionState> {
+    const active = store.active();
+    if (active?.version === version) throw new Error(`ImmortalWrt ${version} is already the active baseline`);
+
+    let record = store.get(version);
+    if (!record) {
+      const candidate = store.check()?.latest;
+      if (!candidate || candidate.version !== version) {
+        throw new Error(`ImmortalWrt ${version} has not been discovered yet; check for a new release first`);
+      }
+      record = store.upsert({
+        version: candidate.version,
+        releaseDate: candidate.releaseDate,
+        imageBuilderUrl: candidate.imageBuilderUrl,
+        imageBuilderSha256: candidate.imageBuilderSha256,
+      });
+    }
+
+    const rollbackSnapshotId = activeSnapshotId?.() ?? null;
+    store.setSupplementBuild(null);
+    store.setSmoke({
+      phase: "refreshing",
+      buildId: null,
+      snapshotId: null,
+      targetVersion: record.version,
+      rollbackSnapshotId,
+      error: null,
+      startedAt: now().toISOString(),
+      updatedAt: now().toISOString(),
+    });
+
+    void runPipeline(record.version, active?.version ?? null);
+    return readState();
   }
 
   async function checkForNewRelease(): Promise<BaseCheckState> {
@@ -84,7 +126,28 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
       const candidate = await fetchReleaseCandidate(newest.version, newest.releaseDate, fetchImpl);
       const check: BaseCheckState = { checkedAt, latest: candidate, error: null };
       store.setCheck(check);
-      return check;
+      if (!autoAdopt) return check;
+
+      // Policy 2026-11-23: switch to a freshly published release automatically.
+      // The candidate stays visible in the state so the UI can notify the user;
+      // a failure to start the switch is reported instead of silently ignored.
+      const at = now().toISOString();
+      try {
+        await bumpVersion(newest.version);
+        const adopted: BaseCheckState = {
+          ...check,
+          autoAdopted: { version: newest.version, at, error: null },
+        };
+        store.setCheck(adopted);
+        return adopted;
+      } catch (error) {
+        const failed: BaseCheckState = {
+          ...check,
+          autoAdopted: { version: newest.version, at, error: message(error) },
+        };
+        store.setCheck(failed);
+        return failed;
+      }
     } catch (error) {
       const check: BaseCheckState = { checkedAt, latest: null, error: message(error) };
       store.setCheck(check);
@@ -157,40 +220,7 @@ export function createBaseVersionService(options: BaseVersionServiceOptions): Ba
 
   return {
     checkForNewRelease,
-    async bump(version) {
-      const active = store.active();
-      if (active?.version === version) throw new Error(`ImmortalWrt ${version} is already the active baseline`);
-
-      let record = store.get(version);
-      if (!record) {
-        const candidate = store.check()?.latest;
-        if (!candidate || candidate.version !== version) {
-          throw new Error(`ImmortalWrt ${version} has not been discovered yet; check for a new release first`);
-        }
-        record = store.upsert({
-          version: candidate.version,
-          releaseDate: candidate.releaseDate,
-          imageBuilderUrl: candidate.imageBuilderUrl,
-          imageBuilderSha256: candidate.imageBuilderSha256,
-        });
-      }
-
-      const rollbackSnapshotId = activeSnapshotId?.() ?? null;
-      store.setSupplementBuild(null);
-      store.setSmoke({
-        phase: "refreshing",
-        buildId: null,
-        snapshotId: null,
-        targetVersion: record.version,
-        rollbackSnapshotId,
-        error: null,
-        startedAt: now().toISOString(),
-        updatedAt: now().toISOString(),
-      });
-
-      void runPipeline(record.version, active?.version ?? null);
-      return readState();
-    },
+    bump: bumpVersion,
     async revert() {
       const active = store.active();
       const previous = store.previous();
