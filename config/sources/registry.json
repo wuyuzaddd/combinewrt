@@ -475,6 +475,50 @@
         "description": "高级 syslog / 内核日志查看器（tail、搜索、过滤），上游 gSpotx2f/luci-app-log v1.5.0-r5，MIT；依赖 ucode + ucode-mod-fs。"
       },
       "recipeHash": "e5824e4112519189c5f31355734de0471ef40a59f55310c0468d0b28e734b6e1"
+    },
+    {
+      "name": "linkease-app-entry",
+      "source": "extension",
+      "repo": "kenzok8/small-package",
+      "ref": "2e644c070d1b6358925c70d38f59a4b747273eae",
+      "subdir": "linkease-app-entry",
+      "pin": "2e644c070d1b6358925c70d38f59a4b747273eae",
+      "license": "GPL-3.0",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:kenzok8/small-package@2e644c070d1b6358925c70d38f59a4b747273eae/linkease-app-entry",
+      "recipeHash": "e40ff8b51160ad79ffc089f16a16ee68e46b3203bb4d9340c101303d87dbc238",
+      "i18n": {
+        "status": "curated",
+        "title": "LinkEase 应用入口",
+        "description": "dllkids 源只提供源码、feed 中没有编译好的 apk；本扩展从 kenzok8/small-package@2e644c0 构建（上游 3.0.23 二进制运行时，GPL-3.0），提供 linkease-app-entry 虚拟入口，供 fastnet 等 LuCI 应用依赖。"
+      }
+    },
+    {
+      "name": "fastnet",
+      "source": "extension",
+      "repo": "kenzok8/small-package",
+      "ref": "2e644c070d1b6358925c70d38f59a4b747273eae",
+      "subdir": "fastnet",
+      "pin": "2e644c070d1b6358925c70d38f59a4b747273eae",
+      "license": "GPL-3.0",
+      "publicAllowed": true,
+      "strategy": "rebuild",
+      "targets": [
+        "x86/64"
+      ],
+      "patches": [],
+      "recipe": "github:kenzok8/small-package@2e644c070d1b6358925c70d38f59a4b747273eae/fastnet",
+      "recipeHash": "cd16fd3a656cbcb60668ab39b2b980046ea0cc2669cb2ceb5de0c465f1d22b48",
+      "i18n": {
+        "status": "curated",
+        "title": "FastNet 网络测速",
+        "description": "dllkids feed 里的 fastnet 停留在 0.7.2-r1，而 luci-app-fastnet 27.316 要求 >=0.8.9-r1；本扩展从 kenzok8/small-package@2e644c0 构建上游 0.8.10 二进制运行时（GPL-3.0），依赖 linkease-app-entry。"
+      }
     }
   ]
 }
