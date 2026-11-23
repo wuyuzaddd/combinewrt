@@ -331,7 +331,9 @@ jobs:
           # The pinned third-party packages were re-indexed and signed above;
           # trust it through keys/ and never by disabling signature checks.
           if [ -f packages/packages.adb ]; then
-            REPO_ARGS+=(--repository "$PWD/packages")
+            # Point at the index file itself: passing the directory makes apk
+            # probe <dir>/<arch>/APKINDEX.tar.gz and miss the .adb index.
+            REPO_ARGS+=(--repository "$PWD/packages/packages.adb")
           fi
           echo "COMBINEWRT_PREFLIGHT_PACKAGES=$(jq -r '.composition.preflight.packages | length' ../plan.json)"
           # apk add only reads indexes from the cache, so refresh them first
