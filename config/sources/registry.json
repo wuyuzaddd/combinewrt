@@ -127,25 +127,19 @@
     },
     {
       "name": "luci-theme-argon",
-      "source": "extension",
-      "repo": "jerrykuku/luci-theme-argon",
-      "ref": "a121960d2adbe9d57333db3f4e045467dcb375c9",
-      "subdir": ".",
-      "pin": "a121960d2adbe9d57333db3f4e045467dcb375c9",
+      "source": "official",
+      "pin": "releases/25.12.2",
       "license": "Apache-2.0",
       "publicAllowed": true,
-      "strategy": "rebuild",
+      "strategy": "prebuilt",
       "targets": [
         "x86/64"
       ],
-      "patches": [],
-      "recipe": "github:jerrykuku/luci-theme-argon@a121960d2adbe9d57333db3f4e045467dcb375c9/.",
       "i18n": {
         "status": "curated",
         "title": "Argon 主题",
         "description": "深色玻璃质感主题，LuCI 24.10 与 25.12 均可用。"
-      },
-      "recipeHash": "46c33bef12f3005fe848478870d6edd992f2e77ef7d43ffd1c83e05b4d39a493"
+      }
     },
     {
       "name": "luci-theme-aurora",
