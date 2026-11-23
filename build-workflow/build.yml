@@ -222,6 +222,18 @@ jobs:
             if ! staging_dir/host/bin/apk verify --keys-dir "$IB_ROOT/keys" packages/packages.adb; then
               fail download-packages "" "" "" "failed to verify the local APK index"
             fi
+            # apk resolves a --repository directory as <dir>/<arch>/packages.adb,
+            # so the signed index must also live under the feed target's arch
+            # directory. Without it the preflight reports every pinned package
+            # as "no such package" even though the apks and index exist.
+            FEED_TARGET=$(jq -r '.composition.feedSet.feedTarget // "x86_64"' ../plan.json)
+            mkdir -p "packages/$FEED_TARGET"
+            cp packages/*.apk "packages/$FEED_TARGET/"
+            if ! (cd "packages/$FEED_TARGET" && "$IB_ROOT/staging_dir/host/bin/apk" mkndx --allow-untrusted \
+              --keys-dir "$IB_ROOT/keys" --sign-key "$IB_ROOT/keys/local-private-key.pem" \
+              --output packages.adb ./*.apk); then
+              fail download-packages "" "" "" "failed to rebuild the local APK index under $FEED_TARGET"
+            fi
             ls -l packages/*.apk | head -20
             echo "local package index rebuilt and signed with pinned apks"
           else
