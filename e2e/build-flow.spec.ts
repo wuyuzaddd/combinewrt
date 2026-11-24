@@ -50,10 +50,12 @@ test("login, compose a three-source plan, build and download", async ({ page }) 
   await expect(page).toHaveURL(/\/builds\/[0-9a-f-]+$/);
 
   await expect(page.getByRole("link", { name: /下载产物/ })).toBeVisible({ timeout: 45_000 });
-  // Ticket 13: the page says the download is a ZIP container and how to unpack it.
-  await expect(page.getByText(/下载文件 ZIP 容器/)).toBeVisible();
-  await expect(page.getByText(/解压后镜像/)).toBeVisible();
-  await expect(page.getByText(/需解压后使用/)).toBeVisible();
+  // The site unpacks a single-file GitHub ZIP and serves the image itself; the
+  // fake adapter returns an empty ZIP, so this build takes the documented
+  // fallback where the browser gets the container.
+  await expect(page.getByText(/浏览器拿到的就是镜像文件本身/)).toBeVisible();
+  await expect(page.getByText(/退回交付 ZIP 容器/)).toBeVisible();
+  await expect(page.getByText(/此时才需要自行解压/)).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("link", { name: /下载产物/ }).click();
   const download = await downloadPromise;
