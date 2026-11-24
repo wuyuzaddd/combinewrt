@@ -94,7 +94,7 @@ jobs:
       count: ${{ steps.select.outputs.count }}
       full: ${{ steps.select.outputs.full }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -148,13 +148,13 @@ jobs:
             -pubout -out "$RUNNER_TEMP/signing/public-key.pem"
           sha256sum "$RUNNER_TEMP/signing/public-key.pem"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: build-signing-key
           path: ${{ runner.temp }}/signing
           retention-days: 7
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: selection
           path: |
@@ -185,7 +185,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/cache@v4
         with:
@@ -228,7 +228,7 @@ jobs:
         run: scripts/prepare-sdk.sh "$RUNNER_TEMP/sdk"
 
       - name: Fetch the build signing key
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: build-signing-key
           path: ${{ runner.temp }}/signing
@@ -347,7 +347,7 @@ jobs:
           printf 'COMBINEWRT_FAILURE package=%s target=%s reason=build\n' \
             "${{ matrix.package }}" "$TARGET" > "out/failure-${{ matrix.package }}.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: ext-apk-${{ matrix.package }}
@@ -360,9 +360,9 @@ jobs:
     if: always() && needs.prepare.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: selection
           path: selection
@@ -370,7 +370,7 @@ jobs:
       - name: Make artifact directory
         run: mkdir -p artifacts build
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           pattern: ext-apk-*
@@ -446,7 +446,7 @@ jobs:
             ' >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: extension-build

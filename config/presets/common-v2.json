@@ -517,12 +517,6 @@
           "source": "official"
         },
         {
-          "name": "luci-app-filetransfer",
-          "description": "网页上传与下载文件",
-          "license": "Apache-2.0",
-          "source": "dllkids"
-        },
-        {
           "name": "luci-app-uhttpd",
           "description": "uHTTPd 网页服务配置面板",
           "license": "Apache-2.0",
