@@ -12,16 +12,21 @@ export const PACKAGE_SOURCES: readonly PackageSource[] = ["official", "dllkids",
 /**
  * Tie-break when two feeds publish the same package name.
  *
- * The curated presets were built around dllkids' builds of packages that also
- * exist in the official feeds (ksmbd, arpbind, smartdns, ...), and that choice
- * is deliberate: the dllkids feed carries the newer backports. Official stays
- * first for everything else, and a curated source that disagrees with this
- * order is still reported as a warning by the preset checker.
+ * Policy (2026-11-24): the official ImmortalWrt feeds win by default — their
+ * ABI is the base image's own and their signatures are upstream. Our curated
+ * self-built feeds come next (supplement, then extension), and the third-party
+ * dllkids feed is the fallback for names the official feeds do not carry.
+ *
+ * Order matters: dllkids has shipped stale binaries (fastnet 0.7.2 while
+ * luci-app-fastnet needs >=0.8.9), missing packages (linkease-app-entry) and
+ * all-in-one wrappers whose files collide with official cores (mosdns). A
+ * curated source that disagrees with this order is still reported as a warning
+ * by the preset checker.
  */
 export function sourcePriority(source: PackageSource): number {
-  if (source === "dllkids") return 0;
-  if (source === "official") return 1;
-  if (source === "supplement") return 2;
+  if (source === "official") return 0;
+  if (source === "supplement") return 1;
+  if (source === "extension") return 2;
   return 3;
 }
 
