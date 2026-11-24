@@ -165,25 +165,19 @@
     },
     {
       "name": "luci-app-openclash",
-      "source": "extension",
-      "repo": "vernesong/OpenClash",
-      "ref": "e553e82e01c697aefbe1555261a503f425e00ccd",
-      "subdir": "luci-app-openclash",
-      "pin": "e553e82e01c697aefbe1555261a503f425e00ccd",
+      "source": "official",
+      "pin": "releases/25.12.2",
       "license": "MIT",
       "publicAllowed": true,
-      "strategy": "rebuild",
+      "strategy": "prebuilt",
       "targets": [
         "x86/64"
       ],
-      "patches": [],
-      "recipe": "github:vernesong/OpenClash@e553e82e01c697aefbe1555261a503f425e00ccd/luci-app-openclash",
       "i18n": {
         "status": "curated",
         "title": "OpenClash",
         "description": "Clash/Mihomo 内核代理，TUN 模式需要 kmod-tun。"
-      },
-      "recipeHash": "e374d425d149c8a9754321bd9c80612f88fafe4e029d3440d1aa2e270fe0468a"
+      }
     },
     {
       "name": "luci-app-mosdns",
@@ -209,24 +203,18 @@
     },
     {
       "name": "luci-app-dockerman",
-      "source": "extension",
-      "repo": "lisaac/luci-app-dockerman",
-      "ref": "6fd9937954e0b080bf07967182d714ea21fe7eb1",
-      "subdir": "applications",
-      "pin": "6fd9937954e0b080bf07967182d714ea21fe7eb1",
+      "source": "official",
+      "pin": "releases/25.12.2",
       "license": "AGPL-3.0-only",
-      "publicAllowed": false,
-      "strategy": "rebuild",
+      "publicAllowed": true,
+      "strategy": "prebuilt",
       "targets": [
         "x86/64"
       ],
-      "patches": [],
-      "recipe": "github:lisaac/luci-app-dockerman@6fd9937954e0b080bf07967182d714ea21fe7eb1/applications",
       "i18n": {
         "status": "unreviewed",
         "title": "Dockerman 容器管理"
-      },
-      "recipeHash": "d5967ddc17df6febb15ebfc7db9491226178275f38d439ed9f0dfa93131af8cd"
+      }
     },
     {
       "name": "quickstart",
