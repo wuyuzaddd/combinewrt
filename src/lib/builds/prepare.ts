@@ -287,8 +287,11 @@ export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<Prep
     ...(outcome.plan.resolved ?? []).map((entry) => entry.name),
   ]);
   if (clashConflicts.length > 0) {
-    outcome.plan.conflicts.push(...clashConflicts);
-    outcome.conflicts.push(...clashConflicts);
+    // plan.conflicts and the returned conflicts list may be the same array.
+    const seen = new Set(outcome.conflicts.map((conflict) => conflict.message));
+    const additions = clashConflicts.filter((conflict) => !seen.has(conflict.message));
+    outcome.plan.conflicts.push(...additions);
+    if (outcome.conflicts !== outcome.plan.conflicts) outcome.conflicts.push(...additions);
   }
   return { ok: true, plan: outcome.plan, conflicts: outcome.conflicts };
 }
