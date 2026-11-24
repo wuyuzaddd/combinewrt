@@ -115,16 +115,16 @@ describe("dedupePackages", () => {
     expect(merged.find((item) => item.name === "6in4")?.version).toBe("99");
   });
 
-  it("keeps shadowed packages from different sources, dllkids first", () => {
-    // The curated presets rely on dllkids' builds of packages that also exist
-    // in the official feeds, so the duplicate rows sort with dllkids ahead of
-    // official; the acquisition strategy follows this first row.
+  it("keeps shadowed packages from different sources, official first", () => {
+    // Policy (2026-11-24): official > dllkids > supplement > extension, so the
+    // duplicate rows sort with official ahead of dllkids even when dllkids
+    // reports a newer version; the acquisition strategy follows this first row.
     const official = pkg("same", "13");
-    const dllkids = { ...pkg("same", "12"), source: "dllkids" as const };
-    const result = dedupePackages([official, dllkids]);
+    const dllkids = { ...pkg("same", "14"), source: "dllkids" as const };
+    const result = dedupePackages([dllkids, official]);
     expect(result.map((item) => `${item.source}:${item.name}@${item.version}`)).toEqual([
-      "dllkids:same@12",
       "official:same@13",
+      "dllkids:same@14",
     ]);
   });
 
