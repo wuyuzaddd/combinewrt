@@ -70,9 +70,15 @@ export function validateExtensionThemes(raw: unknown, registry: SourceRegistry):
     }
     seen.add(theme.package);
 
-    const record = registry.lookup(theme.package, { source: "extension" });
+    // A theme may be curated in the extension registry or ship in the official
+    // feeds; both are installable, so accept either and only reject names that
+    // resolve nowhere. (luci-theme-argon moved to official in ImmortalWrt
+    // 25.12.2, so requiring the extension source rejected a valid theme.)
+    const record =
+      registry.lookup(theme.package, { source: "extension" }) ??
+      registry.lookup(theme.package, { source: "official" });
     if (!record) {
-      violations.push({ path, message: `${theme.package} is not a registered extension package` });
+      violations.push({ path, message: `${theme.package} is not a registered extension or official package` });
     } else {
       if (record.publicAllowed !== true) {
         violations.push({ path, message: `${theme.package} is not publicAllowed, so it cannot be a public theme` });

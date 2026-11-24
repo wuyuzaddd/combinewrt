@@ -190,10 +190,11 @@ describe("source-build overlay verification (docker data root)", () => {
 describe("workflow signature allow-list", () => {
   // ADR 0007: the default apk path never weakens signature checking. The only
   // `--allow-untrusted` uses are the downloaded-prebuilt verification and the
-  // two mkndx calls that index exactly those pinned apks. Pin the exact list so
-  // a future edit has to justify itself in this test.
+  // mkndx calls that index exactly those pinned apks (root index plus the
+  // arch-scoped copy apk resolves). Pin the exact list so a future edit has to
+  // justify itself in this test.
   const ALLOWED: Record<string, number> = {
-    "build.yml": 3,
+    "build.yml": 4,
     "extension.yml": 0,
     "source-build.yml": 0,
   };
@@ -212,7 +213,7 @@ describe("workflow signature allow-list", () => {
     const start = source.indexOf("- name: Download pinned third-party packages");
     const end = source.indexOf("- name: Write files");
     const region = source.slice(start, end);
-    expect(region.split("--allow-untrusted")).toHaveLength(4);
+    expect(region.split("--allow-untrusted")).toHaveLength(5);
     // The feed preflight resolves real repositories with the project key and
     // must never pass the flag.
     const preflight = source.slice(source.indexOf(`- name: ${FEED_STEP}`), source.indexOf("- name: Build image"));
