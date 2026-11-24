@@ -149,7 +149,7 @@ export default function PlanPage() {
             ) : null}
             <button
               className="mt-4 w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50"
-              disabled={dispatching}
+              disabled={dispatching || conflicts.length > 0 || pending.plan.conflicts.length > 0}
               onClick={dispatch}
               type="button"
             >
@@ -163,6 +163,7 @@ export default function PlanPage() {
             mode={pending.form.mode}
             onDispatch={dispatch}
             plan={pending.plan}
+            showDispatch={false}
           />
         </div>
       ) : null}

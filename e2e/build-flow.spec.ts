@@ -43,6 +43,9 @@ test("login, compose a three-source plan, build and download", async ({ page }) 
   await expect(page.getByText(/lucky \[dllkids\]/)).toBeVisible();
   await expect(page.getByText(/luci-app-store \[自有\]/)).toBeVisible();
 
+  // Generating a plan now opens the standalone preview route, which asks for
+  // the root password again (it is never carried over in browser storage).
+  await page.getByLabel(/root 密码/).fill("e2e-root-password");
   await page.getByRole("button", { name: "开始构建" }).click();
   await expect(page).toHaveURL(/\/builds\/[0-9a-f-]+$/);
 

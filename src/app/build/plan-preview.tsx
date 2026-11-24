@@ -16,9 +16,11 @@ interface Props {
   form: BuildFormState;
   dispatching: boolean;
   onDispatch: () => void;
+  /** The standalone preview page renders its own dispatch button beside the password field. */
+  showDispatch?: boolean;
 }
 
-export function PlanPreview({ plan, conflicts, mode, form, dispatching, onDispatch }: Props) {
+export function PlanPreview({ plan, conflicts, mode, form, dispatching, onDispatch, showDispatch = true }: Props) {
   const selectedEntries = plan?.resolved.filter((entry) => entry.source === "selected") ?? [];
   const dependencyEntries = plan?.resolved.filter((entry) => entry.source === "dependency") ?? [];
   const unknownSelected = selectedEntries.filter((entry) => entry.version === null);
@@ -200,14 +202,16 @@ export function PlanPreview({ plan, conflicts, mode, form, dispatching, onDispat
             </ul>
           )}
 
-          <button
-            className="w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50"
-            disabled={dispatching || conflicts.length > 0 || plan.conflicts.length > 0}
-            onClick={onDispatch}
-            type="button"
-          >
-            {dispatching ? "派发中…" : "开始构建"}
-          </button>
+          {showDispatch ? (
+            <button
+              className="w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50"
+              disabled={dispatching || conflicts.length > 0 || plan.conflicts.length > 0}
+              onClick={onDispatch}
+              type="button"
+            >
+              {dispatching ? "派发中…" : "开始构建"}
+            </button>
+          ) : null}
         </>
       )}
     </aside>

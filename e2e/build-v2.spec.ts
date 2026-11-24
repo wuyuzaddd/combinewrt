@@ -32,6 +32,9 @@ test("Simple mode builds a V2 plan and the source offer carries V2 fields", asyn
   await expect(page.getByText(/内核：6.12/)).toHaveCount(0);
   await expect(page.getByText("镜像 feed set")).toBeVisible();
 
+  // Generating a plan now opens the standalone preview route, which asks for
+  // the root password again (it is never carried over in browser storage).
+  await page.getByLabel(/root 密码/).fill("e2e-root-password");
   await page.getByRole("button", { name: "开始构建" }).click();
   await expect(page).toHaveURL(/\/builds\/[0-9a-f-]+$/);
   await expect(page.getByText(/排队中|已派发|运行中/).first()).toBeVisible();
