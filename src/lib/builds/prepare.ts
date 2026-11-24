@@ -138,6 +138,29 @@ export function extensionAwareLookup(
   };
 }
 
+/**
+ * Deterministic file-owner clashes between packages from different builds.
+ * apk fails the image install with "trying to overwrite <path> owned by <pkg>",
+ * which costs a full ImageBuilder run; surfacing it as a plan conflict lets the
+ * UI reject the combination in a second instead.
+ */
+const FILE_OWNER_CLASHES: ReadonlyArray<{ packages: readonly string[]; message: string }> = [
+  {
+    packages: ["luci-app-mosdns", "mosdns"],
+    message:
+      "luci-app-mosdns 与官方 mosdns 都安装 /etc/init.d/mosdns 和 /etc/config/mosdns，镜像安装阶段必然报 trying to overwrite；" +
+      "请去掉 luci-app-mosdns（自建面板去掉 init 脚本后才会恢复可选）。",
+  },
+];
+
+function knownFileOwnerConflicts(packages: readonly string[]): BuildConflict[] {
+  const selected = new Set(packages.map((name) => name.split("/").pop()?.replace(/@.*$/, "") ?? name));
+  return FILE_OWNER_CLASHES.filter((clash) => clash.packages.every((name) => selected.has(name))).map((clash) => ({
+    names: [...clash.packages],
+    message: clash.message,
+  }));
+}
+
 export type PreparedPlanV2 =
   | { ok: true; plan: BuildPlanV2; conflicts: BuildConflict[] }
   | { ok: false; status: number; body: Record<string, unknown> };
@@ -258,6 +281,14 @@ export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<Prep
 
   if (!outcome.ok) {
     return { ok: false, status: outcome.status, body: { ok: false, issues: outcome.issues } };
+  }
+  const clashConflicts = knownFileOwnerConflicts([
+    ...outcome.plan.packages,
+    ...(outcome.plan.resolved ?? []).map((entry) => entry.name),
+  ]);
+  if (clashConflicts.length > 0) {
+    outcome.plan.conflicts.push(...clashConflicts);
+    outcome.conflicts.push(...clashConflicts);
   }
   return { ok: true, plan: outcome.plan, conflicts: outcome.conflicts };
 }
