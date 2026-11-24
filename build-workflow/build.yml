@@ -201,6 +201,38 @@ jobs:
             echo "verified pinned package sha256: $filename $actual"
             echo "COMBINEWRT_DOWNLOAD_SHA256=$filename $(sha256sum "packages/$filename" | cut -d' ' -f1)"
           done
+          # Extension packages are not in the pinned download manifest: the plan
+          # resolves them from the published extension feed. The ImageBuilder can
+          # only install from its own local packages/ repository, so fetch the
+          # selected extension apks from the live manifest, verify the published
+          # sha256, and let the index rebuild below pick them up.
+          EXT_URL=$(jq -r '.composition.feedSet.repositories[]? | select(.id == "extension") | .url' ../plan.json | head -n1)
+          if [ -n "$EXT_URL" ] && [ "$EXT_URL" != "null" ]; then
+            EXT_BASE=${EXT_URL%%/extension/*}
+            if ! curl -fsSL --retry 3 --retry-delay 5 -o extension-live.json "$EXT_BASE/extension-live.json"; then
+              fail download-packages "" "" "" "failed to download the extension feed manifest"
+            fi
+            FROZEN=$(jq -r '.frozenPath // empty' extension-live.json)
+            if [ -z "$FROZEN" ]; then
+              fail download-packages "" "" "" "extension manifest has no frozenPath"
+            fi
+            jq -r --argjson selected "$(jq -c '.packages' ../plan.json)" \
+              '.packages[] | select(.name as $name | $selected | index($name)) | [.name, .version, .sha256] | @tsv' \
+              extension-live.json > extension-selected.tsv
+            while IFS=$'\t' read -r name version sha; do
+              [ -z "$name" ] && continue
+              file="$name-$version.apk"
+              echo "downloading extension package $file"
+              if ! curl -fL --retry 3 --retry-delay 5 -o "packages/$file" "$EXT_BASE$FROZEN/$file"; then
+                fail download-packages "$name" "extension" "$version" "failed to download $file"
+              fi
+              if ! echo "$sha  packages/$file" | sha256sum -c - >/dev/null; then
+                fail download-packages "$name" "extension" "$version" "extension package sha256 mismatch: $file"
+              fi
+              echo "COMBINEWRT_DOWNLOAD_SHA256=$file $(sha256sum "packages/$file" | cut -d' ' -f1)"
+            done < extension-selected.tsv
+            echo "COMBINEWRT_EXTENSION_PACKAGES=$(wc -l < extension-selected.tsv)"
+          fi
           if [ "$COUNT" -gt 0 ]; then
             # Sign the local index with a build key that ImageBuilder will also
             # trust, so official feed signatures stay verified while the local
