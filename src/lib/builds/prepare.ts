@@ -98,18 +98,42 @@ export function extensionAwareLookup(
   catalogLookup: (name: string) => ReturnType<typeof toLookupEntry> | null,
   catalogLookupAll: (name: string) => ReturnType<typeof toLookupEntry>[],
 ) {
+  /**
+   * A catalog package whose dependency can only come from our extension feeds is
+   * a broken pair when mixed: e.g. dllkids' luci-app-quickstart bundles the same
+   * static assets that our quickstart core ships, so installing both collides on
+   * dozens of files (`trying to overwrite ... owned by quickstart`). When an
+   * extension twin of the *same* package exists, it comes from one build with
+   * its dependencies, so prefer the twin instead of mixing two builds.
+   */
+  function dependsOnExtensionOnly(entry: ReturnType<typeof toLookupEntry>): boolean {
+    return entry.depends.some((raw) => {
+      const dependency = raw.replace(/[<>=~].*$/, "").trim();
+      if (!dependency) return false;
+      if (catalogLookup(dependency)) return false;
+      return registry.lookup(dependency, { source: "extension" }) !== null;
+    });
+  }
+
+  function extensionTwin(name: string): ReturnType<typeof toLookupEntry> | null {
+    const record = registry.lookup(name, { source: "extension" });
+    return record ? extensionLookupEntry(record) : null;
+  }
+
   return {
     lookup: (name: string) => {
       const fromCatalog = catalogLookup(name);
+      const twin = fromCatalog ? extensionTwin(name) : null;
+      if (fromCatalog && twin && dependsOnExtensionOnly(fromCatalog)) return twin;
       if (fromCatalog) return fromCatalog;
-      const record = registry.lookup(name, { source: "extension" });
-      return record ? extensionLookupEntry(record) : null;
+      return extensionTwin(name);
     },
     lookupAll: (name: string) => {
       const candidates = catalogLookupAll(name);
-      const record = registry.lookup(name, { source: "extension" });
-      const extension = record ? extensionLookupEntry(record) : null;
-      return extension ? [...candidates, extension] : candidates;
+      const twin = extensionTwin(name);
+      if (!twin) return candidates;
+      const coherent = candidates.some((candidate) => dependsOnExtensionOnly(candidate));
+      return coherent ? [twin, ...candidates] : [...candidates, twin];
     },
   };
 }
