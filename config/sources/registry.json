@@ -483,7 +483,7 @@
     {
       "name": "mosdns-sbwml",
       "source": "extension",
-      "pin": "d7147e3e7af7e2c7e849f3f501d06ec5bfbc8630c26267ee609c4b8601626e2c",
+      "pin": "a8a6caffe04167dbb17407a63463eb4ce7243873",
       "license": "GPL-3.0-only",
       "publicAllowed": true,
       "strategy": "binary",
@@ -500,18 +500,24 @@
         "depends": [
           "ca-bundle"
         ],
-        "description": "mosdns core (sbwml v5.3.4-r15, repacked)"
+        "description": "mosdns core (sbwml v5.3.4-r15, repacked)",
+        "sourceRepo": "sbwml/luci-app-mosdns",
+        "sourceCommit": "a8a6caffe04167dbb17407a63463eb4ce7243873",
+        "sourcePath": "."
       },
       "i18n": {
         "status": "curated",
         "title": "MOSDNS 核心（sbwml 预编译重打包）",
         "description": "从 sbwml v5.3.4-r15 的 x86_64 25.12 预编译包重打包并签名；只提供 /usr/bin/mosdns，init 脚本由面板提供。"
-      }
+      },
+      "repo": "sbwml/luci-app-mosdns",
+      "ref": "a8a6caffe04167dbb17407a63463eb4ce7243873",
+      "subdir": "."
     },
     {
       "name": "luci-app-mosdns",
       "source": "extension",
-      "pin": "d7147e3e7af7e2c7e849f3f501d06ec5bfbc8630c26267ee609c4b8601626e2c",
+      "pin": "a8a6caffe04167dbb17407a63463eb4ce7243873",
       "license": "GPL-3.0-only",
       "publicAllowed": true,
       "strategy": "binary",
@@ -534,13 +540,19 @@
           "geo2txt",
           "ucode"
         ],
-        "description": "LuCI panel for mosdns (sbwml 1.7.15, repacked)"
+        "description": "LuCI panel for mosdns (sbwml 1.7.15, repacked)",
+        "sourceRepo": "sbwml/luci-app-mosdns",
+        "sourceCommit": "a8a6caffe04167dbb17407a63463eb4ce7243873",
+        "sourcePath": "."
       },
       "i18n": {
         "status": "curated",
         "title": "MOSDNS 分流解析面板（sbwml 预编译重打包）",
         "description": "sbwml 1.7.15 面板，自带 init 与 UCI 配置；依赖 mosdns-sbwml，必须成对使用。"
-      }
+      },
+      "repo": "sbwml/luci-app-mosdns",
+      "ref": "a8a6caffe04167dbb17407a63463eb4ce7243873",
+      "subdir": "."
     }
   ]
 }
