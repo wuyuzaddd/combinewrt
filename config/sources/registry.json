@@ -180,29 +180,6 @@
       }
     },
     {
-      "name": "luci-app-mosdns",
-      "source": "extension",
-      "repo": "sbwml/luci-app-mosdns",
-      "ref": "a8a6caffe04167dbb17407a63463eb4ce7243873",
-      "subdir": ".",
-      "pin": "a8a6caffe04167dbb17407a63463eb4ce7243873",
-      "license": "GPL-3.0-only",
-      "publicAllowed": true,
-      "strategy": "rebuild",
-      "targets": [
-        "x86/64"
-      ],
-      "patches": [],
-      "recipe": "local:luci-app-mosdns",
-      "recipeHash": "9acc1f45bf581dada553adad891203d8da53db24cfd38bf5354ea2b99cfea1d1",
-      "preferred": true,
-      "i18n": {
-        "status": "curated",
-        "title": "MOSDNS 分流解析面板（预编译重打包）",
-        "description": "sbwml 1.7.15 面板，自带 init 与 UCI 配置；必须与同版本 sbwml 核心配对，官方 mosdns 核心的 init 脚本不兼容。"
-      }
-    },
-    {
       "name": "luci-app-dockerman",
       "source": "official",
       "pin": "releases/25.12.2",
@@ -501,29 +478,6 @@
         "status": "curated",
         "title": "FastNet 网络测速",
         "description": "dllkids feed 里的 fastnet 停留在 0.7.2-r1，而 luci-app-fastnet 27.316 要求 >=0.8.9-r1；本扩展从 kenzok8/small-package@2e644c0 构建上游 0.8.10 二进制运行时（GPL-3.0），依赖 linkease-app-entry。"
-      }
-    },
-    {
-      "name": "mosdns",
-      "source": "extension",
-      "repo": "sbwml/luci-app-mosdns",
-      "ref": "a8a6caffe04167dbb17407a63463eb4ce7243873",
-      "subdir": ".",
-      "pin": "a8a6caffe04167dbb17407a63463eb4ce7243873",
-      "license": "GPL-3.0-only",
-      "publicAllowed": true,
-      "strategy": "rebuild",
-      "targets": [
-        "x86/64"
-      ],
-      "patches": [],
-      "recipe": "local:mosdns",
-      "recipeHash": "7f093041b23e66d5d5b88101b27af1474515ad6e05c665239fad379d6bb1447d",
-      "preferred": true,
-      "i18n": {
-        "status": "curated",
-        "title": "MOSDNS 核心（预编译重打包）",
-        "description": "sbwml v5.3.4-r15 的 x86_64 25.12 预编译二进制，按固定 sha256 拉取后由我们重新打包签名；不含 init 脚本，供面板使用。"
       }
     }
   ]
