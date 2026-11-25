@@ -18,6 +18,7 @@ vi.mock("@/lib/builds/prepare", () => ({
 }));
 
 vi.mock("@/lib/builds", () => ({
+  recordSubmitBody: vi.fn(),
   getBuildService: () => ({
     submit: vi.fn(async () => state.build),
     list: vi.fn(() => state.listed),

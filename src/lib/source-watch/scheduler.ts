@@ -10,6 +10,7 @@ import { createDllkidsRepoRefWatcher } from "./dllkids";
 import { extensionWatchEntries, runExtensionWatchIfDue } from "./extension";
 import { loadSourceRegistry } from "../sources/registry";
 import { createSourceWatchService, type SourceWatchService } from "./service";
+import { notifyIndexAdopted } from "../builds/retry-signal";
 import type { SourcePinRefreshInput } from "./types";
 
 let cached: SourceWatchService | undefined;
@@ -76,8 +77,14 @@ export function startSourceWatch(): void {
   const entries = extensionWatchEntries(loadSourceRegistry());
   const tick = () => {
     void service.runIfDue().then((outcome) => {
-      if (outcome.result?.error) {
-        console.error(`[combinewrt] source watch failed: ${outcome.result.error}`);
+      const result = outcome.result;
+      if (result?.error) {
+        console.error(`[combinewrt] source watch failed: ${result.error}`);
+      }
+      // A freshly adopted index changes the downloads a plan resolves to, so
+      // wake the retry queue: retries pinned to the deleted apks can go now.
+      if (result?.status === "adopted" || result?.autoAdopted === true) {
+        notifyIndexAdopted();
       }
     });
     // ADR 0008: extension registry refs are watched by the same scheduler. A

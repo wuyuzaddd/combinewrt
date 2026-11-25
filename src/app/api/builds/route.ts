@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/current-session";
 import { isBuildPlanV2Form, validateBuildForm, validateBuildFormV2 } from "@/lib/build/validate";
-import { getBuildService } from "@/lib/builds";
+import { getBuildService, recordSubmitBody } from "@/lib/builds";
 import { preparePlanForForm, preparePlanV2ForForm } from "@/lib/builds/prepare";
 import { exportBuildConfig, formStateFromSubmitBody } from "@/app/build/form-model";
 
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
       // be reloaded or exported without the browser draft (no root password).
       const storedConfig = exportBuildConfig(formStateFromSubmitBody(validation.value as unknown as Record<string, unknown>));
       const build = await getBuildService().submit(prepared.plan, storedConfig);
+      recordSubmitBody(build.id, validation.value);
       if (build.status === "failed") {
         return NextResponse.json({ ok: false, error: build.error, build }, { status: 502 });
       }
@@ -72,6 +73,7 @@ export async function POST(request: Request) {
     }
 
     const build = await getBuildService().submit(prepared.plan);
+    recordSubmitBody(build.id, validation.value);
     if (build.status === "failed") {
       return NextResponse.json({ ok: false, error: build.error, build }, { status: 502 });
     }

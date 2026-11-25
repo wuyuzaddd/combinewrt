@@ -65,6 +65,9 @@ export interface BuildStore {
    * an API response or a detail page.
    */
   create(build: BuildRecord, dispatchPayload?: string | null): void;
+  /** Sealed original submission body, used by the retry queue (see crypto/seal). */
+  setSubmitBody(id: string, sealed: string): void;
+  submitBody(id: string): string | null;
   /** Read the sealed dispatch payload, or null when the row has none. */
   readDispatchPayload(id: string): string | null;
   /**
@@ -164,6 +167,17 @@ export function createBuildStore(db: DatabaseSync): BuildStore {
   }
 
   return {
+    setSubmitBody(id, sealed) {
+      db.prepare("UPDATE builds SET submit_body = ? WHERE id = ?").run(sealed, id);
+    },
+
+    submitBody(id) {
+      const row = db.prepare("SELECT submit_body FROM builds WHERE id = ?").get(id) as
+        | { submit_body: string | null }
+        | undefined;
+      return row?.submit_body ?? null;
+    },
+
     create(build, dispatchPayload = null) {
       db.exec("BEGIN IMMEDIATE");
       try {

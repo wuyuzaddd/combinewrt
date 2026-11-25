@@ -8,6 +8,8 @@ export type { ArtifactFileInfo } from "./service";
 import { createBuildStore } from "./store";
 
 import { createReconciler, type Reconciler } from "./reconciler";
+import { createBuildRetryService, type BuildRetryService } from "./retry";
+import { sealJson } from "../crypto/seal";
 import {
   pruneArtifactCache,
   pruneArtifactCacheBySize,
@@ -16,6 +18,16 @@ import {
 
 let cached: BuildService | undefined;
 let reconciler: Reconciler | undefined;
+let retryQueue: BuildRetryService | undefined;
+
+/** Persist the sealed submission body so the retry queue can rebuild it. */
+export function recordSubmitBody(buildId: string, body: unknown): void {
+  try {
+    createBuildStore(getDatabase()).setSubmitBody(buildId, sealJson(body));
+  } catch (error) {
+    console.error("[combinewrt] could not seal the submission for retries", error);
+  }
+}
 
 function artifactCache() {
   const config = getConfig();
@@ -98,6 +110,7 @@ export function startRetention(): void {
 
 export function startReconciler(): void {
   if (reconciler) return;
-  reconciler = createReconciler(getBuildService());
+  retryQueue = createBuildRetryService({ db: getDatabase() });
+  reconciler = createReconciler(getBuildService(), { retry: retryQueue });
   reconciler.start();
 }

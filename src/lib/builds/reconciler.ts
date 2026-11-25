@@ -1,3 +1,4 @@
+import type { BuildRetryService } from "./retry";
 import type { BuildService } from "./service";
 
 export interface Reconciler {
@@ -8,9 +9,9 @@ export interface Reconciler {
 
 export function createReconciler(
   service: BuildService,
-  options: { intervalMs?: number; logger?: Pick<Console, "error"> } = {},
+  options: { intervalMs?: number; logger?: Pick<Console, "error">; retry?: BuildRetryService } = {},
 ): Reconciler {
-  const { intervalMs = 15_000, logger = console } = options;
+  const { intervalMs = 15_000, logger = console, retry } = options;
   let timer: ReturnType<typeof setInterval> | undefined;
   let sweeping = false;
 
@@ -29,7 +30,11 @@ export function createReconciler(
         // The queue owns queued builds; polling them would race the dispatcher.
         if (build.status === "queued") continue;
         try {
-          await service.refresh(build.id);
+          const refreshed = await service.refresh(build.id);
+          // A failed download usually means the dllkids feed rotated and the
+          // pinned apk is gone; the retry queue re-plans once a fresh index is
+          // adopted instead of letting the user re-submit by hand.
+          if (retry && refreshed) retry.observe(refreshed);
         } catch (error) {
           logger.error(`[combinewrt] reconciler failed for build ${build.id}`, error);
         }

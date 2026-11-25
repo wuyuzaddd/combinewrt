@@ -378,4 +378,30 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX saved_configs_updated ON saved_configs(updated_at DESC);
     `,
   },
+  {
+    version: "170_build_retries",
+    // The dllkids feed rotates: a new index deletes the previous apks, so a plan
+    // pinned to the old index fails at download-packages with a 404. Keep a
+    // small queue of failed submissions: three immediate retries, then one
+    // attempt window every three hours until a build succeeds. A newly adopted
+    // index wakes the queue so the fresh snapshot is tried right away.
+    sql: `
+      CREATE TABLE build_retries (
+        id TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT NOT NULL,
+        last_build_id TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX build_retries_active ON build_retries(payload_hash) WHERE status = 'waiting';
+      CREATE INDEX build_retries_due ON build_retries(status, next_attempt_at);
+      ALTER TABLE builds ADD COLUMN submit_body TEXT;
+    `,
+  },
+
 ];
