@@ -14,7 +14,9 @@ export function extensionLookupEntry(entry: SourceRegistryEntry): PackageLookupE
   const ref = entry.ref ?? entry.pin ?? "";
   return {
     version: ref.slice(0, 12) || "0",
-    depends: [],
+    // Binary entries declare their runtime dependencies in the registry, so a
+    // repacked panel pulls its matching core into the plan automatically.
+    depends: [...(entry.binary?.depends ?? [])],
     source: "extension",
     sourcePin: entry.pin ?? ref,
     sha256: null,

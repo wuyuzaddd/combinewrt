@@ -203,6 +203,9 @@ function validateEntry(
   if (raw.experimental !== undefined && typeof raw.experimental !== "boolean") {
     fail("experimental must be a boolean when present");
   }
+  if (raw.preferred !== undefined && typeof raw.preferred !== "boolean") {
+    fail("preferred must be a boolean when present");
+  }
 
   const targets = Array.isArray(raw.targets) ? (raw.targets as string[]).map((item) => item.trim()) : undefined;
   const kernelLines = Array.isArray(raw.kernelLines)
@@ -224,6 +227,7 @@ function validateEntry(
     ...(patches ? { patches } : {}),
     ...(i18n ? { i18n, i18nStatus: i18n.status } : {}),
     ...(typeof raw.experimental === "boolean" ? { experimental: raw.experimental } : {}),
+    ...(typeof raw.preferred === "boolean" ? { preferred: raw.preferred } : {}),
   };
 
   if (source === "extension" && strategy === "binary") {
