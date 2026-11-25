@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { getConfig } from "../config";
 import { getDatabase } from "../db";
-import { isBuildPlanV2Form, validateBuildForm, validateBuildFormV2 } from "../build/validate";
+import { validateBuildForm, validateBuildFormV2 } from "../build/validate";
 import { refreshActiveCatalog } from "../catalog/refresh-active";
 import { getSourceWatchService } from "../source-watch/scheduler";
 import { exportBuildConfig, formStateFromSubmitBody } from "../../app/build/form-model";
@@ -67,9 +67,12 @@ export function createBuildRetryService(options: { db?: DatabaseSync } = {}): Bu
   /** Re-run a stored submission body exactly like POST /api/builds would. */
   async function redispatch(payloadJson: string): Promise<BuildRecord> {
     const body = openSealedJson(payloadJson);
-    if (isBuildPlanV2Form(body)) {
-      const validation = validateBuildFormV2(body);
-      if (!validation.ok) throw new Error(`stored build payload is invalid: ${validation.issues.join("; ")}`);
+    // The stored body is the validator's normalised value, so its shape may not
+    // satisfy the route's discriminator; probe with the V2 validator directly
+    // and fall back to the legacy form.
+    const v2 = validateBuildFormV2(body as never);
+    if (v2.ok) {
+      const validation = v2;
       const prepared = await preparePlanV2ForForm(validation.value);
       if (!prepared.ok) throw new Error("stored build payload no longer prepares a plan");
       if (prepared.conflicts.length > 0) throw new Error(prepared.conflicts.map((c) => c.message).join("; "));
