@@ -32,6 +32,7 @@ interface RetryRow {
   payload_hash: string;
   attempts: number;
   status: string;
+  last_build_id: string | null;
 }
 
 function failureIsFeedRotation(build: BuildRecord): boolean {
@@ -143,6 +144,20 @@ export function createBuildRetryService(options: { db?: DatabaseSync } = {}): Bu
         .all(now.toISOString()) as unknown as RetryRow[];
       let dispatched = 0;
       for (const row of due) {
+        // Never stack retries on top of a build that is still in flight: the
+        // previous attempt only counts as failed once its status is terminal.
+        const last = row.last_build_id
+          ? getBuildService().get(row.last_build_id)
+          : null;
+        const terminal = last && (last.status === "succeeded" || last.status === "failed" || last.status === "cancelled");
+        if (last && !terminal) {
+          db.prepare(`UPDATE build_retries SET next_attempt_at = ?, updated_at = ? WHERE id = ?`).run(
+            new Date(now.getTime() + RETRY_SPACING_MS).toISOString(),
+            now.toISOString(),
+            row.id,
+          );
+          continue;
+        }
         await refreshFeeds();
         try {
           const build = await redispatch(row.payload_json);
