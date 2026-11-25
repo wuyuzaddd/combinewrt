@@ -1,9 +1,4 @@
 {
   "schemaVersion": 1,
-  "packages": [
-    {
-      "name": "luci-app-mosdns",
-      "reason": "它依赖 mosdns 核心，而 sbwml 面板自带的 init 脚本与官方 mosdns 核心的 /etc/init.d/mosdns 不同名同路径，二者无法共存；预编译重打包方案暂时搁置。"
-    }
-  ]
+  "packages": []
 }

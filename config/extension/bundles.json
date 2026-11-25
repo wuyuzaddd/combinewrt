@@ -40,10 +40,11 @@
     },
     {
       "id": "proxy-dns-mosdns",
-      "title": "MOSDNS 分流解析依赖",
-      "description": "MOSDNS 读写上游 dnsmasq，需要 dnsmasq-full；面板包暂时不可选（与官方 mosdns 核心的 init 冲突）。",
+      "title": "MOSDNS 分流解析",
+      "description": "MOSDNS 读写上游 dnsmasq，需要 dnsmasq-full；面板与核心取同一 sbwml 预编译版本。",
       "category": "proxy",
       "packages": [
+        "luci-app-mosdns",
         "dnsmasq-full"
       ],
       "targets": [

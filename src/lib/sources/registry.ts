@@ -34,7 +34,7 @@ const NAME_PATTERN = /^[a-z0-9][a-z0-9+._-]*$/;
 const REPO_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
-const STRATEGIES: readonly AcquisitionStrategy[] = ["prebuilt", "rebuild", "blocked"];
+const STRATEGIES: readonly AcquisitionStrategy[] = ["prebuilt", "rebuild", "binary", "blocked"];
 const URL_PATTERN = /https?:\/\//i;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -225,6 +225,38 @@ function validateEntry(
     ...(i18n ? { i18n, i18nStatus: i18n.status } : {}),
     ...(typeof raw.experimental === "boolean" ? { experimental: raw.experimental } : {}),
   };
+
+  if (source === "extension" && strategy === "binary") {
+    if (!raw.binary || typeof raw.binary !== "object") fail("binary strategy requires a binary block");
+    const binary = raw.binary as Record<string, unknown>;
+    const url = typeof binary.url === "string" ? binary.url.trim() : "";
+    const sha256Value = typeof binary.sha256 === "string" ? binary.sha256.trim() : "";
+    const apkPrefix = typeof binary.apkPrefix === "string" ? binary.apkPrefix.trim() : "";
+    const version = typeof binary.version === "string" ? binary.version.trim() : "";
+    const arch = typeof binary.arch === "string" ? binary.arch.trim() : "";
+    if (!/^https:\/\//.test(url)) fail("binary.url must be an https URL");
+    if (!SHA256_PATTERN.test(sha256Value)) fail("binary.sha256 must be a 64 character sha256");
+    if (!apkPrefix) fail("binary.apkPrefix is required");
+    if (!version) fail("binary.version is required");
+    if (!arch) fail("binary.arch is required");
+    const depends = Array.isArray(binary.depends)
+      ? binary.depends.filter((item): item is string => typeof item === "string" && item.trim() !== "")
+      : [];
+    if (!targets || targets.length === 0) fail("extension packages must declare the targets they support");
+    entry.binary = {
+      url,
+      sha256: sha256Value,
+      apkPrefix,
+      version,
+      arch,
+      depends,
+      ...(typeof binary.name === "string" && binary.name.trim() !== "" ? { name: binary.name.trim() } : {}),
+      ...(typeof binary.description === "string" && binary.description.trim() !== ""
+        ? { description: binary.description.trim() }
+        : {}),
+    };
+    return entry;
+  }
 
   if (source === "extension") {
     const repo = typeof raw.repo === "string" ? raw.repo.trim() : "";

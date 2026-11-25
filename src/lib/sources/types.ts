@@ -6,7 +6,7 @@ import type { PackageSource } from "../catalog/types";
  * the planner must refuse it. A `prebuilt` request may fall back to `rebuild`
  * when the binary is unavailable for the selected target/kernel line (ADR 0005).
  */
-export type AcquisitionStrategy = "prebuilt" | "rebuild" | "blocked";
+export type AcquisitionStrategy = "prebuilt" | "rebuild" | "binary" | "blocked";
 
 /**
  * The four acquisition layers V2 knows about: the three V1 catalog sources plus
@@ -67,6 +67,22 @@ export interface SourceRegistryEntry {
   ref?: string | null;
   /** Package directory inside `repo`; `.` means the repository root. */
   subdir?: string | null;
+  /**
+   * Prebuilt-ingestion recipe: download this pinned bundle, extract the named
+   * apk payload and repack it under our own signature. Used where the upstream
+   * build needs a toolchain the extension SDK does not carry.
+   */
+  binary?: {
+    url: string;
+    sha256: string;
+    /** Filename prefix of the apk inside the bundle (e.g. `mosdns`). */
+    apkPrefix: string;
+    name?: string;
+    version: string;
+    arch: string;
+    depends?: readonly string[];
+    description?: string;
+  } | null;
   /** sha256 of `recipe`, so the acquisition identity cannot drift silently. */
   recipeHash?: string | null;
   /** Curated display text and review status; metadata only (ADR 0003). */
