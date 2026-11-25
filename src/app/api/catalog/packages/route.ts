@@ -5,6 +5,7 @@ import { createCatalogStore } from "@/lib/catalog/store";
 import { packageApplicability } from "@/lib/build/ui-options";
 import { loadCommonPreset } from "@/lib/presets/common";
 import { loadSourceRegistry } from "@/lib/sources/registry";
+import { loadBlockedPackages } from "@/lib/catalog/blocked";
 import type { I18nStatus } from "@/lib/sources/types";
 
 interface SearchItem {
@@ -42,10 +43,15 @@ export async function GET(request: Request) {
 
   const registry = loadSourceRegistry();
   const common = loadCommonPreset();
+  // Packages that cannot be installed alongside the rest of the image stay out
+  // of the picker entirely; the planner reports the same list if one slips in
+  // through a preset or an old saved config.
+  const blocked = loadBlockedPackages();
   const result = store.searchPackages(snapshot.id, { query, limit: includeExtension ? limit * 2 : limit });
 
   const items: SearchItem[] = [];
   for (const pkg of result.items) {
+    if (blocked.has(pkg.name)) continue;
     const record = registry.lookup(pkg.name);
     const applicability = packageApplicability(pkg.name, { common, registry, targetId, kernelLine });
     if (!applicability.allowed) continue;
@@ -64,6 +70,7 @@ export async function GET(request: Request) {
     const needle = query.toLowerCase();
     for (const entry of registry.list()) {
       if (entry.source !== "extension") continue;
+      if (blocked.has(entry.name)) continue;
       if (items.some((item) => item.name === entry.name)) continue;
       const haystack = [entry.name, entry.i18n?.title ?? "", entry.i18n?.description ?? "", entry.repo ?? ""]
         .join(" ")

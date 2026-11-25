@@ -17,6 +17,7 @@ import type { SourceRegistry } from "../sources/types";
 import { extensionLookupEntry } from "../extension/lookup";
 import { loadExtensionBundles } from "../extension/bundles";
 import { loadCommonPreset, CommonPresetError } from "../presets/common";
+import { loadBlockedPackages } from "../catalog/blocked";
 
 /**
  * Implicit V2 defaults for a submission from the legacy V1 form (ADR 0009
@@ -139,26 +140,26 @@ export function extensionAwareLookup(
 }
 
 /**
- * Deterministic file-owner clashes between packages from different builds.
- * apk fails the image install with "trying to overwrite <path> owned by <pkg>",
- * which costs a full ImageBuilder run; surfacing it as a plan conflict lets the
- * UI reject the combination in a second instead.
+ * Packages the site refuses to plan for (config/catalog/blocked.json). The
+ * catalogue comes from feeds, so a package can be listed upstream yet be
+ * uninstallable: luci-app-mosdns depends on official mosdns and both install
+ * /etc/init.d/mosdns, which apk rejects with "trying to overwrite". Checking it
+ * at plan time keeps a 20-minute ImageBuilder run from discovering it.
  */
-const FILE_OWNER_CLASHES: ReadonlyArray<{ packages: readonly string[]; message: string }> = [
-  {
-    packages: ["luci-app-mosdns", "mosdns"],
-    message:
-      "luci-app-mosdns 与官方 mosdns 都安装 /etc/init.d/mosdns 和 /etc/config/mosdns，镜像安装阶段必然报 trying to overwrite；" +
-      "请去掉 luci-app-mosdns（自建面板去掉 init 脚本后才会恢复可选）。",
-  },
-];
-
-function knownFileOwnerConflicts(packages: readonly string[]): BuildConflict[] {
-  const selected = new Set(packages.map((name) => name.split("/").pop()?.replace(/@.*$/, "") ?? name));
-  return FILE_OWNER_CLASHES.filter((clash) => clash.packages.every((name) => selected.has(name))).map((clash) => ({
-    names: [...clash.packages],
-    message: clash.message,
-  }));
+function blockedPackageConflicts(packages: readonly string[]): BuildConflict[] {
+  if (packages.length === 0) return [];
+  const blocked = loadBlockedPackages();
+  if (blocked.size === 0) return [];
+  const seen = new Set<string>();
+  const conflicts: BuildConflict[] = [];
+  for (const raw of packages) {
+    const name = raw.split("/").pop()?.replace(/@.*$/, "") ?? raw;
+    const reason = blocked.get(name);
+    if (!reason || seen.has(name)) continue;
+    seen.add(name);
+    conflicts.push({ names: [name], message: reason });
+  }
+  return conflicts;
 }
 
 export type PreparedPlanV2 =
@@ -282,7 +283,7 @@ export async function preparePlanV2ForForm(form: BuildFormInputV2): Promise<Prep
   if (!outcome.ok) {
     return { ok: false, status: outcome.status, body: { ok: false, issues: outcome.issues } };
   }
-  const clashConflicts = knownFileOwnerConflicts([
+  const clashConflicts = blockedPackageConflicts([
     ...outcome.plan.packages,
     ...(outcome.plan.resolved ?? []).map((entry) => entry.name),
   ]);

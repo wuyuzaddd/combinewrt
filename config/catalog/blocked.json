@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "name": "luci-app-mosdns",
+      "reason": "它依赖官方 mosdns，而两者都安装 /etc/init.d/mosdns 与 /etc/config/mosdns，镜像安装阶段必然报 trying to overwrite；等自建面板去掉这两个文件后才会恢复可选。"
+    }
+  ]
+}
