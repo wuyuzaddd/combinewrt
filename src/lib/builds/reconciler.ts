@@ -40,6 +40,13 @@ export function createReconciler(
         }
       }
     } finally {
+      if (retry) {
+        try {
+          await retry.tick();
+        } catch (error) {
+          logger.error("[combinewrt] build retry tick failed", error);
+        }
+      }
       sweeping = false;
     }
   }
