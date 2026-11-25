@@ -121,11 +121,16 @@ export function extensionAwareLookup(
     return record ? extensionLookupEntry(record) : null;
   }
 
+  /** A curated build that must win over the feed copy (see SourceRegistryEntry.preferred). */
+  function isPreferred(name: string): boolean {
+    return registry.lookup(name, { source: "extension" })?.preferred === true;
+  }
+
   return {
     lookup: (name: string) => {
       const fromCatalog = catalogLookup(name);
       const twin = fromCatalog ? extensionTwin(name) : null;
-      if (fromCatalog && twin && dependsOnExtensionOnly(fromCatalog)) return twin;
+      if (fromCatalog && twin && (isPreferred(name) || dependsOnExtensionOnly(fromCatalog))) return twin;
       if (fromCatalog) return fromCatalog;
       return extensionTwin(name);
     },
@@ -133,7 +138,7 @@ export function extensionAwareLookup(
       const candidates = catalogLookupAll(name);
       const twin = extensionTwin(name);
       if (!twin) return candidates;
-      const coherent = candidates.some((candidate) => dependsOnExtensionOnly(candidate));
+      const coherent = isPreferred(name) || candidates.some((candidate) => dependsOnExtensionOnly(candidate));
       return coherent ? [twin, ...candidates] : [...candidates, twin];
     },
   };

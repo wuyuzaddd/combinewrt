@@ -15,6 +15,7 @@
     "luci-app-webdav",
     "luci-app-substore",
     "luci-app-partexp",
+    "luci-app-mosdns",
     "luci-app-ipsec-server",
     "luci-app-fwlive",
     "luci-app-vlmcsd",
@@ -731,6 +732,12 @@
           "name": "luci-app-partexp",
           "description": "分区扩容工具（partexp）",
           "license": "Apache-2.0",
+          "source": "extension"
+        },
+        {
+          "name": "luci-app-mosdns",
+          "description": "mosdns 分流解析器管理面板（与自建核心配对）",
+          "license": "GPL-3.0-only",
           "source": "extension"
         },
         {

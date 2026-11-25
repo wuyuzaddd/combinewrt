@@ -76,6 +76,13 @@ export interface SourceRegistryEntry {
    * object. Entries produced by the registry loader mirror `i18n.status` here.
    */
   i18nStatus?: I18nStatus;
+  /**
+   * Prefer this curated build over a catalogue row with the same name, even when
+   * the feed priority would pick the catalogue one (official > dllkids >
+   * supplement > extension). Used for pairs whose upstream packaging is only
+   * coherent inside one build (mosdns panel + core).
+   */
+  preferred?: boolean;
   /** Marks an extension package the catalog surfaces as experimental. */
   experimental?: boolean;
 }
