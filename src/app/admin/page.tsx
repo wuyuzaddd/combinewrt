@@ -11,11 +11,13 @@ import { readRetentionSummary } from "@/lib/builds/retention";
 import { createArtifactCache } from "@/lib/builds/artifact-cache";
 import { createArtifactCacheStore } from "@/lib/builds/artifact-store";
 import { getSourceWatchService } from "@/lib/source-watch";
+import { getBuildRetryService } from "@/lib/builds";
 import { BaseVersionPanel } from "./base-version-panel";
 import { ArtifactCachePanel } from "./artifact-cache-panel";
 import { LogoutButton } from "./logout-button";
 import { RecentRunsPanel } from "./recent-runs-panel";
 import { SourceWatchPanel } from "./source-watch-panel";
+import { BuildRetriesPanel } from "./build-retries-panel";
 
 const sections = [
   { title: "固件构建", body: "选择设备、镜像格式、软件包并预览构建计划。", href: "/build" },
@@ -101,6 +103,8 @@ export default async function AdminPage() {
       <BaseVersionPanel repo={getConfig().buildRepo} state={baseVersion} versions={baseVersions} />
 
       <SourceWatchPanel overview={sourceWatch} />
+
+      <BuildRetriesPanel retries={getBuildRetryService().list()} />
 
       <RecentRunsPanel error={recentRuns.error} runs={recentRuns.runs} />
 

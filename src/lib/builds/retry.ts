@@ -47,11 +47,23 @@ function hashPayload(payload: string): string {
   return createHash("sha256").update(payload).digest("hex");
 }
 
+export interface BuildRetryRow {
+  id: string;
+  attempts: number;
+  nextAttemptAt: string;
+  lastBuildId: string | null;
+  lastError: string | null;
+  createdAt: string;
+}
+
 export interface BuildRetryService {
   observe(build: BuildRecord): void;
   tick(now?: Date): Promise<number>;
   wake(): void;
   pending(): number;
+  list(): BuildRetryRow[];
+  retryNow(id: string): boolean;
+  cancel(id: string): boolean;
 }
 
 export function createBuildRetryService(options: { db?: DatabaseSync } = {}): BuildRetryService {
@@ -198,6 +210,44 @@ export function createBuildRetryService(options: { db?: DatabaseSync } = {}): Bu
     pending() {
       const row = db.prepare(`SELECT COUNT(*) AS n FROM build_retries WHERE status = 'waiting'`).get() as { n: number };
       return row.n;
+    },
+
+    list() {
+      const rows = db
+        .prepare(
+          `SELECT id, attempts, next_attempt_at, last_build_id, last_error, created_at
+             FROM build_retries WHERE status = 'waiting' ORDER BY next_attempt_at LIMIT 50`,
+        )
+        .all() as unknown as Array<{
+        id: string;
+        attempts: number;
+        next_attempt_at: string;
+        last_build_id: string | null;
+        last_error: string | null;
+        created_at: string;
+      }>;
+      return rows.map((row) => ({
+        id: row.id,
+        attempts: row.attempts,
+        nextAttemptAt: row.next_attempt_at,
+        lastBuildId: row.last_build_id,
+        lastError: row.last_error,
+        createdAt: row.created_at,
+      }));
+    },
+
+    retryNow(id) {
+      const info = db
+        .prepare(`UPDATE build_retries SET next_attempt_at = ?, updated_at = ? WHERE id = ? AND status = 'waiting'`)
+        .run(new Date().toISOString(), new Date().toISOString(), id);
+      return Number(info.changes) > 0;
+    },
+
+    cancel(id) {
+      const info = db
+        .prepare(`UPDATE build_retries SET status = 'cancelled', updated_at = ? WHERE id = ? AND status = 'waiting'`)
+        .run(new Date().toISOString(), id);
+      return Number(info.changes) > 0;
     },
   };
 }

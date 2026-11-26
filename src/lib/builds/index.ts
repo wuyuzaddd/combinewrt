@@ -20,6 +20,12 @@ let cached: BuildService | undefined;
 let reconciler: Reconciler | undefined;
 let retryQueue: BuildRetryService | undefined;
 
+/** Shared retry queue instance (the reconciler created it on startup). */
+export function getBuildRetryService(): BuildRetryService {
+  retryQueue ??= createBuildRetryService({ db: getDatabase() });
+  return retryQueue;
+}
+
 /** Persist the sealed submission body so the retry queue can rebuild it. */
 export function recordSubmitBody(buildId: string, body: unknown): void {
   try {
